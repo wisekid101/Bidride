@@ -1,0 +1,58 @@
+# Multi-stage build for NestJS services
+# Usage: docker build -f services/Dockerfile.template --build-arg SERVICE_NAME=auth-service .
+
+ARG SERVICE_NAME
+
+# ─── Stage 1: Builder ─────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm@9
+
+# Copy workspace manifest files
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json ./
+COPY packages/ ./packages/
+
+# Copy target service
+ARG SERVICE_NAME
+COPY services/${SERVICE_NAME}/ ./services/${SERVICE_NAME}/
+
+# Install dependencies (production only for service, full for database package)
+RUN pnpm install --frozen-lockfile
+
+# Generate Prisma client
+RUN pnpm --filter @bidride/database generate
+
+# Build target service
+RUN pnpm --filter @bidride/${SERVICE_NAME} build
+
+# ─── Stage 2: Runner ──────────────────────────────────────────────────────────
+FROM node:20-alpine AS runner
+
+RUN apk add --no-cache dumb-init
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nestjs
+
+# Copy built artifacts
+ARG SERVICE_NAME
+COPY --from=builder --chown=nestjs:nodejs /app/services/${SERVICE_NAME}/dist ./dist
+COPY --from=builder --chown=nestjs:nodejs /app/packages/database/generated ./packages/database/generated
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/services/${SERVICE_NAME}/node_modules ./services/${SERVICE_NAME}/node_modules
+
+USER nestjs
+
+EXPOSE 3000
+
+# dumb-init handles signal forwarding for graceful shutdown
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "dist/main"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/health', r => r.statusCode === 200 ? process.exit(0) : process.exit(1))"

@@ -1,0 +1,43 @@
+{
+  "name": "@bidride/driver-app",
+  "version": "1.0.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "build:dev": "eas build --profile development",
+    "build:prod": "eas build --profile production",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^14.0.2",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-navigation/bottom-tabs": "^6.5.20",
+    "@react-navigation/native": "^6.1.17",
+    "@react-navigation/native-stack": "^6.9.26",
+    "expo": "~51.0.0",
+    "expo-av": "~14.0.0",
+    "expo-camera": "~15.0.0",
+    "expo-image-picker": "~15.0.0",
+    "lucide-react-native": "^0.383.0",
+    "expo-location": "~17.0.0",
+    "expo-notifications": "~0.28.0",
+    "expo-router": "~3.5.0",
+    "expo-secure-store": "~13.0.0",
+    "expo-updates": "~0.25.0",
+    "react": "18.2.0",
+    "react-native": "0.74.0",
+    "react-native-maps": "1.14.0",
+    "socket.io-client": "^4.7.5",
+    "zustand": "^4.5.2",
+    "@tanstack/react-query": "^5.40.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@types/react": "~18.2.0",
+    "typescript": "^5.4.0"
+  }
+}

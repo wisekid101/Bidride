@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 45% 10%;
+    --foreground: 210 20% 98%;
+    --card: 210 45% 13%;
+    --card-foreground: 210 20% 98%;
+    --popover: 210 45% 13%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 177 100% 41%;
+    --primary-foreground: 210 45% 10%;
+    --secondary: 210 35% 20%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 210 35% 18%;
+    --muted-foreground: 210 15% 55%;
+    --accent: 210 35% 20%;
+    --accent-foreground: 210 20% 98%;
+    --destructive: 0 70% 57%;
+    --destructive-foreground: 210 20% 98%;
+    --border: 210 35% 22%;
+    --input: 210 35% 22%;
+    --ring: 177 100% 41%;
+    --radius: 0.75rem;
+
+    /* BidRide custom */
+    --gold: 44 95% 49%;
+    --safety: 0 80% 61%;
+    --teal: 177 100% 41%;
+    --navy: 210 67% 15%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* JetBrains Mono for all financial figures */
+.font-mono-financial {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+}

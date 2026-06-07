@@ -1,0 +1,1104 @@
+// BidRide — Complete Database Schema v1.0
+// PostgreSQL 15 via AWS RDS Multi-AZ
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  rider
+  driver
+}
+
+enum DriverStatus {
+  pending
+  under_review
+  action_required
+  approved
+  declined
+  suspended
+}
+
+enum BackgroundCheckStatus {
+  not_started
+  pending
+  clear
+  consider
+  adverse_action
+  disputed
+}
+
+enum ProfilePhotoStatus {
+  pending
+  approved
+  rejected
+}
+
+enum RiderBadge {
+  verified
+  trusted
+  business
+  vip
+}
+
+enum DriverBadge {
+  verified
+  trusted
+  vip
+}
+
+enum RewardsTier {
+  silver
+  gold
+  platinum
+  elite
+}
+
+enum VehicleStatus {
+  pending
+  approved
+  rejected
+}
+
+enum DocumentType {
+  drivers_license
+  insurance_card
+  vehicle_registration
+  vehicle_photo_front
+  vehicle_photo_back
+  vehicle_photo_interior
+  vehicle_photo_trunk
+  vehicle_photo_odometer
+  vehicle_photo_vin
+  profile_photo
+}
+
+enum DocumentStatus {
+  pending
+  approved
+  rejected
+  expired
+  needs_reupload
+}
+
+enum TripStatus {
+  searching
+  accepted
+  driver_en_route
+  driver_arrived
+  in_progress
+  completed
+  cancelled
+  no_show
+}
+
+enum RideType {
+  standard
+  priority
+  premium
+}
+
+enum BidStatus {
+  pending
+  accepted
+  declined
+  countered
+  expired
+  withdrawn
+}
+
+enum PaymentStatus {
+  pending
+  succeeded
+  failed
+  refunded
+  partially_refunded
+}
+
+enum PayoutStatus {
+  pending
+  processing
+  paid
+  failed
+}
+
+enum SafetyState {
+  normal
+  soft_alert
+  moderate_alert
+  critical
+  sos_active
+  panic_active
+  incident_closed
+}
+
+enum CheckInStatus {
+  pending
+  safe
+  escalated
+  not_required
+}
+
+enum SosInitiatedBy {
+  rider
+  driver
+}
+
+enum SosTriggerSource {
+  button_tap
+  volume_shortcut
+  auto_escalation
+  admin_triggered
+}
+
+enum SosStatus {
+  active
+  resolved
+  false_alarm
+  escalated_to_dispatch
+}
+
+enum RecordingStatus {
+  recording
+  complete
+  deleted
+  held
+}
+
+enum RecordingRetention {
+  no_action_30d
+  action_taken_2y
+  law_enforcement_hold
+}
+
+enum TrustUserRole {
+  rider
+  driver
+}
+
+enum DevicePlatform {
+  ios
+  android
+}
+
+enum MultiAccountLinkType {
+  shared_device
+  shared_phone
+  shared_payment
+  shared_ip
+}
+
+enum SuspensionType {
+  warning
+  temporary
+  indefinite
+  permanent
+}
+
+enum SuspensionStatus {
+  active
+  lifted
+  appealed
+  appeal_denied
+}
+
+enum AdminRole {
+  founder
+  super_admin
+  operations_admin
+  safety_admin
+  driver_approval_admin
+  fraud_admin
+  support_admin
+  analytics_admin
+}
+
+enum IncidentCategory {
+  assault
+  harassment
+  property_damage
+  route_deviation
+  driver_conduct
+  rider_conduct
+  false_sos
+  other
+}
+
+enum IncidentStatus {
+  open
+  assigned
+  under_review
+  resolved
+  escalated_to_law_enforcement
+}
+
+enum QueueEntryStatus {
+  waiting
+  advance_notice
+  dispatched
+  completed
+  left_queue
+}
+
+enum TicketStatus {
+  open
+  in_progress
+  pending_user
+  resolved
+  closed
+}
+
+enum TicketCategory {
+  safety
+  fare_dispute
+  lost_item
+  driver_conduct
+  rider_conduct
+  app_issue
+  general
+}
+
+// ─── Core User Tables ────────────────────────────────────────────────────────
+
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  phone           String   @unique @db.VarChar(20)
+  email           String?  @unique @db.VarChar(255)
+  firstName       String?  @map("first_name") @db.VarChar(100)
+  lastName        String?  @map("last_name") @db.VarChar(100)
+  profilePhotoUrl String?  @map("profile_photo_url") @db.VarChar(500)
+  passwordHash    String?  @map("password_hash") @db.VarChar(255)
+  phoneVerified   Boolean  @default(false) @map("phone_verified")
+  emailVerified   Boolean  @default(false) @map("email_verified")
+  role            UserRole
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  rider              Rider?
+  driver             Driver?
+  deviceFingerprints DeviceFingerprint[]
+  trustScore         TrustScore?
+  multiAccountLinksA MultiAccountLink[]  @relation("LinkUserA")
+  multiAccountLinksB MultiAccountLink[]  @relation("LinkUserB")
+
+  @@map("users")
+}
+
+model Rider {
+  id                     String      @id @default(uuid()) @db.Uuid
+  userId                 String      @unique @map("user_id") @db.Uuid
+  displayName            String?     @map("display_name") @db.VarChar(100)
+  profilePhotoUrl        String?     @map("profile_photo_url") @db.VarChar(500)
+  dateOfBirth            DateTime?   @map("date_of_birth") @db.Date
+  currentBadge           RiderBadge  @default(verified) @map("current_badge")
+  stripeCustomerId       String?     @unique @map("stripe_customer_id") @db.VarChar(100)
+  defaultPaymentMethodId String?     @map("default_payment_method_id") @db.VarChar(100)
+  corporateAccountId     String?     @map("corporate_account_id") @db.Uuid
+  rewardPoints           Int         @default(0) @map("rewards_points")
+  rewardTier             RewardsTier @default(silver) @map("rewards_tier")
+  totalTrips             Int         @default(0) @map("total_trips")
+  createdAt              DateTime    @default(now()) @map("created_at")
+  updatedAt              DateTime    @updatedAt @map("updated_at")
+
+  user             User              @relation(fields: [userId], references: [id])
+  corporateAccount CorporateAccount? @relation(fields: [corporateAccountId], references: [id])
+  trips            Trip[]
+  bids             Bid[]
+  payments         Payment[]
+  ratings          Rating[]
+  trustedContacts  TrustedContact[]
+  safeCheckIns     SafeCheckIn[]
+  notifications    RiderNotification[]
+  supportTickets   SupportTicket[]
+  savedAddresses   SavedAddress[]
+
+  @@map("riders")
+}
+
+model Driver {
+  id                        String                @id @default(uuid()) @db.Uuid
+  userId                    String                @unique @map("user_id") @db.Uuid
+  status                    DriverStatus          @default(pending)
+  legalFirstName            String                @map("legal_first_name") @db.VarChar(100)
+  legalLastName             String                @map("legal_last_name") @db.VarChar(100)
+  dateOfBirth               DateTime              @map("date_of_birth") @db.Date
+  homeAddress               String?               @map("home_address") @db.VarChar(255)
+  homeCity                  String?               @map("home_city") @db.VarChar(100)
+  homeState                 String?               @map("home_state") @db.VarChar(2)
+  homeZip                   String?               @map("home_zip") @db.VarChar(10)
+  licenseNumber             String?               @map("license_number") @db.VarChar(50)
+  licenseState              String?               @map("license_state") @db.VarChar(2)
+  licenseClass              String?               @map("license_class") @db.VarChar(10)
+  licenseExpiry             DateTime?             @map("license_expiry") @db.Date
+  licenseAiConfidence       Decimal?              @map("license_ai_confidence") @db.Decimal(5, 2)
+  backgroundCheckId         String?               @map("background_check_id") @db.VarChar(100)
+  backgroundCheckStatus     BackgroundCheckStatus @default(not_started) @map("background_check_status")
+  backgroundCheckOrderedAt  DateTime?             @map("background_check_ordered_at")
+  backgroundCheckClearedAt  DateTime?             @map("background_check_cleared_at")
+  insurancePolicyNumber     String?               @map("insurance_policy_number") @db.VarChar(100)
+  insuranceProvider         String?               @map("insurance_provider") @db.VarChar(100)
+  insuranceExpiry           DateTime?             @map("insurance_expiry") @db.Date
+  primaryVehicleId          String?               @map("primary_vehicle_id") @db.Uuid
+  profilePhotoUrl           String?               @map("profile_photo_url") @db.VarChar(500)
+  profilePhotoStatus        ProfilePhotoStatus    @default(pending) @map("profile_photo_status")
+  stripeAccountId           String?               @unique @map("stripe_account_id") @db.VarChar(100)
+  payoutBankVerified        Boolean               @default(false) @map("payout_bank_verified")
+  payoutBankVerifiedAt      DateTime?             @map("payout_bank_verified_at")
+  currentBadge              DriverBadge           @default(verified) @map("current_badge")
+  eligibleRideTypes         Json                  @default("[\"standard\"]") @map("eligible_ride_types")
+  totalTrips                Int                   @default(0) @map("total_trips")
+  avgRating                 Decimal               @default(0.00) @map("avg_rating") @db.Decimal(3, 2)
+  acceptanceRate            Decimal               @default(0.00) @map("acceptance_rate") @db.Decimal(5, 2)
+  completionRate            Decimal               @default(0.00) @map("completion_rate") @db.Decimal(5, 2)
+  isAvailable               Boolean               @default(false) @map("is_available")
+  onboardingStep            String                @default("personal_info") @map("onboarding_step") @db.VarChar(50)
+  appliedAt                 DateTime              @default(now()) @map("applied_at")
+  approvedAt                DateTime?             @map("approved_at")
+  declinedAt                DateTime?             @map("declined_at")
+  declineReason             String?               @map("decline_reason")
+  createdAt                 DateTime              @default(now()) @map("created_at")
+  updatedAt                 DateTime              @updatedAt @map("updated_at")
+
+  user                  User                      @relation(fields: [userId], references: [id])
+  vehicles              Vehicle[]
+  documents             Document[]
+  trips                 Trip[]
+  bids                  Bid[]
+  payouts               Payout[]
+  earningsFloorLogs     EarningsFloorLog[]
+  suspensions           DriverSuspension[]
+  rewards               DriverReward[]
+  performanceSnapshots  DriverPerformanceSnapshot[]
+  notifications         DriverNotification[]
+  airportQueueEntries   AirportQueueEntry[]
+  driverEarnings        DriverEarning[]
+
+  @@map("drivers")
+}
+
+// ─── Vehicle & Documents ─────────────────────────────────────────────────────
+
+model Vehicle {
+  id                  String        @id @default(uuid()) @db.Uuid
+  driverId            String        @map("driver_id") @db.Uuid
+  make                String        @db.VarChar(50)
+  model               String        @db.VarChar(50)
+  year                Int           @db.SmallInt
+  color               String        @db.VarChar(30)
+  licensePlate        String        @map("license_plate") @db.VarChar(20)
+  licensePlateState   String        @default("NJ") @map("license_plate_state") @db.VarChar(2)
+  vin                 String?       @db.VarChar(17)
+  vehicleClass        String        @default("standard") @map("vehicle_class") @db.VarChar(20)
+  eligibleTypes       Json          @default("[\"standard\"]") @map("eligible_types")
+  isActive            Boolean       @default(true) @map("is_active")
+  status              VehicleStatus @default(pending)
+  inspectionStatus    String        @default("pending") @map("inspection_status") @db.VarChar(20)
+  inspectionDate      DateTime?     @map("inspection_date") @db.Date
+  inspectionExpiresAt DateTime?     @map("inspection_expires_at") @db.Date
+  createdAt           DateTime      @default(now()) @map("created_at")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+  trips  Trip[]
+
+  @@map("vehicles")
+}
+
+model Document {
+  id                  String         @id @default(uuid()) @db.Uuid
+  driverId            String         @map("driver_id") @db.Uuid
+  documentType        String         @map("document_type") @db.VarChar(50)
+  s3Key               String         @map("s3_key") @db.VarChar(500)
+  status              String         @default("pending") @db.VarChar(20)
+  aiConfidence        Decimal?       @map("ai_confidence") @db.Decimal(5, 2)
+  reviewNotes         String?        @map("review_notes")
+  reviewedByAdminId   String?        @map("reviewed_by_admin_id") @db.Uuid
+  expiresAt           DateTime?      @map("expires_at") @db.Date
+  reviewedAt          DateTime?      @map("reviewed_at")
+  createdAt           DateTime       @default(now()) @map("created_at")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@unique([driverId, documentType], name: "driverId_documentType")
+  @@map("driver_documents")
+}
+
+
+// ─── Trip Tables ─────────────────────────────────────────────────────────────
+
+model Trip {
+  id                   String     @id @default(uuid()) @db.Uuid
+  riderId              String     @map("rider_id") @db.Uuid
+  driverId             String?    @map("driver_id") @db.Uuid
+  vehicleId            String?    @map("vehicle_id") @db.Uuid
+  bidId                String?    @unique @map("bid_id") @db.Uuid
+  status               TripStatus @default(searching)
+  rideType             RideType   @default(standard) @map("ride_type")
+  pickupAddress        String     @map("pickup_address") @db.VarChar(255)
+  pickupLat            Decimal    @map("pickup_lat") @db.Decimal(9, 6)
+  pickupLng            Decimal    @map("pickup_lng") @db.Decimal(9, 6)
+  dropoffAddress       String     @map("dropoff_address") @db.VarChar(255)
+  dropoffLat           Decimal    @map("dropoff_lat") @db.Decimal(9, 6)
+  dropoffLng           Decimal    @map("dropoff_lng") @db.Decimal(9, 6)
+  aiFare               Decimal    @map("ai_fare") @db.Decimal(8, 2)
+  finalFare            Decimal?   @map("final_fare") @db.Decimal(8, 2)
+  driverEarnings       Decimal?   @map("driver_earnings") @db.Decimal(8, 2)
+  platformFee          Decimal?   @map("platform_fee") @db.Decimal(8, 2)
+  earningsFloorMet     Boolean    @default(true) @map("earnings_floor_met")
+  earningsSupplement   Decimal    @default(0.00) @map("earnings_supplement") @db.Decimal(8, 2)
+  pickupWaitSeconds    Int        @default(0) @map("pickup_wait_seconds")
+  waitFeeCharged       Decimal    @default(0.00) @map("wait_fee_charged") @db.Decimal(8, 2)
+  routeDistanceMiles   Decimal?   @map("route_distance_miles") @db.Decimal(6, 2)
+  actualDistanceMiles  Decimal?   @map("actual_distance_miles") @db.Decimal(6, 2)
+  estimatedDurationMin Int?       @map("estimated_duration_min")
+  actualDurationMin    Int?       @map("actual_duration_min")
+  driverRatingRider    Int?       @map("driver_rating_rider") @db.SmallInt
+  riderRatingDriver    Int?       @map("rider_rating_driver") @db.SmallInt
+  isAirportTrip        Boolean    @default(false) @map("is_airport_trip")
+  isNightRide          Boolean    @default(false) @map("is_night_ride")
+  routeDeviationCount  Int        @default(0) @map("route_deviation_count")
+  acceptedAt           DateTime?  @map("accepted_at")
+  startedAt            DateTime?  @map("started_at")
+  completedAt          DateTime?  @map("completed_at")
+  cancelledAt          DateTime?  @map("cancelled_at")
+  cancelReason         String?    @map("cancel_reason") @db.VarChar(255)
+  createdAt            DateTime   @default(now()) @map("created_at")
+
+  rider          Rider            @relation(fields: [riderId], references: [id])
+  driver         Driver?          @relation(fields: [driverId], references: [id])
+  vehicle        Vehicle?         @relation(fields: [vehicleId], references: [id])
+  winnerBid      Bid?             @relation("TripWinner", fields: [bidId], references: [id])
+  bids           Bid[]            @relation("TripBids")
+  events         TripEvent[]
+  payment        Payment?
+  safetySession  SafetySession?
+  earningsFloor  EarningsFloorLog?
+  rating         Rating?
+  refunds        Refund[]
+
+  @@index([driverId, status])
+  @@index([riderId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("trips")
+}
+
+model Bid {
+  id           String    @id @default(uuid()) @db.Uuid
+  tripId       String    @map("trip_id") @db.Uuid
+  riderId      String    @map("rider_id") @db.Uuid
+  driverId     String?   @map("driver_id") @db.Uuid
+  aiFare       Decimal   @map("ai_fare") @db.Decimal(8, 2)
+  riderOffer   Decimal   @map("rider_offer") @db.Decimal(8, 2)
+  counterOffer Decimal?  @map("counter_offer") @db.Decimal(8, 2)
+  finalFare    Decimal?  @map("final_fare") @db.Decimal(8, 2)
+  counterRound Int       @default(0) @map("counter_round") @db.SmallInt
+  status       BidStatus @default(pending)
+  expiresAt    DateTime  @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  resolvedAt   DateTime? @map("resolved_at")
+
+  trip       Trip    @relation("TripBids", fields: [tripId], references: [id])
+  rider      Rider   @relation(fields: [riderId], references: [id])
+  driver     Driver? @relation(fields: [driverId], references: [id])
+  tripWinner Trip?   @relation("TripWinner")
+
+  @@map("bids")
+}
+
+model TripEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  tripId    String   @map("trip_id") @db.Uuid
+  eventType String   @map("event_type") @db.VarChar(50)
+  lat       Decimal? @db.Decimal(9, 6)
+  lng       Decimal? @db.Decimal(9, 6)
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  trip Trip @relation(fields: [tripId], references: [id])
+
+  @@map("trip_events")
+}
+
+model Rating {
+  id              String   @id @default(uuid()) @db.Uuid
+  tripId          String   @unique @map("trip_id") @db.Uuid
+  riderId         String   @map("rider_id") @db.Uuid
+  riderToDriver   Int?     @map("rider_to_driver") @db.SmallInt
+  driverToRider   Int?     @map("driver_to_rider") @db.SmallInt
+  riderComment    String?  @map("rider_comment")
+  driverComment   String?  @map("driver_comment")
+  riderFlagged    Boolean  @default(false) @map("rider_flagged")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  trip  Trip  @relation(fields: [tripId], references: [id])
+  rider Rider @relation(fields: [riderId], references: [id])
+
+  @@map("ratings")
+}
+
+// ─── Safety Tables ────────────────────────────────────────────────────────────
+
+model SafetySession {
+  id              String        @id @default(uuid()) @db.Uuid
+  tripId          String        @unique @map("trip_id") @db.Uuid
+  currentState    SafetyState   @default(normal) @map("current_state")
+  isNightRide     Boolean       @default(false) @map("is_night_ride")
+  isAirportTrip   Boolean       @default(false) @map("is_airport_trip")
+  checkInStatus   CheckInStatus @default(not_required) @map("check_in_status")
+  adminAssignedId String?       @map("admin_assigned_id") @db.Uuid
+  slaDeadline     DateTime?     @map("sla_deadline")
+  slaBreached     Boolean       @default(false) @map("sla_breached")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  trip        Trip       @relation(fields: [tripId], references: [id])
+  adminUser   AdminUser? @relation(fields: [adminAssignedId], references: [id])
+  sosEvents   SosEvent[]
+  panicEvents PanicEvent[]
+  recordings  SafetyRecording[]
+  checkIns    SafeCheckIn[]
+
+  @@index([currentState, slaDeadline])
+  @@map("safety_sessions")
+}
+
+model SosEvent {
+  id                   String           @id @default(uuid()) @db.Uuid
+  tripId               String           @map("trip_id") @db.Uuid
+  safetySessionId      String           @map("safety_session_id") @db.Uuid
+  initiatedByUserId    String           @map("initiated_by_user_id") @db.Uuid
+  initiatedByRole      SosInitiatedBy   @map("initiated_by_role")
+  triggerSource        SosTriggerSource @map("trigger_source")
+  activationConfirmedAt DateTime?       @map("activation_confirmed_at")
+  cancelledAt          DateTime?        @map("cancelled_at")
+  confirmedSafeAt      DateTime?        @map("confirmed_safe_at")
+  gpsLat               Decimal          @map("gps_lat") @db.Decimal(9, 6)
+  gpsLng               Decimal          @map("gps_lng") @db.Decimal(9, 6)
+  contactsNotifiedCount Int             @default(0) @map("contacts_notified_count")
+  adminAssignedId      String?          @map("admin_assigned_id") @db.Uuid
+  slaMet               Boolean?         @map("sla_met")
+  recordingId          String?          @map("recording_id") @db.Uuid
+  status               SosStatus        @default(active)
+  resolutionNotes      String?          @map("resolution_notes")
+  resolvedAt           DateTime?        @map("resolved_at")
+  createdAt            DateTime         @default(now()) @map("created_at")
+
+  safetySession SafetySession    @relation(fields: [safetySessionId], references: [id])
+  adminUser     AdminUser?       @relation(fields: [adminAssignedId], references: [id])
+  recording     SafetyRecording? @relation(fields: [recordingId], references: [id])
+
+  @@index([status, createdAt])
+  @@map("sos_events")
+}
+
+model PanicEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  tripId          String   @map("trip_id") @db.Uuid
+  safetySessionId String   @map("safety_session_id") @db.Uuid
+  initiatedByRole String   @map("initiated_by_role") @db.VarChar(20)
+  gpsLat          Decimal  @map("gps_lat") @db.Decimal(9, 6)
+  gpsLng          Decimal  @map("gps_lng") @db.Decimal(9, 6)
+  adminAssignedId String?  @map("admin_assigned_id") @db.Uuid
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  safetySession SafetySession @relation(fields: [safetySessionId], references: [id])
+
+  @@map("panic_events")
+}
+
+model SafetyRecording {
+  id                String             @id @default(uuid()) @db.Uuid
+  tripId            String             @map("trip_id") @db.Uuid
+  safetySessionId   String             @map("safety_session_id") @db.Uuid
+  storageBucket     String             @map("storage_bucket") @db.VarChar(100)
+  storageKey        String             @map("storage_key") @db.VarChar(500)
+  encryptionKeyId   String             @map("encryption_key_id") @db.VarChar(100)
+  durationSeconds   Int?               @map("duration_seconds")
+  retentionCategory RecordingRetention @default(no_action_30d) @map("retention_category")
+  deleteAfter       DateTime?          @map("delete_after")
+  accessLog         Json               @default("[]") @map("access_log")
+  status            RecordingStatus    @default(recording)
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  safetySession SafetySession @relation(fields: [safetySessionId], references: [id])
+  sosEvent      SosEvent[]
+
+  @@map("safety_recordings")
+}
+
+model TrustedContact {
+  id            String   @id @default(uuid()) @db.Uuid
+  riderId       String   @map("rider_id") @db.Uuid
+  name          String   @db.VarChar(100)
+  phone         String   @db.VarChar(20)
+  relationship  String   @db.VarChar(50)
+  notifyOnSos   Boolean  @default(true) @map("notify_on_sos")
+  notifyOnNight Boolean  @default(false) @map("notify_on_night")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  rider Rider @relation(fields: [riderId], references: [id])
+
+  @@map("trusted_contacts")
+}
+
+model SafeCheckIn {
+  id              String        @id @default(uuid()) @db.Uuid
+  tripId          String        @map("trip_id") @db.Uuid
+  riderId         String        @map("rider_id") @db.Uuid
+  safetySessionId String        @map("safety_session_id") @db.Uuid
+  status          CheckInStatus @default(pending)
+  dueAt           DateTime      @map("due_at")
+  respondedAt     DateTime?     @map("responded_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  rider         Rider         @relation(fields: [riderId], references: [id])
+  safetySession SafetySession @relation(fields: [safetySessionId], references: [id])
+
+  @@map("safe_check_ins")
+}
+
+// ─── Trust & Fraud ────────────────────────────────────────────────────────────
+
+model TrustScore {
+  id                      String        @id @default(uuid()) @db.Uuid
+  userId                  String        @unique @map("user_id") @db.Uuid
+  userRole                TrustUserRole @map("user_role")
+  trustScore              Int           @default(200) @map("trust_score") @db.SmallInt
+  fraudProbability        Decimal       @default(0.00) @map("fraud_probability") @db.Decimal(5, 2)
+  verificationConfidence  Decimal       @default(50.00) @map("verification_confidence") @db.Decimal(5, 2)
+  currentBadge            String        @default("verified") @map("current_badge") @db.VarChar(20)
+  lastCalculatedAt        DateTime      @default(now()) @map("last_calculated_at")
+  createdAt               DateTime      @default(now()) @map("created_at")
+
+  user    User               @relation(fields: [userId], references: [id])
+  history TrustScoreHistory[]
+
+  @@index([userId, userRole])
+  @@map("trust_scores")
+}
+
+model TrustScoreHistory {
+  id             String   @id @default(uuid()) @db.Uuid
+  trustScoreId   String   @map("trust_score_id") @db.Uuid
+  trustScore     Int      @map("trust_score") @db.SmallInt
+  fraudProbability Decimal @map("fraud_probability") @db.Decimal(5, 2)
+  triggerEvent   String   @map("trigger_event") @db.VarChar(100)
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  trustScore_rel TrustScore @relation(fields: [trustScoreId], references: [id])
+
+  @@map("trust_score_history")
+}
+
+model DeviceFingerprint {
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  fingerprint String         @db.VarChar(255)
+  platform    DevicePlatform
+  firstSeenAt DateTime       @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime       @default(now()) @map("last_seen_at")
+  isBlocked   Boolean        @default(false) @map("is_blocked")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, fingerprint])
+  @@index([fingerprint])
+  @@map("device_fingerprints")
+}
+
+model MultiAccountLink {
+  id        String               @id @default(uuid()) @db.Uuid
+  userIdA   String               @map("user_id_a") @db.Uuid
+  userIdB   String               @map("user_id_b") @db.Uuid
+  linkType  MultiAccountLinkType @map("link_type")
+  confidence Decimal             @db.Decimal(5, 2)
+  flagged   Boolean              @default(false)
+  createdAt DateTime             @default(now()) @map("created_at")
+
+  userA User @relation("LinkUserA", fields: [userIdA], references: [id])
+  userB User @relation("LinkUserB", fields: [userIdB], references: [id])
+
+  @@map("multi_account_links")
+}
+
+// ─── Payment Tables ───────────────────────────────────────────────────────────
+
+model Payment {
+  id                     String        @id @default(uuid()) @db.Uuid
+  tripId                 String        @unique @map("trip_id") @db.Uuid
+  riderId                String        @map("rider_id") @db.Uuid
+  stripePaymentIntentId  String        @unique @map("stripe_payment_intent_id") @db.VarChar(100)
+  amount                 Decimal       @db.Decimal(8, 2)
+  currency               String        @default("usd") @db.VarChar(3)
+  status                 PaymentStatus @default(pending)
+  refundAmount           Decimal       @default(0.00) @map("refund_amount") @db.Decimal(8, 2)
+  createdAt              DateTime      @default(now()) @map("created_at")
+
+  trip  Trip  @relation(fields: [tripId], references: [id])
+  rider Rider @relation(fields: [riderId], references: [id])
+
+  @@map("payments")
+}
+
+model Payout {
+  id              String       @id @default(uuid()) @db.Uuid
+  driverId        String       @map("driver_id") @db.Uuid
+  periodStart     DateTime     @map("period_start") @db.Date
+  periodEnd       DateTime     @map("period_end") @db.Date
+  tripEarnings    Decimal      @map("trip_earnings") @db.Decimal(10, 2)
+  floorSupplements Decimal     @default(0.00) @map("floor_supplements") @db.Decimal(10, 2)
+  instantFees     Decimal      @default(0.00) @map("instant_fees") @db.Decimal(10, 2)
+  rewardBonuses   Decimal      @default(0.00) @map("reward_bonuses") @db.Decimal(10, 2)
+  totalPayout     Decimal      @map("total_payout") @db.Decimal(10, 2)
+  stripeTransferId String?     @unique @map("stripe_transfer_id") @db.VarChar(100)
+  status          PayoutStatus @default(pending)
+  paidAt          DateTime?    @map("paid_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  driver            Driver             @relation(fields: [driverId], references: [id])
+  earningsFloorLogs EarningsFloorLog[]
+
+  @@index([driverId, periodStart])
+  @@map("payouts")
+}
+
+model EarningsFloorLog {
+  id               String   @id @default(uuid()) @db.Uuid
+  tripId           String   @unique @map("trip_id") @db.Uuid
+  driverId         String   @map("driver_id") @db.Uuid
+  floorAmount      Decimal  @map("floor_amount") @db.Decimal(8, 2)
+  earnedAmount     Decimal  @map("earned_amount") @db.Decimal(8, 2)
+  supplementAmount Decimal  @map("supplement_amount") @db.Decimal(8, 2)
+  formulaInputs    Json     @map("formula_inputs")
+  payoutId         String?  @map("payout_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  trip   Trip    @relation(fields: [tripId], references: [id])
+  driver Driver  @relation(fields: [driverId], references: [id])
+  payout Payout? @relation(fields: [payoutId], references: [id])
+
+  @@map("earnings_floor_logs")
+}
+
+// ─── Driver Lifecycle ─────────────────────────────────────────────────────────
+
+model DriverSuspension {
+  id                  String           @id @default(uuid()) @db.Uuid
+  driverId            String           @map("driver_id") @db.Uuid
+  suspensionType      SuspensionType   @map("suspension_type")
+  status              SuspensionStatus @default(active)
+  reason              String
+  internalNotes       String?          @map("internal_notes")
+  authorizedByAdminId String           @map("authorized_by_admin_id") @db.Uuid
+  confirmedByAdminId  String?          @map("confirmed_by_admin_id") @db.Uuid
+  effectiveFrom       DateTime         @map("effective_from")
+  effectiveUntil      DateTime?        @map("effective_until")
+  liftedAt            DateTime?        @map("lifted_at")
+  appealedAt          DateTime?        @map("appealed_at")
+  appealReason        String?          @map("appeal_reason")
+  appealResolvedAt    DateTime?        @map("appeal_resolved_at")
+  createdAt           DateTime         @default(now()) @map("created_at")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@map("driver_suspensions")
+}
+
+model DriverReward {
+  id          String   @id @default(uuid()) @db.Uuid
+  driverId    String   @map("driver_id") @db.Uuid
+  rewardType  String   @map("reward_type") @db.VarChar(50)
+  amount      Decimal  @db.Decimal(8, 2)
+  description String
+  tripId      String?  @map("trip_id") @db.Uuid
+  paidAt      DateTime? @map("paid_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@map("driver_rewards")
+}
+
+model DriverPerformanceSnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  driverId       String   @map("driver_id") @db.Uuid
+  snapshotDate   DateTime @map("snapshot_date") @db.Date
+  acceptanceRate Decimal  @map("acceptance_rate") @db.Decimal(5, 2)
+  completionRate Decimal  @map("completion_rate") @db.Decimal(5, 2)
+  avgRating      Decimal  @map("avg_rating") @db.Decimal(3, 2)
+  totalTrips     Int      @map("total_trips")
+  goodStanding   Boolean  @map("good_standing")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@map("driver_performance_snapshots")
+}
+
+model DriverNotification {
+  id          String   @id @default(uuid()) @db.Uuid
+  driverId    String   @map("driver_id") @db.Uuid
+  type        String   @db.VarChar(50)
+  title       String   @db.VarChar(200)
+  body        String
+  isPinned    Boolean  @default(false) @map("is_pinned")
+  isClearable Boolean  @default(true) @map("is_clearable")
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@map("driver_notifications")
+}
+
+model RiderNotification {
+  id        String   @id @default(uuid()) @db.Uuid
+  riderId   String   @map("rider_id") @db.Uuid
+  type      String   @db.VarChar(50)
+  title     String   @db.VarChar(200)
+  body      String
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rider Rider @relation(fields: [riderId], references: [id])
+
+  @@map("rider_notifications")
+}
+
+// ─── Airport Tables ───────────────────────────────────────────────────────────
+
+model AirportQueueEntry {
+  id                String           @id @default(uuid()) @db.Uuid
+  driverId          String           @map("driver_id") @db.Uuid
+  queuePosition     Int              @map("queue_position")
+  status            QueueEntryStatus @default(waiting)
+  joinedAt          DateTime         @default(now()) @map("joined_at")
+  advanceNoticeAt   DateTime?        @map("advance_notice_at")
+  dispatchedAt      DateTime?        @map("dispatched_at")
+  completedAt       DateTime?        @map("completed_at")
+  leftAt            DateTime?        @map("left_at")
+  tripId            String?          @map("trip_id") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([status, queuePosition])
+  @@map("airport_queue_entries")
+}
+
+model FlightDataCache {
+  id              String   @id @default(uuid()) @db.Uuid
+  flightId        String   @unique @map("flight_id") @db.VarChar(20)
+  airline         String   @db.VarChar(100)
+  flightNumber    String   @map("flight_number") @db.VarChar(20)
+  origin          String   @db.VarChar(10)
+  scheduledArrival DateTime @map("scheduled_arrival")
+  estimatedArrival DateTime? @map("estimated_arrival")
+  status          String   @db.VarChar(30)
+  terminal        String?  @db.VarChar(10)
+  gate            String?  @db.VarChar(10)
+  seatCount       Int?     @map("seat_count")
+  fetchedAt       DateTime @default(now()) @map("fetched_at")
+  expiresAt       DateTime @map("expires_at")
+
+  @@map("flight_data_cache")
+}
+
+// ─── Corporate Accounts ───────────────────────────────────────────────────────
+
+model CorporateAccount {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyName     String   @map("company_name") @db.VarChar(200)
+  billingEmail    String   @map("billing_email") @db.VarChar(255)
+  stripeCustomerId String? @unique @map("stripe_customer_id") @db.VarChar(100)
+  monthlyBudget   Decimal? @map("monthly_budget") @db.Decimal(10, 2)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  riders Rider[]
+
+  @@map("corporate_accounts")
+}
+
+// ─── Admin Tables ─────────────────────────────────────────────────────────────
+
+model AdminUser {
+  id            String    @id @default(uuid()) @db.Uuid
+  email         String    @unique @db.VarChar(255)
+  passwordHash  String    @map("password_hash") @db.VarChar(255)
+  firstName     String    @map("first_name") @db.VarChar(100)
+  lastName      String    @map("last_name") @db.VarChar(100)
+  adminRole     AdminRole @map("admin_role")
+  mfaSecret     String?   @map("mfa_secret") @db.VarChar(100)
+  mfaEnabled    Boolean   @default(false) @map("mfa_enabled")
+  yubiKeyId     String?   @map("yubi_key_id") @db.VarChar(100)
+  isActive      Boolean   @default(true) @map("is_active")
+  lastLoginAt   DateTime? @map("last_login_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  auditLogs               AuditLog[]
+  adminNotes              AdminNote[]
+  safetySessions          SafetySession[]
+  sosEvents               SosEvent[]
+  safetyIncidentAssignments SafetyIncidentAssignment[]
+  supportTickets          SupportTicket[]
+  platformConfigChanges   PlatformConfig[]
+
+  @@map("admin_users")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  adminId     String   @map("admin_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  targetType  String   @map("target_type") @db.VarChar(50)
+  targetId    String   @map("target_id") @db.Uuid
+  metadata    Json     @default("{}")
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  admin AdminUser @relation(fields: [adminId], references: [id])
+
+  @@index([targetType, targetId, createdAt(sort: Desc)])
+  @@index([adminId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model AdminNote {
+  id          String   @id @default(uuid()) @db.Uuid
+  adminId     String   @map("admin_id") @db.Uuid
+  targetType  String   @map("target_type") @db.VarChar(20)
+  targetId    String   @map("target_id") @db.Uuid
+  body        String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  admin AdminUser @relation(fields: [adminId], references: [id])
+
+  @@map("admin_notes")
+}
+
+model SafetyIncidentAssignment {
+  id          String          @id @default(uuid()) @db.Uuid
+  tripId      String          @map("trip_id") @db.Uuid
+  adminId     String          @map("admin_id") @db.Uuid
+  category    IncidentCategory?
+  status      IncidentStatus  @default(open)
+  notes       String?
+  assignedAt  DateTime        @default(now()) @map("assigned_at")
+  resolvedAt  DateTime?       @map("resolved_at")
+
+  admin AdminUser @relation(fields: [adminId], references: [id])
+
+  @@map("safety_incident_assignments")
+}
+
+// ─── Support Tables ───────────────────────────────────────────────────────────
+
+model SupportTicket {
+  id          String         @id @default(uuid()) @db.Uuid
+  riderId     String?        @map("rider_id") @db.Uuid
+  driverId    String?        @map("driver_id") @db.Uuid
+  tripId      String?        @map("trip_id") @db.Uuid
+  adminId     String?        @map("admin_id") @db.Uuid
+  category    TicketCategory
+  status      TicketStatus   @default(open)
+  subject     String         @db.VarChar(255)
+  body        String
+  slaDeadline DateTime       @map("sla_deadline")
+  resolvedAt  DateTime?      @map("resolved_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  rider Rider?     @relation(fields: [riderId], references: [id])
+  admin AdminUser? @relation(fields: [adminId], references: [id])
+
+  @@map("support_tickets")
+}
+
+// ─── Rider Extras ─────────────────────────────────────────────────────────────
+
+model SavedAddress {
+  id        String   @id @default(uuid()) @db.Uuid
+  riderId   String   @map("rider_id") @db.Uuid
+  label     String   @db.VarChar(50)
+  address   String   @db.VarChar(255)
+  lat       Decimal  @db.Decimal(9, 6)
+  lng       Decimal  @db.Decimal(9, 6)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rider Rider @relation(fields: [riderId], references: [id])
+
+  @@unique([riderId, label], name: "riderId_label")
+  @@map("saved_addresses")
+}
+
+// ─── Financial Extras ─────────────────────────────────────────────────────────
+
+model Refund {
+  id               String   @id @default(uuid()) @db.Uuid
+  tripId           String   @map("trip_id") @db.Uuid
+  amount           Decimal  @db.Decimal(8, 2)
+  reason           String   @db.VarChar(50)
+  notes            String
+  issuedByAdminId  String   @map("issued_by_admin_id") @db.Uuid
+  stripeRefundId   String?  @unique @map("stripe_refund_id") @db.VarChar(100)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  trip Trip @relation(fields: [tripId], references: [id])
+
+  @@map("refunds")
+}
+
+model DriverEarning {
+  id        String   @id @default(uuid()) @db.Uuid
+  driverId  String   @map("driver_id") @db.Uuid
+  tripId    String   @unique @map("trip_id") @db.Uuid
+  amount    Decimal  @db.Decimal(8, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, createdAt(sort: Desc)])
+  @@map("driver_earnings")
+}
+
+// ─── Platform Config ──────────────────────────────────────────────────────────
+
+model PlatformConfig {
+  key         String    @id @db.VarChar(100)
+  value       Json
+  description String?
+  changedBy   String?   @map("changed_by") @db.Uuid
+  changedAt   DateTime  @default(now()) @map("changed_at")
+
+  admin AdminUser? @relation(fields: [changedBy], references: [id])
+
+  @@map("platform_config")
+}
+
+// ─── AI Logging ───────────────────────────────────────────────────────────────
+
+model AiPricingLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  tripId          String   @map("trip_id") @db.Uuid
+  inputFeatures   Json     @map("input_features")
+  rawFare         Decimal  @map("raw_fare") @db.Decimal(8, 2)
+  aiAdjustment    Decimal  @map("ai_adjustment") @db.Decimal(8, 2)
+  finalFare       Decimal  @map("final_fare") @db.Decimal(8, 2)
+  modelVersion    String   @map("model_version") @db.VarChar(50)
+  confidenceScore Decimal  @map("confidence_score") @db.Decimal(5, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("ai_pricing_logs")
+}
