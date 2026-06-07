@@ -1,3 +1,4 @@
+﻿import { HealthController } from './health.controller';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -6,6 +7,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
 
 @Module({
+  controllers: [HealthController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
