@@ -1,3 +1,2 @@
-import { TrustedContactsScreen } from '../src/screens/TrustedContactsScreen';
+export { default } from '../src/screens/TrustedContactsScreen';
 
-export default TrustedContactsScreen;

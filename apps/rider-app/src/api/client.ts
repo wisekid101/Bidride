@@ -22,7 +22,7 @@ async function request<T>(
     if (refreshed) {
       return request(path, options);
     }
-    useAuthStore.getState().clearTokens();
+    await useAuthStore.getState().clearTokens();
     throw new Error('SESSION_EXPIRED');
   }
 

@@ -22,17 +22,21 @@ interface ActiveTrip {
   status: TripStatus;
   pickupAddress: string;
   dropoffAddress: string;
+  pickupLat?: number;
+  pickupLng?: number;
+  dropoffLat?: number;
+  dropoffLng?: number;
   aiFare: number;
   finalFare?: number;
   driverId?: string;
-  driverName?: string;
+  driverName?: string | null;
   driverBadge?: string;
   vehicleMake?: string;
   vehicleModel?: string;
   vehicleColor?: string;
   licensePlate?: string;
   estimatedArrival?: string;
-  driverLocation?: DriverLocation;
+  driverLocation?: DriverLocation | null;
 }
 
 interface TripStore {

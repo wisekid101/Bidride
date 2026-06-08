@@ -1,3 +1,2 @@
-import { PersonalInfoScreen } from '../../src/screens/onboarding/PersonalInfoScreen';
+export { default } from '../../src/screens/onboarding/PersonalInfoScreen';
 
-export default PersonalInfoScreen;

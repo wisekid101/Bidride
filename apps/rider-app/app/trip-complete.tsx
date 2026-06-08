@@ -1,3 +1,2 @@
-import { TripCompleteScreen } from '../src/screens/TripCompleteScreen';
+export { default } from '../src/screens/TripCompleteScreen';
 
-export default TripCompleteScreen;

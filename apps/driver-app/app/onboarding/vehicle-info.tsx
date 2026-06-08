@@ -1,3 +1,2 @@
-import { VehicleInfoScreen } from '../../src/screens/onboarding/VehicleInfoScreen';
+export { default } from '../../src/screens/onboarding/VehicleInfoScreen';
 
-export default VehicleInfoScreen;

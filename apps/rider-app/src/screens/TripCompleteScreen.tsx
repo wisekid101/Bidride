@@ -24,7 +24,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
 export default function TripCompleteScreen({ navigation, route }: Props) {
   const { accessToken } = useAuthStore();
-  const { activeTrip, clearActiveTrip } = useTripStore();
+  const { activeTrip, clearCompletedTrip } = useTripStore();
   const [rating, setRating] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -62,7 +62,7 @@ export default function TripCompleteScreen({ navigation, route }: Props) {
   };
 
   const done = () => {
-    clearActiveTrip();
+    clearCompletedTrip();
     navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
   };
 

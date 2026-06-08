@@ -1,3 +1,2 @@
-import { BankAccountScreen } from '../../src/screens/onboarding/BankAccountScreen';
+export { default } from '../../src/screens/onboarding/BankAccountScreen';
 
-export default BankAccountScreen;

@@ -1,3 +1,2 @@
-import { AirportModeScreen } from '../src/screens/AirportModeScreen';
+export { default } from '../src/screens/AirportModeScreen';
 
-export default AirportModeScreen;
