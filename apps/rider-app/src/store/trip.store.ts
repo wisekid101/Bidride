@@ -39,6 +39,15 @@ interface ActiveTrip {
   driverLocation?: DriverLocation | null;
 }
 
+export interface PendingCounter {
+  bidId: string;
+  counterAmount: number;
+  riderOffer: number;
+  aiFare: number;
+  expiresAt: string;
+  driverId?: string;
+}
+
 interface TripStore {
   activeTrip: ActiveTrip | null;
   setActiveTrip: (trip: ActiveTrip | null) => void;
@@ -46,11 +55,15 @@ interface TripStore {
   updateDriverLocation: (location: DriverLocation) => void;
   completedTrip: ActiveTrip | null;
   clearCompletedTrip: () => void;
+  pendingCounter: PendingCounter | null;
+  setPendingCounter: (counter: PendingCounter) => void;
+  clearPendingCounter: () => void;
 }
 
 export const useTripStore = create<TripStore>((set, get) => ({
   activeTrip: null,
   completedTrip: null,
+  pendingCounter: null,
 
   setActiveTrip: (trip) => set({ activeTrip: trip }),
 
@@ -59,7 +72,7 @@ export const useTripStore = create<TripStore>((set, get) => ({
     if (!trip) return;
 
     if (status === 'completed' || status === 'cancelled') {
-      set({ completedTrip: { ...trip, status }, activeTrip: null });
+      set({ completedTrip: { ...trip, status }, activeTrip: null, pendingCounter: null });
     } else {
       set({ activeTrip: { ...trip, status } });
     }
@@ -72,4 +85,7 @@ export const useTripStore = create<TripStore>((set, get) => ({
   },
 
   clearCompletedTrip: () => set({ completedTrip: null }),
+
+  setPendingCounter: (counter) => set({ pendingCounter: counter }),
+  clearPendingCounter: () => set({ pendingCounter: null }),
 }));

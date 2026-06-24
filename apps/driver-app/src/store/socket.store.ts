@@ -59,11 +59,15 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
       }
     });
 
-    socket.on('bid:counter_accepted', (data: { bidId: string; tripId: string; finalFare: number }) => {
+    socket.on('bid:counterAccepted', (data: { bidId: string; tripId: string; finalFare: number }) => {
       set({ counterResult: { ...data, accepted: true }, incomingBid: null });
     });
 
-    socket.on('bid:counter_declined', (data: { bidId: string; tripId: string }) => {
+    socket.on('bid:counterDeclined', (data: { bidId: string; tripId: string }) => {
+      set({ counterResult: { bidId: data.bidId, tripId: data.tripId, finalFare: 0, accepted: false }, incomingBid: null });
+    });
+
+    socket.on('bid:counterExpired', (data: { bidId: string; tripId: string }) => {
       set({ counterResult: { bidId: data.bidId, tripId: data.tripId, finalFare: 0, accepted: false }, incomingBid: null });
     });
 

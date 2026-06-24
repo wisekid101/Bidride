@@ -175,11 +175,20 @@ export class DispatchService {
     finalFare: number,
   ): Promise<void> {
     if (!driverId) return;
+    // Notify driver that rider accepted their counter
     await this.publish(`user:${driverId}:events`, {
-      event: 'bid:counter_accepted',
+      event: 'bid:counterAccepted',
       bidId,
       tripId,
       finalFare,
+    });
+    // Notify rider that the trip is now confirmed
+    await this.publish(`rider:trip:${tripId}`, {
+      event: 'trip:accepted',
+      bidId,
+      tripId,
+      finalFare,
+      driverId,
     });
   }
 
@@ -189,10 +198,30 @@ export class DispatchService {
     driverId: string,
   ): Promise<void> {
     await this.publish(`user:${driverId}:events`, {
-      event: 'bid:counter_declined',
+      event: 'bid:counterDeclined',
       bidId,
       tripId,
     });
+  }
+
+  async notifyCounterExpired(
+    tripId: string,
+    bidId: string,
+    driverId?: string | null,
+  ): Promise<void> {
+    await this.publish(`rider:trip:${tripId}`, {
+      event: 'bid:counterExpired',
+      bidId,
+      tripId,
+      message: 'The counter offer expired. You may resubmit or take the standard fare.',
+    });
+    if (driverId) {
+      await this.publish(`user:${driverId}:events`, {
+        event: 'bid:counterExpired',
+        bidId,
+        tripId,
+      });
+    }
   }
 
   async notifyBidExpired(tripId: string, bidId: string): Promise<void> {

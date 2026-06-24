@@ -8,6 +8,7 @@ interface SocketStore {
   socket: Socket | null;
   connect: (accessToken: string) => void;
   disconnect: () => void;
+  subscribeToTrip: (tripId: string) => void;
 }
 
 export const useSocketStore = create<SocketStore>((set, get) => ({
@@ -45,11 +46,39 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       useTripStore.getState().updateTripStatus('in_progress');
     });
 
+    socket.on('trip:accepted', () => {
+      useTripStore.getState().updateTripStatus('accepted');
+    });
+
     socket.on('trip:completed', () => {
       useTripStore.getState().updateTripStatus('completed');
     });
 
     socket.on('trip:cancelled', () => {
+      useTripStore.getState().updateTripStatus('cancelled');
+    });
+
+    socket.on('bid:countered', (data: {
+      bidId: string;
+      tripId: string;
+      counterAmount: number;
+      driverId: string;
+      expiresAt: string;
+    }) => {
+      const trip = useTripStore.getState().activeTrip;
+      if (!trip) return;
+      useTripStore.getState().setPendingCounter({
+        bidId: data.bidId,
+        counterAmount: data.counterAmount,
+        riderOffer: trip.finalFare ?? 0,
+        aiFare: trip.aiFare,
+        expiresAt: data.expiresAt,
+        driverId: data.driverId,
+      });
+    });
+
+    socket.on('bid:counterExpired', () => {
+      useTripStore.getState().clearPendingCounter();
       useTripStore.getState().updateTripStatus('cancelled');
     });
 
@@ -59,5 +88,11 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
   disconnect: () => {
     get().socket?.disconnect();
     set({ socket: null });
+  },
+
+  subscribeToTrip: (tripId) => {
+    const { socket } = get();
+    if (!socket?.connected) return;
+    socket.emit('subscribe:trip', { tripId });
   },
 }));

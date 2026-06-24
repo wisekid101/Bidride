@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { useTripStore } from '../store/trip.store';
 import { useSocketStore } from '../store/socket.store';
+import CounterOfferModal from './CounterOfferModal';
 
 const STATUS_LABELS: Record<string, string> = {
   searching:        'Finding your driver...',
@@ -25,9 +26,17 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function TrackingScreen() {
   const navigation = useNavigation<any>();
-  const { activeTrip, updateDriverLocation } = useTripStore();
+  const { activeTrip, pendingCounter } = useTripStore();
+  const { subscribeToTrip } = useSocketStore();
   const mapRef = useRef<MapView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Subscribe to trip-scoped socket events once trip is active
+  useEffect(() => {
+    if (activeTrip?.id) {
+      subscribeToTrip(activeTrip.id);
+    }
+  }, [activeTrip?.id]);
 
   // Pulse animation for "searching" state
   useEffect(() => {
@@ -115,6 +124,9 @@ export function TrackingScreen() {
       >
         <Text style={styles.sosText}>SOS</Text>
       </TouchableOpacity>
+
+      {/* Counter-offer modal — shown when driver counters during searching phase */}
+      {pendingCounter && <CounterOfferModal counter={pendingCounter} />}
     </View>
   );
 }

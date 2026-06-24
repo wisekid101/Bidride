@@ -137,6 +137,7 @@ const makeDispatch = () => ({
   notifyRiderBidCountered: jest.fn().mockResolvedValue(undefined),
   notifyDriverCounterAccepted: jest.fn().mockResolvedValue(undefined),
   notifyDriverCounterDeclined: jest.fn().mockResolvedValue(undefined),
+  notifyCounterExpired: jest.fn().mockResolvedValue(undefined),
   notifyBidExpired: jest.fn().mockResolvedValue(undefined),
   broadcastBidRequest: jest.fn().mockResolvedValue(undefined),
 });
@@ -342,7 +343,7 @@ describe('BidsService', () => {
   // ── sweepExpiredBids ─────────────────────────────────────────────────────
 
   describe('sweepExpiredBids', () => {
-    it('processes expired bids and voids their holds', async () => {
+    it('processes expired pending bids with notifyBidExpired', async () => {
       const expiredBid = { ...mockBid, status: BidStatus.pending, expiresAt: new Date(Date.now() - 5000) };
       const { service, prisma, dispatch } = await buildService();
 
@@ -351,6 +352,25 @@ describe('BidsService', () => {
       await service.sweepExpiredBids();
 
       expect(dispatch.notifyBidExpired).toHaveBeenCalledWith('trip-1', 'bid-1');
+      expect(dispatch.notifyCounterExpired).not.toHaveBeenCalled();
+    });
+
+    it('processes expired countered bids with notifyCounterExpired', async () => {
+      const expiredCounter = {
+        ...mockBid,
+        status: BidStatus.countered,
+        driverId: 'driver-1',
+        counterOffer: 17.00,
+        expiresAt: new Date(Date.now() - 5000),
+      };
+      const { service, prisma, dispatch } = await buildService();
+
+      prisma.bid.findMany = jest.fn().mockResolvedValue([expiredCounter]);
+
+      await service.sweepExpiredBids();
+
+      expect(dispatch.notifyCounterExpired).toHaveBeenCalledWith('trip-1', 'bid-1', 'driver-1');
+      expect(dispatch.notifyBidExpired).not.toHaveBeenCalled();
     });
 
     it('continues processing remaining bids if one fails', async () => {
@@ -368,6 +388,78 @@ describe('BidsService', () => {
 
       await expect(service.sweepExpiredBids()).resolves.not.toThrow();
       expect(dispatch.notifyBidExpired).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── Rider Counter-Offer Flow ──────────────────────────────────────────────
+
+  describe('riderAcceptCounter — counter-offer flow', () => {
+    const counteredBid = {
+      ...mockBid,
+      status: BidStatus.countered,
+      driverId: 'driver-1',
+      counterOffer: 17.00,
+      counterRound: 1,
+    };
+
+    it('throws BID_ALREADY_RESOLVED on duplicate accept (counter already accepted)', async () => {
+      // First accept resolves to accepted; second call sees terminal status
+      const { service } = await buildService({ ...counteredBid, status: BidStatus.accepted });
+
+      await expect(service.riderAcceptCounter('bid-1', mockRider.userId))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BID_ALREADY_RESOLVED on duplicate decline (counter already declined)', async () => {
+      const { service } = await buildService({ ...counteredBid, status: BidStatus.declined });
+
+      await expect(service.riderDeclineCounter('bid-1', mockRider.userId))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('throws when counter has already expired', async () => {
+      const { service } = await buildService({ ...counteredBid, status: BidStatus.expired });
+
+      await expect(service.riderAcceptCounter('bid-1', mockRider.userId))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('throws ForbiddenException when a different rider attempts to accept', async () => {
+      const { service } = await buildService(counteredBid);
+      const otherRider = { ...mockRider, id: 'rider-other' };
+      service['resolveRider'] = jest.fn().mockResolvedValue(otherRider);
+
+      await expect(service.riderAcceptCounter('bid-1', 'user-other'))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws ForbiddenException when a different rider attempts to decline', async () => {
+      const { service } = await buildService(counteredBid);
+      const otherRider = { ...mockRider, id: 'rider-other' };
+      service['resolveRider'] = jest.fn().mockResolvedValue(otherRider);
+
+      await expect(service.riderDeclineCounter('bid-1', 'user-other'))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('notifyDriverCounterAccepted is called with correct tripId and finalFare', async () => {
+      const { service, dispatch } = await buildService(counteredBid);
+
+      await service.riderAcceptCounter('bid-1', mockRider.userId);
+
+      expect(dispatch.notifyDriverCounterAccepted).toHaveBeenCalledWith(
+        'trip-1', 'bid-1', 'driver-1', 17.00,
+      );
+    });
+
+    it('notifyDriverCounterDeclined is called with correct tripId', async () => {
+      const { service, dispatch } = await buildService(counteredBid);
+
+      await service.riderDeclineCounter('bid-1', mockRider.userId);
+
+      expect(dispatch.notifyDriverCounterDeclined).toHaveBeenCalledWith(
+        'trip-1', 'bid-1', 'driver-1',
+      );
     });
   });
 

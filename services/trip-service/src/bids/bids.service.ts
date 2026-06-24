@@ -540,8 +540,12 @@ export class BidsService implements OnModuleInit {
         });
 
         await this.voidStripeHold(bid.id);
-        await this.dispatch.notifyBidExpired(bid.tripId, bid.id);
-        this.logger.log(`Bid ${bid.id} expired`);
+        if (bid.status === BidStatus.countered) {
+          await this.dispatch.notifyCounterExpired(bid.tripId, bid.id, bid.driverId);
+        } else {
+          await this.dispatch.notifyBidExpired(bid.tripId, bid.id);
+        }
+        this.logger.log(`Bid ${bid.id} expired (was ${bid.status})`);
       } catch (err) {
         this.logger.error(`Failed to expire bid ${bid.id}`, err);
       }
