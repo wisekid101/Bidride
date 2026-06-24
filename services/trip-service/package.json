@@ -44,6 +44,10 @@
     "rootDir": "src",
     "testRegex": "(?<!integration)\\.spec\\.ts$",
     "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+    "moduleNameMapper": {
+      "^@bidride/database$": "<rootDir>/../../../packages/database/generated/client",
+      "^@bidride/database/generated/client$": "<rootDir>/../../../packages/database/generated/client"
+    },
     "testEnvironment": "node"
   }
 }

@@ -484,11 +484,29 @@ model Trip {
   rating         Rating?
   refunds        Refund[]
   proxySession   ProxySession?
+  chatMessages   ChatMessage[]
 
   @@index([driverId, status])
   @@index([riderId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
   @@map("trips")
+}
+
+model ChatMessage {
+  id          String    @id @default(uuid()) @db.Uuid
+  tripId      String    @map("trip_id") @db.Uuid
+  senderId    String    @map("sender_id") @db.Uuid
+  senderRole  String    @map("sender_role") @db.VarChar(20)
+  content     String    @db.Text
+  messageType String    @default("text") @map("message_type") @db.VarChar(20)
+  readAt      DateTime? @map("read_at")
+  flagged     Boolean   @default(false)
+  flagReason  String?   @map("flag_reason") @db.VarChar(255)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  trip        Trip      @relation(fields: [tripId], references: [id])
+
+  @@index([tripId, createdAt])
+  @@map("chat_messages")
 }
 
 model Bid {
