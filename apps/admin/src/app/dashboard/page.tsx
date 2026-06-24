@@ -42,7 +42,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const s = io(process.env.NEXT_PUBLIC_API_URL ?? 'https://api.bidride.com', {
-      auth: { token: document.cookie.match(/admin_session=([^;]+)/)?.[1] ?? '' },
+      // Cookie is HttpOnly — browser sends it automatically with withCredentials
+      withCredentials: true,
       transports: ['websocket'],
     });
 

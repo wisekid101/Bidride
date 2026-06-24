@@ -10,11 +10,10 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { RefundsService, IssueRefundDto } from './refunds.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../auth/admin.guard';
+import { AdminSessionGuard } from '../auth/admin-session.guard';
 
 @Controller('admin/refunds')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(AdminSessionGuard)
 export class RefundsController {
   constructor(private readonly refundsService: RefundsService) {}
 

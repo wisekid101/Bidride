@@ -1,9 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@bidride/database';
 
+export interface CreateLogInput {
+  adminId: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata?: Record<string, unknown>;
+  ipAddress?: string;
+}
+
 @Injectable()
 export class AuditService {
   private prisma = new PrismaClient();
+
+  async createLog(input: CreateLogInput): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        adminId: input.adminId,
+        action: input.action,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        metadata: (input.metadata ?? {}) as any,
+        ipAddress: input.ipAddress,
+      },
+    });
+  }
 
   async getAuditLogs(filters: {
     adminId?: string;

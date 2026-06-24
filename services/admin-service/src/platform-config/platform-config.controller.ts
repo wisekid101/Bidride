@@ -11,8 +11,7 @@ import {
 } from '@nestjs/common';
 import { IsString, IsOptional } from 'class-validator';
 import { PlatformConfigService } from './platform-config.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../auth/admin.guard';
+import { AdminSessionGuard } from '../auth/admin-session.guard';
 
 class UpdateConfigDto {
   value: unknown;
@@ -23,7 +22,7 @@ class UpdateConfigDto {
 }
 
 @Controller('admin/config')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(AdminSessionGuard)
 export class PlatformConfigController {
   constructor(private readonly platformConfigService: PlatformConfigService) {}
 
