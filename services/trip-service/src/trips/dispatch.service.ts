@@ -98,8 +98,11 @@ export class DispatchService {
     distanceMiles: number,
     durationMin: number,
     riderBadge: 'Verified' | 'Trusted' | 'Business' | 'VIP',
+    targetDriverUserIds: string[],
   ): Promise<void> {
-    await this.publish('bid:drivers:incoming', {
+    if (targetDriverUserIds.length === 0) return;
+
+    const payload = {
       event: 'bid:incoming',
       bidId: bid.id,
       tripId: trip.id,
@@ -116,7 +119,12 @@ export class DispatchService {
       durationMin,
       isAirportTrip: trip.isAirportTrip,
       riderBadge,
-    });
+    };
+
+    // Publish to each matched driver individually — no global broadcast
+    await Promise.all(
+      targetDriverUserIds.map((userId) => this.publish(`user:${userId}:events`, payload)),
+    );
   }
 
   async notifyBidAcceptedByDriver(

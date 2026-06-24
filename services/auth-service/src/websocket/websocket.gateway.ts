@@ -116,7 +116,6 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
     // Exact-match channels
     await this.subscriber.subscribe(
       'dispatch:requests',
-      'bid:drivers:incoming',
       'safety:sos',
       'safety:panic',
       'safety:anomaly',
@@ -149,8 +148,6 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
         this.server.to('admin:broadcast').emit(event, data);
       } else if (channel === 'dispatch:requests') {
         this.server.emit('request:incoming', data);
-      } else if (channel === 'bid:drivers:incoming') {
-        this.server.emit('bid:incoming', data);
       } else if (channel.startsWith('rider:trip:')) {
         const tripId = channel.replace('rider:trip:', '');
         this.server.to(`trip:${tripId}`).emit(event, data);

@@ -109,7 +109,10 @@ const makePrisma = (bidOverride?: Partial<typeof mockBid>) => ({
   },
   trip: { update: jest.fn().mockResolvedValue({}) },
   rider: { findUnique: jest.fn().mockResolvedValue(mockRider) },
-  driver: { findUnique: jest.fn().mockResolvedValue(mockDriver) },
+  driver: {
+    findUnique: jest.fn().mockResolvedValue(mockDriver),
+    findMany: jest.fn().mockResolvedValue([]),
+  },
   tripEvent: { create: jest.fn().mockResolvedValue({}) },
   $transaction: jest.fn().mockImplementation(async (fn: (tx: any) => Promise<any>) => fn({
     bid: { update: jest.fn().mockResolvedValue({}) },
@@ -123,6 +126,8 @@ const makeRedis = () => ({
   get: jest.fn().mockResolvedValue('pi_test'),
   setex: jest.fn().mockResolvedValue('OK'),
   del: jest.fn().mockResolvedValue(1),
+  keys: jest.fn().mockResolvedValue([]),
+  zrange: jest.fn().mockResolvedValue([]),
   duplicate: jest.fn().mockReturnThis(),
 });
 
@@ -381,6 +386,150 @@ describe('BidsService', () => {
       const validCounter = 17.00;
       expect(validCounter > riderBid).toBe(true);
       expect(validCounter < standardFare).toBe(true);
+    });
+  });
+
+  // ── submitBid — geo-filtered dispatch ─────────────────────────────────────
+
+  describe('submitBid geo-filtering', () => {
+    const mockTripCreated = {
+      id: 'trip-1',
+      pickupLat: 40.6895,
+      pickupLng: -74.1745,
+      dropoffLat: 40.7128,
+      dropoffLng: -74.0060,
+      pickupAddress: '3 Brewster Rd, Newark, NJ',
+      dropoffAddress: '1 World Trade Center, New York, NY',
+      aiFare: 20.00,
+      isAirportTrip: false,
+    };
+    const mockBidCreated = {
+      id: 'bid-1',
+      tripId: 'trip-1',
+      riderOffer: 14.00,
+      aiFare: 20.00,
+      status: BidStatus.pending as BidStatus,
+      expiresAt: new Date(Date.now() + 120_000),
+    };
+
+    const submitDto = {
+      pickupLat: 40.6895,
+      pickupLng: -74.1745,
+      dropoffLat: 40.7128,
+      dropoffLng: -74.0060,
+      pickupAddress: '3 Brewster Rd, Newark, NJ',
+      dropoffAddress: '1 World Trade Center, New York, NY',
+      bidAmount: 14.00,
+      paymentMethodId: 'pm_test',
+    };
+
+    function setupSubmitMocks(service: BidsService, prisma: ReturnType<typeof makePrisma>, redis: ReturnType<typeof makeRedis>) {
+      prisma.$transaction = jest.fn().mockImplementation(async (fn: any) =>
+        fn({
+          trip: { create: jest.fn().mockResolvedValue(mockTripCreated) },
+          bid: { create: jest.fn().mockResolvedValue(mockBidCreated) },
+          tripEvent: { create: jest.fn().mockResolvedValue({}) },
+        }),
+      );
+
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ fare: 20.00 }) } as Response)
+        .mockResolvedValue({ ok: true, json: async () => ({ paymentIntentId: 'pi_test_hold' }) } as Response);
+
+      // Only pi_test_hold payment intent get calls; location gets handled by key mock
+      redis.get = jest.fn().mockResolvedValue('pi_test');
+    }
+
+    it('broadcasts only to drivers within the 5-mile primary radius', async () => {
+      const { service, prisma, redis, dispatch } = await buildService();
+      setupSubmitMocks(service, prisma, redis);
+
+      redis.keys = jest.fn().mockResolvedValue([
+        'driver:user-near-1:location',
+        'driver:user-near-2:location',
+        'driver:user-far:location',
+      ]);
+      // Override get to return location for first 3 calls, then fallback for PI
+      redis.get = jest.fn()
+        .mockResolvedValueOnce(JSON.stringify({ lat: 40.6900, lng: -74.1750 })) // ~0.1 mi — primary
+        .mockResolvedValueOnce(JSON.stringify({ lat: 40.7000, lng: -74.1900 })) // ~1.5 mi — primary
+        .mockResolvedValueOnce(JSON.stringify({ lat: 40.8050, lng: -73.9690 })) // ~12 mi — outside 10mi
+        .mockResolvedValue('pi_test');
+
+      await service.submitBid(mockRider.userId, submitDto);
+
+      const [,,,,,,,targetIds] = (dispatch.broadcastBidRequest as jest.Mock).mock.calls[0];
+      expect(targetIds).toContain('user-near-1');
+      expect(targetIds).toContain('user-near-2');
+      expect(targetIds).not.toContain('user-far');
+    });
+
+    it('expands to 10-mile radius when fewer than 3 drivers found within 5 miles', async () => {
+      const { service, prisma, redis, dispatch } = await buildService();
+      setupSubmitMocks(service, prisma, redis);
+
+      redis.keys = jest.fn().mockResolvedValue([
+        'driver:user-near-1:location',
+        'driver:user-mid-1:location',
+        'driver:user-mid-2:location',
+      ]);
+      redis.get = jest.fn()
+        .mockResolvedValueOnce(JSON.stringify({ lat: 40.6900, lng: -74.1750 })) // ~0.1 mi — primary
+        .mockResolvedValueOnce(JSON.stringify({ lat: 40.6500, lng: -74.2500 })) // ~6 mi — extended only
+        .mockResolvedValueOnce(JSON.stringify({ lat: 40.6200, lng: -74.3100 })) // ~9 mi — extended only
+        .mockResolvedValue('pi_test');
+
+      await service.submitBid(mockRider.userId, submitDto);
+
+      // Only 1 driver in primary radius — should pull in extended drivers too
+      const [,,,,,,,targetIds] = (dispatch.broadcastBidRequest as jest.Mock).mock.calls[0];
+      expect(targetIds).toContain('user-near-1');
+      expect(targetIds).toContain('user-mid-1');
+      expect(targetIds).toContain('user-mid-2');
+    });
+
+    it('injects EWR queue drivers for airport trips', async () => {
+      const { service, prisma, redis, dispatch } = await buildService();
+      const airportTripCreated = { ...mockTripCreated, isAirportTrip: true, pickupAddress: 'EWR Terminal B' };
+      prisma.$transaction = jest.fn().mockImplementation(async (fn: any) =>
+        fn({
+          trip: { create: jest.fn().mockResolvedValue(airportTripCreated) },
+          bid: { create: jest.fn().mockResolvedValue(mockBidCreated) },
+          tripEvent: { create: jest.fn().mockResolvedValue({}) },
+        }),
+      );
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ fare: 20.00 }) } as Response)
+        .mockResolvedValue({ ok: true, json: async () => ({ paymentIntentId: 'pi_test_hold' }) } as Response);
+
+      // No drivers nearby via geo-scan
+      redis.keys = jest.fn().mockResolvedValue([]);
+      // EWR queue has one driver
+      redis.zrange = jest.fn().mockResolvedValue(['driver-queued-1']);
+      prisma.driver.findMany = jest.fn().mockResolvedValue([{ userId: 'user-ewr-queued' }]);
+      redis.get = jest.fn().mockResolvedValue('pi_test');
+
+      await service.submitBid(mockRider.userId, {
+        ...submitDto,
+        pickupAddress: 'EWR Terminal B, Newark, NJ',
+      });
+
+      const [,,,,,,,targetIds] = (dispatch.broadcastBidRequest as jest.Mock).mock.calls[0];
+      expect(targetIds).toContain('user-ewr-queued');
+    });
+
+    it('does not broadcast when no drivers are found', async () => {
+      const { service, prisma, redis, dispatch } = await buildService();
+      setupSubmitMocks(service, prisma, redis);
+
+      redis.keys = jest.fn().mockResolvedValue([]);
+
+      await service.submitBid(mockRider.userId, submitDto);
+
+      expect(dispatch.broadcastBidRequest).toHaveBeenCalledWith(
+        expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+        expect.anything(), expect.anything(), 'Verified', [],
+      );
     });
   });
 });

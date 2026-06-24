@@ -147,8 +147,16 @@ export class BidsService implements OnModuleInit {
     const distanceMiles = this.haversineDistance(dto.pickupLat, dto.pickupLng, dto.dropoffLat, dto.dropoffLng);
     const durationMin = Math.max(3, Math.round(distanceMiles * 2.5));
 
-    // Broadcast bid to nearby drivers
-    await this.dispatch.broadcastBidRequest(trip, bid, standardFare, bidFloor, distanceMiles, durationMin, 'Verified');
+    // Geo-filter: only broadcast to nearby online drivers
+    const targetDriverUserIds = await this.findNearbyDriverUserIds(
+      dto.pickupLat,
+      dto.pickupLng,
+      isAirportTrip,
+    );
+
+    await this.dispatch.broadcastBidRequest(
+      trip, bid, standardFare, bidFloor, distanceMiles, durationMin, 'Verified', targetDriverUserIds,
+    );
 
     this.logger.log(`Bid ${bid.id} submitted: $${dto.bidAmount} (standard $${standardFare})`);
 
@@ -642,6 +650,61 @@ export class BidsService implements OnModuleInit {
     if (!driver) throw new NotFoundException('Driver profile not found.');
     if (driver.status !== 'approved') throw new ForbiddenException('Driver account is not approved.');
     return driver;
+  }
+
+  private async findNearbyDriverUserIds(
+    pickupLat: number,
+    pickupLng: number,
+    isAirportTrip: boolean,
+  ): Promise<string[]> {
+    const PRIMARY_RADIUS_MI = 5;
+    const EXTENDED_RADIUS_MI = 10;
+    const PRIMARY_MIN_DRIVERS = 3;
+
+    const locationKeys = await this.redis.keys('driver:*:location');
+
+    const primary: string[] = [];
+    const extended: string[] = [];
+
+    for (const key of locationKeys) {
+      const raw = await this.redis.get(key);
+      if (!raw) continue;
+
+      let loc: { lat: number; lng: number };
+      try {
+        loc = JSON.parse(raw) as { lat: number; lng: number };
+      } catch {
+        continue;
+      }
+
+      const userId = key.slice('driver:'.length, -':location'.length);
+      const dist = this.haversineDistance(pickupLat, pickupLng, loc.lat, loc.lng);
+
+      if (dist <= PRIMARY_RADIUS_MI) {
+        primary.push(userId);
+      } else if (dist <= EXTENDED_RADIUS_MI) {
+        extended.push(userId);
+      }
+    }
+
+    // Expand to 10-mile radius only when fewer than 3 drivers found within 5 miles
+    const matched = primary.length >= PRIMARY_MIN_DRIVERS ? primary : [...primary, ...extended];
+
+    // Airport trips: inject top EWR queue drivers regardless of current location
+    if (isAirportTrip) {
+      const queuedDriverIds = await this.redis.zrange('queue:ewr', 0, 4);
+      if (queuedDriverIds.length > 0) {
+        const queuedDrivers = await this.prisma.driver.findMany({
+          where: { id: { in: queuedDriverIds } },
+          select: { userId: true },
+        });
+        for (const { userId } of queuedDrivers) {
+          if (!matched.includes(userId)) matched.push(userId);
+        }
+      }
+    }
+
+    return matched;
   }
 
   private haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
