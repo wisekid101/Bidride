@@ -39,7 +39,11 @@
     "moduleFileExtensions": ["js", "json", "ts"],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
-    "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+    "transform": { "^.+\\.(t|j)s$": ["ts-jest", { "isolatedModules": true }] },
+    "moduleNameMapper": {
+      "^@bidride/database$": "<rootDir>/../../../packages/database/generated/client",
+      "^@bidride/database/generated/client$": "<rootDir>/../../../packages/database/generated/client"
+    },
     "testEnvironment": "node"
   }
 }

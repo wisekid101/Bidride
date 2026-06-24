@@ -110,10 +110,11 @@ export class NotificationService {
     });
   }
 
-  async sendMaskedCall(riderPhone: string, driverPhone: string): Promise<{ proxyNumber: string }> {
-    // Twilio Proxy — creates masked number for rider↔driver communication
-    const proxyNumber = this.fromPhone; // Actual implementation uses Twilio Proxy API
-    return { proxyNumber };
+  // Masked calling and SMS are handled by ProxyService (Twilio Proxy API).
+  // This stub is retained so callers that already use NotificationService compile.
+  // New callers should inject ProxyService directly.
+  async sendMaskedCall(_riderPhone: string, _driverPhone: string): Promise<{ proxyNumber: string }> {
+    throw new Error('Use ProxyService.initiateCall() instead of sendMaskedCall()');
   }
 
   // ─── Email (AWS SES) ──────────────────────────────────────────────────────

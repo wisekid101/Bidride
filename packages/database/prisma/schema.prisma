@@ -483,6 +483,7 @@ model Trip {
   earningsFloor  EarningsFloorLog?
   rating         Rating?
   refunds        Refund[]
+  proxySession   ProxySession?
 
   @@index([driverId, status])
   @@index([riderId, createdAt(sort: Desc)])
@@ -1101,4 +1102,29 @@ model AiPricingLog {
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("ai_pricing_logs")
+}
+
+// ─── Proxy Sessions (Twilio masked communications) ────────────────────────────
+
+enum ProxySessionStatus {
+  active
+  closed
+  expired
+}
+
+model ProxySession {
+  id                   String             @id @default(uuid()) @db.Uuid
+  tripId               String             @unique @map("trip_id") @db.Uuid
+  twilioSessionSid     String             @unique @map("twilio_session_sid") @db.VarChar(64)
+  riderParticipantSid  String             @map("rider_participant_sid") @db.VarChar(64)
+  driverParticipantSid String             @map("driver_participant_sid") @db.VarChar(64)
+  status               ProxySessionStatus @default(active)
+  createdAt            DateTime           @default(now()) @map("created_at")
+  expiresAt            DateTime           @map("expires_at")
+  closedAt             DateTime?          @map("closed_at")
+
+  trip Trip @relation(fields: [tripId], references: [id])
+
+  @@index([status, expiresAt])
+  @@map("proxy_sessions")
 }
