@@ -7,6 +7,7 @@ import { AuditModule } from './audit/audit.module';
 import { AdminAuthModule } from './auth/admin-auth.module';
 import { PlatformConfigModule } from './platform-config/platform-config.module';
 import { RefundsModule } from './refunds/refunds.module';
+import { SupportModule } from './support/support.module';
 
 @Module({
   controllers: [HealthController],
@@ -18,6 +19,7 @@ import { RefundsModule } from './refunds/refunds.module';
     AuditModule,
     PlatformConfigModule,
     RefundsModule,
+    SupportModule,
   ],
 })
 export class AppModule {}

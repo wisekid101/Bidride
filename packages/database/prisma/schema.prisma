@@ -250,20 +250,29 @@ enum QueueEntryStatus {
 
 enum TicketStatus {
   open
-  in_progress
-  pending_user
+  in_review
+  waiting_on_user
   resolved
+  escalated
   closed
 }
 
 enum TicketCategory {
-  safety
-  fare_dispute
-  lost_item
-  driver_conduct
-  rider_conduct
-  app_issue
-  general
+  payment_issue
+  safety_issue
+  missing_item
+  refund_request
+  driver_complaint
+  rider_complaint
+  background_check_issue
+  account_issue
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
 }
 
 // ─── Core User Tables ────────────────────────────────────────────────────────
@@ -971,7 +980,8 @@ model AdminUser {
   safetySessions          SafetySession[]
   sosEvents               SosEvent[]
   safetyIncidentAssignments SafetyIncidentAssignment[]
-  supportTickets          SupportTicket[]
+  assignedTickets         SupportTicket[] @relation("TicketAssignee")
+  ticketNotes             TicketNote[]
   platformConfigChanges   PlatformConfig[]
 
   @@map("admin_users")
@@ -1025,24 +1035,47 @@ model SafetyIncidentAssignment {
 // ─── Support Tables ───────────────────────────────────────────────────────────
 
 model SupportTicket {
-  id          String         @id @default(uuid()) @db.Uuid
-  riderId     String?        @map("rider_id") @db.Uuid
-  driverId    String?        @map("driver_id") @db.Uuid
-  tripId      String?        @map("trip_id") @db.Uuid
-  adminId     String?        @map("admin_id") @db.Uuid
-  category    TicketCategory
-  status      TicketStatus   @default(open)
-  subject     String         @db.VarChar(255)
-  body        String
-  slaDeadline DateTime       @map("sla_deadline")
-  resolvedAt  DateTime?      @map("resolved_at")
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @map("user_id") @db.Uuid
+  userRole     String         @map("user_role") @db.VarChar(20)
+  riderId      String?        @map("rider_id") @db.Uuid
+  driverId     String?        @map("driver_id") @db.Uuid
+  tripId       String?        @map("trip_id") @db.Uuid
+  assignedToId String?        @map("assigned_to_id") @db.Uuid
+  category     TicketCategory
+  status       TicketStatus   @default(open)
+  priority     TicketPriority @default(medium)
+  subject      String         @db.VarChar(255)
+  body         String         @db.Text
+  escalatedAt  DateTime?      @map("escalated_at")
+  resolvedAt   DateTime?      @map("resolved_at")
+  closedAt     DateTime?      @map("closed_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
 
-  rider Rider?     @relation(fields: [riderId], references: [id])
-  admin AdminUser? @relation(fields: [adminId], references: [id])
+  rider      Rider?     @relation(fields: [riderId], references: [id])
+  assignedTo AdminUser? @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  notes      TicketNote[]
 
+  @@index([status, priority, createdAt(sort: Desc)])
+  @@index([userId])
+  @@index([assignedToId])
   @@map("support_tickets")
+}
+
+model TicketNote {
+  id         String        @id @default(uuid()) @db.Uuid
+  ticketId   String        @map("ticket_id") @db.Uuid
+  adminId    String        @map("admin_id") @db.Uuid
+  content    String        @db.Text
+  isInternal Boolean       @default(true) @map("is_internal")
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id])
+  admin  AdminUser     @relation(fields: [adminId], references: [id])
+
+  @@index([ticketId])
+  @@map("ticket_notes")
 }
 
 // ─── Rider Extras ─────────────────────────────────────────────────────────────
