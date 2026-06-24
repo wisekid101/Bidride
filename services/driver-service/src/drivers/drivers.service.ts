@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
-import { PrismaClient, DriverStatus } from '@bidride/database';
+import { PrismaClient, DriverStatus, BackgroundCheckStatus } from '@bidride/database';
 import { Redis } from 'ioredis';
 import {
   SubmitPersonalInfoDto,
@@ -9,13 +9,14 @@ import {
   DeclineDriverDto,
   SuspendDriverDto,
 } from './dto';
+import { CheckrService } from './checkr.service';
 
 @Injectable()
 export class DriversService {
   private prisma = new PrismaClient();
   private redis: Redis;
 
-  constructor() {
+  constructor(private readonly checkrService: CheckrService) {
     this.redis = new Redis({
       host: process.env.REDIS_HOST ?? 'localhost',
       port: parseInt(process.env.REDIS_PORT ?? '6379'),
@@ -70,6 +71,10 @@ export class DriversService {
         legalFirstName: dto.legalFirstName,
         legalLastName: dto.legalLastName,
         dateOfBirth: dob,
+        homeAddress: dto.streetAddress,
+        homeCity: dto.city,
+        homeState: dto.state,
+        homeZip: dto.zipCode,
         onboardingStep: 'document_upload',
       },
     });
@@ -82,22 +87,39 @@ export class DriversService {
       throw new BadRequestException('FCRA consent is required to proceed');
     }
 
-    const driver = await this.prisma.driver.findUnique({ where: { userId } });
+    const driver = await this.prisma.driver.findUnique({
+      where: { userId },
+      include: { user: { select: { email: true, phone: true } } },
+    });
     if (!driver) throw new NotFoundException('Driver not found');
+
+    if (driver.backgroundCheckStatus !== BackgroundCheckStatus.not_started) {
+      throw new ConflictException('Background check already initiated');
+    }
+
+    const candidateId = await this.checkrService.createCandidate({
+      legalFirstName: driver.legalFirstName,
+      legalLastName: driver.legalLastName,
+      dateOfBirth: driver.dateOfBirth,
+      homeZip: driver.homeZip,
+      email: driver.user.email,
+      phone: driver.user.phone,
+    });
+
+    // No DB field for candidateId — store temporarily in Redis
+    await this.redis.setex(`checkr:candidate:${driver.id}`, 30 * 24 * 3600, candidateId);
+
+    const reportId = await this.checkrService.createReport(candidateId);
 
     await this.prisma.driver.update({
       where: { userId },
       data: {
-        backgroundCheckStatus: 'pending',
+        backgroundCheckId: reportId,
+        backgroundCheckStatus: BackgroundCheckStatus.pending,
+        backgroundCheckOrderedAt: new Date(),
         onboardingStep: 'vehicle_info',
       },
     });
-
-    // Publish background check request event (consumed by notification service → Checkr)
-    await this.redis.publish(
-      'background_check:request',
-      JSON.stringify({ driverId: driver.id, userId }),
-    );
 
     return { success: true, nextStep: 'vehicle_info' };
   }

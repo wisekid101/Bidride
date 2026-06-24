@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { DriversController } from './drivers.controller';
 import { DriversService } from './drivers.service';
+import { CheckrService } from './checkr.service';
+import { CheckrWebhookController } from './checkr.webhook.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
@@ -14,7 +16,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       inject: [ConfigService],
     }),
   ],
-  controllers: [DriversController],
-  providers: [DriversService],
+  controllers: [DriversController, CheckrWebhookController],
+  providers: [DriversService, CheckrService],
 })
 export class DriversModule {}
