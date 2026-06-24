@@ -143,8 +143,12 @@ export class BidsService implements OnModuleInit {
     // Cache trip state
     await this.redis.setex(`trip:${trip.id}:state`, 7200, TripStatus.searching);
 
+    // Compute approximate trip distance and duration for the driver card
+    const distanceMiles = this.haversineDistance(dto.pickupLat, dto.pickupLng, dto.dropoffLat, dto.dropoffLng);
+    const durationMin = Math.max(3, Math.round(distanceMiles * 2.5));
+
     // Broadcast bid to nearby drivers
-    await this.dispatch.broadcastBidRequest(trip, bid, standardFare, bidFloor);
+    await this.dispatch.broadcastBidRequest(trip, bid, standardFare, bidFloor, distanceMiles, durationMin, 'Verified');
 
     this.logger.log(`Bid ${bid.id} submitted: $${dto.bidAmount} (standard $${standardFare})`);
 
@@ -638,6 +642,17 @@ export class BidsService implements OnModuleInit {
     if (!driver) throw new NotFoundException('Driver profile not found.');
     if (driver.status !== 'approved') throw new ForbiddenException('Driver account is not approved.');
     return driver;
+  }
+
+  private haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 3958.8;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return parseFloat((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2));
   }
 
   private detectAirportTrip(pickup: string, dropoff: string): boolean {

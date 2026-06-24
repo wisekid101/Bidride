@@ -7,6 +7,8 @@ import {
   Animated,
   Vibration,
   Platform,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -16,20 +18,23 @@ import { api } from '../api/client';
 const ACCEPT_WINDOW_SECONDS = 15;
 
 interface RequestCardProps {
+  bidId: string;
   tripId: string;
   pickupAddress: string;
   dropoffAddress: string;
   aiFare: number;
-  driverTakeHome: number; // Pre-calculated: aiFare × 0.80 (or more if floor triggered)
+  driverTakeHome: number; // Pre-calculated: riderOffer × 0.80
   distanceMiles: number;
   durationMin: number;
   isAirportTrip: boolean;
   riderBadge: 'Verified' | 'Trusted' | 'Business' | 'VIP';
   onAccepted: () => void;
   onDeclined: () => void;
+  onCountered: () => void;
 }
 
 export function IncomingRequestScreen({
+  bidId,
   tripId,
   pickupAddress,
   dropoffAddress,
@@ -41,11 +46,14 @@ export function IncomingRequestScreen({
   riderBadge,
   onAccepted,
   onDeclined,
+  onCountered,
 }: RequestCardProps) {
   const navigation = useNavigation<any>();
   const [timeLeft, setTimeLeft] = useState(ACCEPT_WINDOW_SECONDS);
   const timerWidth = useRef(new Animated.Value(1)).current;
   const [loading, setLoading] = useState(false);
+  const [showCounter, setShowCounter] = useState(false);
+  const [counterInput, setCounterInput] = useState('');
 
   useEffect(() => {
     Vibration.vibrate([0, 400, 200, 400, 200, 400]);
@@ -78,11 +86,16 @@ export function IncomingRequestScreen({
   const accept = async () => {
     setLoading(true);
     try {
-      await api.post(`/trips/${tripId}/accept`, {});
+      await api.post(`/bids/${bidId}/accept`, {});
       onAccepted();
       navigation.navigate('NavigatingToPickup', { tripId });
-    } catch (err) {
-      console.error('Accept failed', err);
+    } catch (err: any) {
+      if (err.code === 'BID_ALREADY_CLAIMED') {
+        Alert.alert('Too slow', 'Another driver accepted this bid first.');
+        onDeclined();
+      } else {
+        Alert.alert('Error', 'Could not accept bid. Try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -90,9 +103,30 @@ export function IncomingRequestScreen({
 
   const decline = async () => {
     try {
-      await api.post(`/trips/${tripId}/reject`, {});
+      await api.post(`/bids/${bidId}/decline`, {});
     } catch {}
     onDeclined();
+  };
+
+  const submitCounter = async () => {
+    const amount = parseFloat(counterInput);
+    const riderOffer = driverTakeHome / 0.80; // recover original riderOffer
+    if (isNaN(amount) || amount <= riderOffer || amount >= aiFare) {
+      Alert.alert(
+        'Invalid counter',
+        `Counter must be between $${riderOffer.toFixed(2)} and $${aiFare.toFixed(2)}.`,
+      );
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post(`/bids/${bidId}/counter`, { counterAmount: amount });
+      onCountered();
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Could not submit counter offer.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const perMile = distanceMiles > 0 ? (driverTakeHome / distanceMiles).toFixed(2) : '—';
@@ -155,20 +189,52 @@ export function IncomingRequestScreen({
           </View>
         </View>
 
-        <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.declineButton} onPress={decline}>
-            <Text style={styles.declineText}>Decline</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.acceptButton, loading && styles.acceptButtonLoading]}
-            onPress={accept}
-            disabled={loading}
-          >
-            <Text style={styles.acceptText}>
-              {loading ? 'Accepting...' : `Accept · $${driverTakeHome.toFixed(2)}`}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {showCounter ? (
+          <View style={styles.counterSection}>
+            <TextInput
+              style={styles.counterInput}
+              value={counterInput}
+              onChangeText={setCounterInput}
+              placeholder={`$${(driverTakeHome / 0.80 + 0.01).toFixed(2)} – $${(aiFare - 0.01).toFixed(2)}`}
+              placeholderTextColor={Colors.textSecondary}
+              keyboardType="decimal-pad"
+              autoFocus
+            />
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={styles.declineButton}
+                onPress={() => { setShowCounter(false); setCounterInput(''); }}
+              >
+                <Text style={styles.declineText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.acceptButton, loading && styles.acceptButtonLoading]}
+                onPress={submitCounter}
+                disabled={loading}
+              >
+                <Text style={styles.acceptText}>{loading ? 'Sending...' : 'Send Counter'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.buttonRow}>
+            <TouchableOpacity style={styles.declineButton} onPress={decline} disabled={loading}>
+              <Text style={styles.declineText}>Decline</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.counterButton} onPress={() => setShowCounter(true)} disabled={loading}>
+              <Text style={styles.counterText}>Counter</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.acceptButton, loading && styles.acceptButtonLoading]}
+              onPress={accept}
+              disabled={loading}
+            >
+              <Text style={styles.acceptText}>
+                {loading ? 'Accepting...' : `Accept · $${driverTakeHome.toFixed(2)}`}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -255,7 +321,30 @@ const styles = StyleSheet.create({
   addressLabel: { color: Colors.textSecondary, fontSize: Typography.size.xs },
   addressText: { color: Colors.text, fontSize: Typography.size.sm, fontWeight: Typography.weight.medium },
 
+  counterSection: { gap: Spacing.sm },
+  counterInput: {
+    backgroundColor: Colors.background,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    color: Colors.text,
+    fontSize: Typography.size.md,
+    fontFamily: Typography.fontFamilyMono,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    textAlign: 'center',
+  },
   buttonRow: { flexDirection: 'row', gap: Spacing.sm },
+  counterButton: {
+    flex: 1,
+    borderRadius: Radius.lg,
+    paddingVertical: 16,
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  counterText: { color: Colors.primary, fontSize: Typography.size.base, fontWeight: Typography.weight.semibold },
   declineButton: {
     flex: 1,
     borderRadius: Radius.lg,

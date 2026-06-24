@@ -82,10 +82,22 @@ export class DispatchService {
   // ─── Bid Broadcast Methods ────────────────────────────────────────────────
 
   async broadcastBidRequest(
-    trip: { id: string; pickupLat: unknown; pickupLng: unknown; dropoffLat: unknown; dropoffLng: unknown; isAirportTrip: boolean },
+    trip: {
+      id: string;
+      pickupLat: unknown;
+      pickupLng: unknown;
+      dropoffLat: unknown;
+      dropoffLng: unknown;
+      pickupAddress: string;
+      dropoffAddress: string;
+      isAirportTrip: boolean;
+    },
     bid: { id: string; riderOffer: unknown },
     standardFare: number,
     bidFloor: number,
+    distanceMiles: number,
+    durationMin: number,
+    riderBadge: 'Verified' | 'Trusted' | 'Business' | 'VIP',
   ): Promise<void> {
     await this.publish('bid:drivers:incoming', {
       event: 'bid:incoming',
@@ -95,10 +107,15 @@ export class DispatchService {
       pickupLng: trip.pickupLng,
       dropoffLat: trip.dropoffLat,
       dropoffLng: trip.dropoffLng,
+      pickupAddress: trip.pickupAddress,
+      dropoffAddress: trip.dropoffAddress,
       bidAmount: bid.riderOffer,
       standardFare,
       bidFloor,
+      distanceMiles,
+      durationMin,
       isAirportTrip: trip.isAirportTrip,
+      riderBadge,
     });
   }
 

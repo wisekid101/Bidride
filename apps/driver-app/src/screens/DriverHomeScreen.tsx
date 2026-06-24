@@ -13,14 +13,30 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { useDriverStore } from '../store/driver.store';
+import { useDriverSocketStore } from '../store/socket.store';
+import { IncomingRequestScreen } from './IncomingRequestScreen';
 import { api } from '../api/client';
 
 export function DriverHomeScreen() {
   const navigation = useNavigation<any>();
   const { isOnline, todayEarnings, setOnlineStatus } = useDriverStore();
+  const { incomingBid, clearIncomingBid, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toggling, setToggling] = useState(false);
+
+  // Navigate away when a counter offer is accepted by the rider
+  useEffect(() => {
+    if (counterResult?.accepted) {
+      clearCounterResult();
+      navigation.navigate('InTrip', {
+        tripId: counterResult.tripId,
+        driverTakeHome: counterResult.finalFare * 0.80,
+      });
+    } else if (counterResult && !counterResult.accepted) {
+      clearCounterResult();
+    }
+  }, [counterResult]);
 
   useEffect(() => {
     (async () => {
@@ -31,12 +47,11 @@ export function DriverHomeScreen() {
       setCurrentLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
 
       if (isOnline) {
-        // Start background location updates during online shift
+        // Stream GPS via WebSocket — updates Redis and notifies active trip riders
         await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 10 },
           (position) => {
-            // Stream GPS to trip service
-            streamLocation(position.coords.latitude, position.coords.longitude);
+            emitLocation(position.coords.latitude, position.coords.longitude);
           },
         );
       }
@@ -60,10 +75,7 @@ export function DriverHomeScreen() {
     }
   };
 
-  const streamLocation = async (lat: number, lng: number) => {
-    // Posted to driver service every 3s — updates Redis key driver:{id}:location
-    await api.post('/driver/location', { lat, lng }).catch(() => {});
-  };
+  const PLATFORM_FEE_RATE = 0.20;
 
   return (
     <View style={styles.container}>
@@ -112,6 +124,25 @@ export function DriverHomeScreen() {
           <Text style={styles.airportButtonText}>EWR Queue</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Incoming bid overlay — only rendered when online and a bid is available */}
+      {isOnline && incomingBid && (
+        <IncomingRequestScreen
+          bidId={incomingBid.bidId}
+          tripId={incomingBid.tripId}
+          pickupAddress={incomingBid.pickupAddress}
+          dropoffAddress={incomingBid.dropoffAddress}
+          aiFare={incomingBid.standardFare}
+          driverTakeHome={parseFloat((incomingBid.bidAmount * (1 - PLATFORM_FEE_RATE)).toFixed(2))}
+          distanceMiles={incomingBid.distanceMiles}
+          durationMin={incomingBid.durationMin}
+          isAirportTrip={incomingBid.isAirportTrip}
+          riderBadge={incomingBid.riderBadge}
+          onAccepted={clearIncomingBid}
+          onDeclined={clearIncomingBid}
+          onCountered={clearIncomingBid}
+        />
+      )}
 
       {/* Earnings Card — always shows driver take-home first */}
       <View style={styles.earningsCard}>

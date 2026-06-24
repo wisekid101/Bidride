@@ -14,12 +14,14 @@ import { useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { useDriverStore } from '../store/driver.store';
+import { useDriverSocketStore } from '../store/socket.store';
 
 type AuthPhase = 'phone' | 'otp';
 
 export function DriverAuthScreen() {
   const router = useRouter();
   const { setTokens } = useDriverStore();
+  const connectSocket = useDriverSocketStore((s) => s.connect);
   const [phase, setPhase] = useState<AuthPhase>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -68,6 +70,7 @@ export function DriverAuthScreen() {
       }>('/auth/verify-otp', { phone: e164Phone, code: otp, role: 'driver' });
 
       await setTokens(result.access_token, result.refresh_token, result.user.id);
+      connectSocket(result.access_token);
 
       if (result.user.isNew) {
         router.replace('/onboarding');
