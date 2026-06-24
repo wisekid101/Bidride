@@ -2,12 +2,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TripsModule } from './trips/trips.module';
+import { BidsModule } from './bids/bids.module';
 
 @Module({
   controllers: [HealthController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TripsModule,
+    BidsModule,
   ],
 })
 export class AppModule {}

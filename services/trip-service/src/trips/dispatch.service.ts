@@ -79,6 +79,106 @@ export class DispatchService {
     }
   }
 
+  // ─── Bid Broadcast Methods ────────────────────────────────────────────────
+
+  async broadcastBidRequest(
+    trip: { id: string; pickupLat: unknown; pickupLng: unknown; dropoffLat: unknown; dropoffLng: unknown; isAirportTrip: boolean },
+    bid: { id: string; riderOffer: unknown },
+    standardFare: number,
+    bidFloor: number,
+  ): Promise<void> {
+    await this.publish('bid:drivers:incoming', {
+      event: 'bid:incoming',
+      bidId: bid.id,
+      tripId: trip.id,
+      pickupLat: trip.pickupLat,
+      pickupLng: trip.pickupLng,
+      dropoffLat: trip.dropoffLat,
+      dropoffLng: trip.dropoffLng,
+      bidAmount: bid.riderOffer,
+      standardFare,
+      bidFloor,
+      isAirportTrip: trip.isAirportTrip,
+    });
+  }
+
+  async notifyBidAcceptedByDriver(
+    tripId: string,
+    bidId: string,
+    driver: { id: string },
+    finalFare: number,
+  ): Promise<void> {
+    await this.publish(`rider:trip:${tripId}`, {
+      event: 'bid:accepted',
+      bidId,
+      tripId,
+      finalFare,
+      driverId: driver.id,
+    });
+  }
+
+  async notifyBidDeclinedByDriver(tripId: string, bidId: string): Promise<void> {
+    await this.publish(`rider:trip:${tripId}`, {
+      event: 'bid:declined',
+      bidId,
+      tripId,
+      message: 'Driver declined your bid. You may resubmit or take the standard fare.',
+    });
+  }
+
+  async notifyRiderBidCountered(
+    tripId: string,
+    bidId: string,
+    driver: { id: string },
+    counterAmount: number,
+    expiresAt: Date,
+  ): Promise<void> {
+    await this.publish(`rider:trip:${tripId}`, {
+      event: 'bid:countered',
+      bidId,
+      tripId,
+      counterAmount,
+      driverId: driver.id,
+      expiresAt: expiresAt.toISOString(),
+    });
+  }
+
+  async notifyDriverCounterAccepted(
+    tripId: string,
+    bidId: string,
+    driverId: string | null,
+    finalFare: number,
+  ): Promise<void> {
+    if (!driverId) return;
+    await this.publish(`user:${driverId}:events`, {
+      event: 'bid:counter_accepted',
+      bidId,
+      tripId,
+      finalFare,
+    });
+  }
+
+  async notifyDriverCounterDeclined(
+    tripId: string,
+    bidId: string,
+    driverId: string,
+  ): Promise<void> {
+    await this.publish(`user:${driverId}:events`, {
+      event: 'bid:counter_declined',
+      bidId,
+      tripId,
+    });
+  }
+
+  async notifyBidExpired(tripId: string, bidId: string): Promise<void> {
+    await this.publish(`rider:trip:${tripId}`, {
+      event: 'bid:expired',
+      bidId,
+      tripId,
+      message: 'Your bid expired with no response. You may resubmit or take the standard fare.',
+    });
+  }
+
   private async publish(channel: string, data: object): Promise<void> {
     await this.redis.publish(channel, JSON.stringify(data));
   }

@@ -249,6 +249,58 @@ export class PaymentService {
     return { refundId: refund.id, amount: refundAmount, status: refund.status };
   }
 
+  // ─── Bid Authorization Holds (internal — called by trip-service) ─────────
+
+  async createAuthorizationHold(
+    stripeCustomerId: string,
+    paymentMethodId: string,
+    amountCents: number,
+  ): Promise<{ paymentIntentId: string }> {
+    if (amountCents < 100) {
+      throw new BadRequestException({ code: 'AMOUNT_TOO_LOW', message: 'Amount must be at least $1.00.' });
+    }
+
+    const pi = await this.stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: 'usd',
+      customer: stripeCustomerId,
+      payment_method: paymentMethodId,
+      capture_method: 'manual',
+      confirm: true,
+      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+      metadata: { type: 'bid_hold' },
+    });
+
+    return { paymentIntentId: pi.id };
+  }
+
+  async captureAuthorizationHold(
+    paymentIntentId: string,
+    amountCents: number,
+  ): Promise<{ status: string }> {
+    const pi = await this.stripe.paymentIntents.capture(paymentIntentId, {
+      amount_to_capture: amountCents,
+    });
+
+    await this.prisma.payment.updateMany({
+      where: { stripePaymentIntentId: paymentIntentId },
+      data: { status: 'succeeded' },
+    });
+
+    return { status: pi.status };
+  }
+
+  async voidAuthorizationHold(paymentIntentId: string): Promise<{ status: string }> {
+    const pi = await this.stripe.paymentIntents.cancel(paymentIntentId);
+
+    await this.prisma.payment.updateMany({
+      where: { stripePaymentIntentId: paymentIntentId },
+      data: { status: 'failed' },
+    });
+
+    return { status: pi.status };
+  }
+
   // ─── Stripe Webhooks ──────────────────────────────────────────────────────
 
   constructWebhookEvent(body: Buffer, signature: string): Stripe.Event {

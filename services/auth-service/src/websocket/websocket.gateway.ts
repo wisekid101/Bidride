@@ -113,18 +113,29 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
   // ─── Redis Pub/Sub Consumer ───────────────────────────────────────────────
 
   private async setupRedisSubscriptions(): Promise<void> {
+    // Exact-match channels
     await this.subscriber.subscribe(
       'dispatch:requests',
+      'bid:drivers:incoming',
       'safety:sos',
       'safety:panic',
       'safety:anomaly',
       'notifications',
-      'rider:trip:*',
-      'driver:trip:*',
       'admin:broadcast',
     );
 
+    // Pattern-match channels — rider/driver trip events and user-targeted events
+    await this.subscriber.psubscribe(
+      'rider:trip:*',
+      'driver:trip:*',
+      'user:*:events',
+    );
+
     this.subscriber.on('message', (channel: string, message: string) => {
+      this.routeMessage(channel, message);
+    });
+
+    this.subscriber.on('pmessage', (_pattern: string, channel: string, message: string) => {
       this.routeMessage(channel, message);
     });
   }
@@ -134,19 +145,25 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
       const data = JSON.parse(message) as Record<string, unknown>;
       const event = data['event'] as string;
 
-      if (channel === 'safety:sos' || channel === 'safety:panic') {
-        // Broadcast to all admin sockets
+      if (channel === 'safety:sos' || channel === 'safety:panic' || channel === 'safety:anomaly') {
         this.server.to('admin:broadcast').emit(event, data);
+      } else if (channel === 'dispatch:requests') {
+        this.server.emit('request:incoming', data);
+      } else if (channel === 'bid:drivers:incoming') {
+        this.server.emit('bid:incoming', data);
       } else if (channel.startsWith('rider:trip:')) {
         const tripId = channel.replace('rider:trip:', '');
         this.server.to(`trip:${tripId}`).emit(event, data);
       } else if (channel.startsWith('driver:trip:')) {
         const tripId = channel.replace('driver:trip:', '');
         this.server.to(`trip:${tripId}`).emit(event, data);
-      } else if (channel === 'dispatch:requests') {
-        // In production, would filter to drivers in geographic zone
-        // For now broadcasts to all online drivers
-        this.server.emit('request:incoming', data);
+      } else if (channel.startsWith('user:') && channel.endsWith(':events')) {
+        // Targeted event for a specific user (e.g. bid counter accepted/declined)
+        const userId = channel.slice('user:'.length, -':events'.length);
+        this.server.to(`rider:${userId}`).emit(event, data);
+        this.server.to(`driver:${userId}`).emit(event, data);
+      } else if (channel === 'admin:broadcast') {
+        this.server.to('admin:broadcast').emit(event, data);
       }
     } catch (err) {
       console.error('WebSocket routing error:', err);
