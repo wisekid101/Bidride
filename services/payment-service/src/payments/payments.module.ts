@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PaymentService } from './payment.service';
 import { PaymentsInternalController } from './payments.internal.controller';
+import { StripeWebhookController } from './payments.webhook.controller';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisModule } from '../redis/redis.module';
 
@@ -16,7 +17,7 @@ import { RedisModule } from '../redis/redis.module';
       inject: [ConfigService],
     }),
   ],
-  controllers: [PaymentsInternalController],
+  controllers: [PaymentsInternalController, StripeWebhookController],
   providers: [PaymentService, PrismaService],
   exports: [PaymentService],
 })

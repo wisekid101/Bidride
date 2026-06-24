@@ -312,6 +312,10 @@ export class PaymentService {
   }
 
   async handleWebhookEvent(event: Stripe.Event): Promise<void> {
+    // Idempotency: each Stripe event ID is processed at most once within 24 hours
+    const claimed = await this.redis.set(`stripe:event:${event.id}`, '1', 'EX', 86400, 'NX');
+    if (!claimed) return;
+
     switch (event.type) {
       case 'payment_intent.succeeded': {
         const pi = event.data.object as Stripe.PaymentIntent;
@@ -329,14 +333,68 @@ export class PaymentService {
         });
         break;
       }
+      case 'payment_intent.canceled': {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        await this.prisma.payment.updateMany({
+          where: { stripePaymentIntentId: pi.id },
+          data: { status: 'failed' },
+        });
+        break;
+      }
+      case 'charge.refunded': {
+        const charge = event.data.object as Stripe.Charge;
+        const piId = typeof charge.payment_intent === 'string'
+          ? charge.payment_intent
+          : (charge.payment_intent as Stripe.PaymentIntent | null)?.id;
+        if (!piId) break;
+
+        const refundDollars = charge.amount_refunded / 100;
+        await this.prisma.payment.updateMany({
+          where: { stripePaymentIntentId: piId },
+          data: {
+            refundAmount: refundDollars,
+            status: charge.refunded ? 'refunded' : 'partially_refunded',
+          },
+        });
+        break;
+      }
       case 'account.updated': {
         const account = event.data.object as Stripe.Account;
-        const driverId = account.metadata?.driver_id;
-        if (driverId && account.payouts_enabled) {
+        if (account.payouts_enabled) {
           await this.prisma.driver.updateMany({
             where: { stripeAccountId: account.id },
             data: { payoutBankVerified: true, payoutBankVerifiedAt: new Date() },
           });
+        }
+        break;
+      }
+      case 'payout.paid': {
+        if (event.account) {
+          const driver = await this.prisma.driver.findFirst({
+            where: { stripeAccountId: event.account },
+            select: { id: true },
+          });
+          if (driver) {
+            await this.prisma.payout.updateMany({
+              where: { driverId: driver.id, status: 'pending' },
+              data: { status: 'paid', paidAt: new Date() },
+            });
+          }
+        }
+        break;
+      }
+      case 'payout.failed': {
+        if (event.account) {
+          const driver = await this.prisma.driver.findFirst({
+            where: { stripeAccountId: event.account },
+            select: { id: true },
+          });
+          if (driver) {
+            await this.prisma.payout.updateMany({
+              where: { driverId: driver.id, status: 'pending' },
+              data: { status: 'failed' },
+            });
+          }
         }
         break;
       }
