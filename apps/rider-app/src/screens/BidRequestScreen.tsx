@@ -144,6 +144,15 @@ export default function BidRequestScreen({ navigation, route }: Props) {
   const saving = bidAmount < parseFloat(aiFare ?? '0');
   const premium = bidAmount > parseFloat(aiFare ?? '0');
 
+  const standardFare = parseFloat(aiFare ?? '0');
+  const strengthData = standardFare > 0
+    ? bidAmount >= standardFare
+      ? { label: 'Strong', color: Colors.teal, hint: 'Drivers will prioritize your request' }
+      : bidAmount >= standardFare * 0.93
+        ? { label: 'Good', color: Colors.textPrimary, hint: 'Competitive — most drivers will consider this' }
+        : { label: 'Low', color: Colors.textSecondary, hint: 'May take longer to match' }
+    : null;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
@@ -181,6 +190,14 @@ export default function BidRequestScreen({ navigation, route }: Props) {
             <Text style={styles.bidPremium}>
               +${(bidAmount - parseFloat(aiFare ?? '0')).toFixed(2)} — attracts drivers faster
             </Text>
+          )}
+          {strengthData && (
+            <View style={styles.strengthRow}>
+              <Text style={[styles.strengthLabel, { color: strengthData.color }]}>
+                {strengthData.label}
+              </Text>
+              <Text style={styles.strengthHint}>{strengthData.hint}</Text>
+            </View>
           )}
         </View>
 
@@ -291,6 +308,9 @@ const styles = StyleSheet.create({
   bidAmountPremium: { color: Colors.gold },
   bidSavings: { fontSize: 13, color: Colors.teal, marginTop: 4 },
   bidPremium: { fontSize: 13, color: Colors.gold, marginTop: 4 },
+  strengthRow: { alignItems: 'center', gap: 4, marginTop: 8 },
+  strengthLabel: { fontSize: 15, fontWeight: '700' },
+  strengthHint: { fontSize: 12, color: Colors.textSecondary },
   quickSelect: { flexDirection: 'row', gap: 10, justifyContent: 'center' },
   quickBtn: {
     flex: 1,

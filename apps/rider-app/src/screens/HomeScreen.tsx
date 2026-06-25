@@ -141,8 +141,12 @@ export function HomeScreen() {
       });
 
       navigation.navigate('Tracking');
-    } catch {
-      setFareError('Could not request ride. Please try again.');
+    } catch (err: any) {
+      if (err.code === 'ACCOUNT_UNDER_REVIEW') {
+        setFareError('Your account is under safety review. Please contact support.');
+      } else {
+        setFareError('Could not request ride. Please try again.');
+      }
     } finally {
       setRequestingRide(false);
     }
@@ -250,6 +254,13 @@ export function HomeScreen() {
                 <Text style={styles.surgeText}> · {fareEstimate.surgeMultiplier.toFixed(1)}× surge</Text>
               )}
             </Text>
+            {fareEstimate.surgeMultiplier > 1.1 && (
+              <View style={styles.surgeBadge}>
+                <Text style={styles.surgeBadgeText}>
+                  {fareEstimate.surgeMultiplier.toFixed(1)}× High Demand
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -366,6 +377,21 @@ const styles = StyleSheet.create({
   },
   fareDetail: { color: Colors.textSecondary, fontSize: Typography.size.sm, marginTop: 4 },
   surgeText: { color: Colors.warning },
+  surgeBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.primary + '20',
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    marginTop: 6,
+  },
+  surgeBadgeText: {
+    color: Colors.primary,
+    fontSize: Typography.size.xs,
+    fontWeight: Typography.weight.semibold,
+  },
   requestButton: {
     backgroundColor: Colors.primary,
     borderRadius: Radius.lg,

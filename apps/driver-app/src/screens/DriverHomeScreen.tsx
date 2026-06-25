@@ -29,9 +29,9 @@ export function DriverHomeScreen() {
   useEffect(() => {
     if (counterResult?.accepted) {
       clearCounterResult();
-      navigation.navigate('InTrip', {
+      navigation.navigate('in-trip', {
         tripId: counterResult.tripId,
-        driverTakeHome: counterResult.finalFare * 0.80,
+        driverTakeHome: (counterResult.finalFare * 0.80).toString(),
       });
     } else if (counterResult && !counterResult.accepted) {
       clearCounterResult();
@@ -61,13 +61,13 @@ export function DriverHomeScreen() {
   const toggleOnline = async () => {
     setToggling(true);
     try {
-      if (isOnline) {
-        await api.post('/driver/status/offline', {});
-        setOnlineStatus(false);
-      } else {
-        await api.post('/driver/status/online', {});
-        setOnlineStatus(true);
-      }
+      const nextState = !isOnline;
+      await api.patch('/drivers/me/availability', {
+        isAvailable: nextState,
+        currentLat: currentLocation?.lat ?? null,
+        currentLng: currentLocation?.lng ?? null,
+      });
+      setOnlineStatus(nextState);
     } catch (err) {
       console.error('Status toggle failed', err);
     } finally {
@@ -76,6 +76,13 @@ export function DriverHomeScreen() {
   };
 
   const PLATFORM_FEE_RATE = 0.20;
+
+  // Rule-based zone floor: earnings floor formula for a typical Newark trip (~3 mi, ~12 min)
+  // Formula: (miles × $1.10) + (minutes × $0.22) + $2.50
+  const ZONE_FLOOR_EST = parseFloat(((3.0 * 1.10) + (12 * 0.22) + 2.50).toFixed(2));
+  const sessionAvgPerTrip = todayEarnings.trips > 0
+    ? parseFloat((todayEarnings.takeHome / todayEarnings.trips).toFixed(2))
+    : null;
 
   return (
     <View style={styles.container}>
@@ -144,6 +151,26 @@ export function DriverHomeScreen() {
         />
       )}
 
+      {/* Zone Opportunity Card — rule-based estimate using floor formula + session data */}
+      <View style={styles.zoneCard}>
+        <View style={styles.zoneCardHeader}>
+          <Text style={styles.zoneCardTitle}>Zone Opportunity</Text>
+          <Text style={styles.zoneCardEstimated}>estimated</Text>
+        </View>
+        {sessionAvgPerTrip !== null ? (
+          <View style={styles.zoneRow}>
+            <Text style={styles.zoneLabel}>Your session avg</Text>
+            <Text style={styles.zoneValue}>${sessionAvgPerTrip.toFixed(2)} / trip</Text>
+          </View>
+        ) : (
+          <Text style={styles.zoneNoData}>No trips yet this session</Text>
+        )}
+        <View style={styles.zoneRow}>
+          <Text style={styles.zoneLabel}>Floor guarantee</Text>
+          <Text style={styles.zoneValue}>${ZONE_FLOOR_EST.toFixed(2)}+ / typical trip</Text>
+        </View>
+      </View>
+
       {/* Earnings Card — always shows driver take-home first */}
       <View style={styles.earningsCard}>
         <Text style={styles.earningsLabel}>Today's Take-Home</Text>
@@ -211,6 +238,53 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: Typography.size.sm,
     fontWeight: Typography.weight.semibold,
+  },
+  zoneCard: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 264 : 244,
+    left: Spacing.base,
+    right: Spacing.base,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.xl,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  zoneCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  zoneCardTitle: {
+    color: Colors.text,
+    fontSize: Typography.size.sm,
+    fontWeight: Typography.weight.semibold,
+  },
+  zoneCardEstimated: {
+    color: Colors.textSecondary,
+    fontSize: Typography.size.xs,
+  },
+  zoneRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  zoneLabel: {
+    color: Colors.textSecondary,
+    fontSize: Typography.size.xs,
+  },
+  zoneValue: {
+    color: Colors.text,
+    fontSize: Typography.size.sm,
+    fontWeight: Typography.weight.semibold,
+    fontFamily: Typography.fontFamilyMono,
+  },
+  zoneNoData: {
+    color: Colors.textSecondary,
+    fontSize: Typography.size.xs,
+    paddingVertical: 2,
   },
   earningsCard: {
     position: 'absolute',

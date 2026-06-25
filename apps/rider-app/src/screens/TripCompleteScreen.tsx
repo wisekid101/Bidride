@@ -12,28 +12,28 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { Star } from 'lucide-react-native';
 import { Colors, Fonts } from '../constants/theme';
-import { useAuthStore } from '../store/auth.store';
 import { useTripStore } from '../store/trip.store';
+import { api } from '../api/client';
 
 type Props = {
   navigation: NativeStackNavigationProp<any>;
   route: RouteProp<any>;
 };
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
-
 export default function TripCompleteScreen({ navigation, route }: Props) {
-  const { accessToken } = useAuthStore();
-  const { activeTrip, clearCompletedTrip } = useTripStore();
+  const { activeTrip, completedTrip, clearCompletedTrip } = useTripStore();
   const [rating, setRating] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const tripId = route.params?.tripId ?? activeTrip?.id;
-  const finalFare = route.params?.finalFare ?? activeTrip?.finalFare ?? 0;
-  const driverName = route.params?.driverName ?? activeTrip?.driverName ?? 'Your Driver';
-  const pickupAddress = route.params?.pickupAddress ?? activeTrip?.pickupAddress ?? '';
-  const dropoffAddress = route.params?.dropoffAddress ?? activeTrip?.dropoffAddress ?? '';
+  const tripId = route.params?.tripId ?? completedTrip?.id ?? activeTrip?.id;
+  const finalFare = completedTrip?.finalFare ?? route.params?.finalFare ?? activeTrip?.finalFare ?? 0;
+  const driverName = route.params?.driverName ?? completedTrip?.driverName ?? activeTrip?.driverName ?? 'Your Driver';
+  const pickupAddress = route.params?.pickupAddress ?? completedTrip?.pickupAddress ?? activeTrip?.pickupAddress ?? '';
+  const dropoffAddress = route.params?.dropoffAddress ?? completedTrip?.dropoffAddress ?? activeTrip?.dropoffAddress ?? '';
+
+  const aiFare = completedTrip?.aiFare ?? activeTrip?.aiFare;
+  const savings = aiFare != null ? Math.max(0, aiFare - parseFloat(String(finalFare))) : 0;
 
   const submitRating = async () => {
     if (rating === 0) {
@@ -43,15 +43,7 @@ export default function TripCompleteScreen({ navigation, route }: Props) {
 
     setSubmitting(true);
     try {
-      await fetch(`${API_URL}/trips/${tripId}/rate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ riderRating: rating }),
-      });
-
+      await api.post(`/trips/${tripId}/rate`, { rating });
       setSubmitted(true);
     } catch {
       // Rating is non-critical — don't block the user
@@ -77,7 +69,12 @@ export default function TripCompleteScreen({ navigation, route }: Props) {
         {/* Fare summary */}
         <View style={styles.fareCard}>
           <Text style={styles.fareLabel}>Total Fare</Text>
-          <Text style={styles.fareAmount}>${parseFloat(finalFare).toFixed(2)}</Text>
+          <Text style={styles.fareAmount}>${parseFloat(String(finalFare)).toFixed(2)}</Text>
+          {savings > 0.01 && (
+            <View style={styles.savingsRow}>
+              <Text style={styles.savingsText}>You saved ${savings.toFixed(2)} vs AI fare</Text>
+            </View>
+          )}
           <Text style={styles.fareNote}>Charged to card on file</Text>
         </View>
 
@@ -166,6 +163,15 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   fareNote: { fontSize: 12, color: Colors.textTertiary },
+  savingsRow: {
+    backgroundColor: Colors.teal + '20',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  savingsText: { fontSize: 13, fontWeight: '600', color: Colors.teal },
   routeCard: {
     backgroundColor: Colors.surface,
     borderRadius: 16,

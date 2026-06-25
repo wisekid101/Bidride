@@ -26,10 +26,26 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       reconnectionDelay: 1000,
     });
 
-    socket.on('driver:assigned', (data: { driverId: string; driverName: string; vehicleInfo: string; eta: string }) => {
+    socket.on('driver:assigned', (data: {
+      driverId: string;
+      driverName: string;
+      driverBadge?: string;
+      vehicleMake?: string;
+      vehicleModel?: string;
+      vehicleColor?: string;
+      licensePlate?: string;
+    }) => {
+      const current = useTripStore.getState().activeTrip;
+      if (!current) return;
       useTripStore.getState().setActiveTrip({
-        ...useTripStore.getState().activeTrip!,
+        ...current,
+        driverId: data.driverId,
         driverName: data.driverName,
+        driverBadge: data.driverBadge,
+        vehicleMake: data.vehicleMake,
+        vehicleModel: data.vehicleModel,
+        vehicleColor: data.vehicleColor,
+        licensePlate: data.licensePlate,
         status: 'accepted',
       });
     });
@@ -50,8 +66,8 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       useTripStore.getState().updateTripStatus('accepted');
     });
 
-    socket.on('trip:completed', () => {
-      useTripStore.getState().updateTripStatus('completed');
+    socket.on('trip:completed', (data?: { finalFare?: number }) => {
+      useTripStore.getState().updateTripStatus('completed', data?.finalFare);
     });
 
     socket.on('trip:cancelled', () => {

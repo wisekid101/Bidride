@@ -51,7 +51,7 @@ export interface PendingCounter {
 interface TripStore {
   activeTrip: ActiveTrip | null;
   setActiveTrip: (trip: ActiveTrip | null) => void;
-  updateTripStatus: (status: TripStatus) => void;
+  updateTripStatus: (status: TripStatus, finalFare?: number) => void;
   updateDriverLocation: (location: DriverLocation) => void;
   completedTrip: ActiveTrip | null;
   clearCompletedTrip: () => void;
@@ -67,12 +67,20 @@ export const useTripStore = create<TripStore>((set, get) => ({
 
   setActiveTrip: (trip) => set({ activeTrip: trip }),
 
-  updateTripStatus: (status) => {
+  updateTripStatus: (status, finalFare) => {
     const trip = get().activeTrip;
     if (!trip) return;
 
     if (status === 'completed' || status === 'cancelled') {
-      set({ completedTrip: { ...trip, status }, activeTrip: null, pendingCounter: null });
+      set({
+        completedTrip: {
+          ...trip,
+          status,
+          ...(finalFare !== undefined ? { finalFare } : {}),
+        },
+        activeTrip: null,
+        pendingCounter: null,
+      });
     } else {
       set({ activeTrip: { ...trip, status } });
     }
