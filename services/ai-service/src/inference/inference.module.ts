@@ -7,9 +7,10 @@ import { ModelHealthService } from '../services/model-health.service';
 import { FeatureService } from '../services/feature.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisModule } from '../redis/redis.module';
+import { BidPredictionModule } from '../bid-prediction/bid-prediction.module';
 
 @Module({
-  imports: [RedisModule],
+  imports: [RedisModule, BidPredictionModule],
   controllers: [InferenceController],
   providers: [
     ModelRegistryService,

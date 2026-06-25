@@ -51,6 +51,22 @@ export class ModelRegistryService {
     return record.champion;
   }
 
+  getChallenger(modelName: string): ModelEntry | undefined {
+    return this.registry.get(modelName)?.challenger;
+  }
+
+  getShadow(modelName: string): ModelEntry | undefined {
+    return this.registry.get(modelName)?.shadow;
+  }
+
+  getExperimental(modelName: string): ModelEntry | undefined {
+    return this.registry.get(modelName)?.experimental;
+  }
+
+  getRecord(modelName: string): ModelRecord | undefined {
+    return this.registry.get(modelName);
+  }
+
   listModels(): Record<string, { champion: ModelEntry; challenger?: ModelEntry; shadow?: ModelEntry; experimental?: ModelEntry }> {
     const result: Record<string, ModelRecord> = {};
     for (const [name, record] of this.registry.entries()) {
@@ -59,11 +75,34 @@ export class ModelRegistryService {
     return result;
   }
 
-  // Promote a version to challenger (for future use when models are trained)
   promoteChallenger(modelName: string, version: string, endpointName?: string): void {
     const record = this.registry.get(modelName);
     if (!record) throw new Error(`Unknown model: ${modelName}`);
     record.challenger = { version, endpointName, deployedAt: new Date() };
+  }
+
+  promoteShadow(modelName: string, version: string, endpointName?: string): void {
+    const record = this.registry.get(modelName);
+    if (!record) throw new Error(`Unknown model: ${modelName}`);
+    record.shadow = { version, endpointName, deployedAt: new Date() };
+  }
+
+  async invokeEndpoint(endpointName: string, features: object, version: string): Promise<{
+    output: Record<string, unknown>;
+    modelVersion: string;
+    confidence: number;
+  }> {
+    const response = await this.sagemaker.invokeEndpoint({
+      EndpointName: endpointName,
+      ContentType: 'application/json',
+      Body: JSON.stringify(features),
+    }).promise();
+    const parsed = JSON.parse(response.Body?.toString() ?? '{}') as Record<string, unknown>;
+    return {
+      output: parsed,
+      modelVersion: version,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.85,
+    };
   }
 
   async invoke(modelName: string, features: object): Promise<{

@@ -1225,6 +1225,36 @@ model AiInferenceLog {
   @@map("ai_inference_logs")
 }
 
+// ─── Bid Outcome Tracking (future ML training data) ──────────────────────────
+
+model BidOutcome {
+  id                    String   @id @default(uuid()) @db.Uuid
+  tripId                String   @map("trip_id") @db.Uuid
+  bidId                 String?  @map("bid_id") @db.Uuid
+  zoneKey               String?  @map("zone_key") @db.VarChar(50)
+  wasAccepted           Boolean  @map("was_accepted")
+  timeToAcceptanceMs    Int?     @map("time_to_acceptance_ms")
+  driversViewed         Int      @default(0) @map("drivers_viewed")
+  driversIgnored        Int      @default(0) @map("drivers_ignored")
+  driversDeclined       Int      @default(0) @map("drivers_declined")
+  driversCountered      Int      @default(0) @map("drivers_countered")
+  finalAcceptedAmount   Decimal? @map("final_accepted_amount") @db.Decimal(10, 2)
+  finalFare             Decimal? @map("final_fare") @db.Decimal(10, 2)
+  driverEarnings        Decimal? @map("driver_earnings") @db.Decimal(10, 2)
+  platformFee           Decimal? @map("platform_fee") @db.Decimal(10, 2)
+  predictionProbability Decimal? @map("prediction_probability") @db.Decimal(5, 4)
+  predictionConfidence  Decimal? @map("prediction_confidence") @db.Decimal(5, 4)
+  predictionCorrect     Boolean? @map("prediction_correct")
+  modelVersion          String?  @map("model_version") @db.VarChar(50)
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@index([tripId])
+  @@index([wasAccepted, createdAt(sort: Desc)])
+  @@index([zoneKey, wasAccepted])
+  @@index([predictionCorrect, createdAt(sort: Desc)])
+  @@map("bid_outcomes")
+}
+
 // ─── Proxy Sessions (Twilio masked communications) ────────────────────────────
 
 enum ProxySessionStatus {

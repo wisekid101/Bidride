@@ -6,6 +6,7 @@ import { FallbackService } from '../services/fallback.service';
 import { InferenceLogService } from '../services/inference-log.service';
 import { ModelHealthService } from '../services/model-health.service';
 import { FeatureService } from '../services/feature.service';
+import { BidWinProbabilityEngine, BID_ENGINE_VERSION } from '../bid-prediction/bid-win-probability.engine';
 
 interface FareAdjustmentBody {
   distanceMiles: number;
@@ -42,10 +43,21 @@ interface FraudScoreBody {
 interface BidWinProbabilityBody {
   bidAmount: number;
   aiFare: number;
-  distanceMiles: number;
-  durationMin: number;
-  surgeMultiplier?: number;
-  driverCount?: number;
+  distanceMiles?: number;
+  etaMinutes?: number;
+  riderTrustScore?: number;
+  driverTrustScore?: number;
+  isAirport?: boolean;
+  weatherFactor?: number;
+  timeOfDay?: number;
+  driverAcceptanceHistory?: number;
+  driverCancellationRate?: number;
+  driverResponseTimeMs?: number;
+  currentZoneDemand?: number;
+  availableDriversInZone?: number;
+  historicalAcceptanceRate?: number;
+  lat?: number;
+  lng?: number;
   tripId?: string;
   userId?: string;
 }
@@ -78,6 +90,7 @@ export class InferenceController {
     private readonly inferenceLog: InferenceLogService,
     private readonly health: ModelHealthService,
     private readonly features: FeatureService,
+    private readonly bidEngine: BidWinProbabilityEngine,
   ) {}
 
   private async runInference<T extends Record<string, unknown>>(
@@ -109,21 +122,10 @@ export class InferenceController {
 
     const latencyMs = Date.now() - start;
 
-    this.inferenceLog.log({
-      modelName,
-      modelVersion,
-      inputFeatures: featureVector,
-      output,
-      confidence,
-      fallbackUsed,
-      latencyMs,
-      tripId,
-      userId,
-    });
-
+    this.inferenceLog.log({ modelName, modelVersion, inputFeatures: featureVector, output, confidence, fallbackUsed, latencyMs, tripId, userId });
     this.health.record(modelName, latencyMs, fallbackUsed);
 
-    return { data: output as T, modelVersion, latencyMs, fallbackUsed, confidence, inferenceId };
+    return { data: output as T, modelVersion, latencyMs, fallbackUsed, confidence, inferenceId, predictionTimestamp: new Date().toISOString() };
   }
 
   @Post('fare-adjustment')
@@ -145,9 +147,41 @@ export class InferenceController {
   @Post('bid-win-probability')
   async bidWinProbability(
     @Body() body: BidWinProbabilityBody,
-  ): Promise<AiResponseEnvelope<{ probability: number }>> {
-    const featureVector = this.features.buildBidFeatures(body as unknown as Record<string, unknown>);
-    return this.runInference('bid-win-probability', featureVector, body.tripId, body.userId);
+  ): Promise<AiResponseEnvelope<{ probability: number; confidence: number; explanation: string[] }>> {
+    const start = Date.now();
+    const inferenceId = randomUUID();
+
+    const featureVector = await this.features.buildBidFeatures(body);
+    const result = this.bidEngine.predict(featureVector as unknown as Parameters<BidWinProbabilityEngine['predict']>[0]);
+
+    const latencyMs = Date.now() - start;
+    const output = { probability: result.probability, confidence: result.confidence, explanation: result.explanation };
+
+    this.inferenceLog.log({
+      modelName: 'bid-win-probability',
+      modelVersion: BID_ENGINE_VERSION,
+      inputFeatures: featureVector,
+      output: output as unknown as Record<string, unknown>,
+      confidence: result.confidence,
+      fallbackUsed: false,
+      latencyMs,
+      tripId: body.tripId,
+      userId: body.userId,
+    });
+    this.health.record('bid-win-probability', latencyMs, false);
+
+    // Shadow runner — invoke challenger/shadow endpoints in background (no-op until deployed)
+    this.runShadows('bid-win-probability', featureVector, body.tripId);
+
+    return {
+      data: output,
+      modelVersion: BID_ENGINE_VERSION,
+      latencyMs,
+      fallbackUsed: false,
+      confidence: result.confidence,
+      inferenceId,
+      predictionTimestamp: new Date().toISOString(),
+    };
   }
 
   @Post('surge-forecast')
@@ -174,5 +208,34 @@ export class InferenceController {
       models: this.health.getHealth(),
       service: { uptime: process.uptime(), version: '1.0.0' },
     };
+  }
+
+  // Champion/challenger/shadow framework — fires background invocations for non-production comparison
+  private runShadows(modelName: string, features: Record<string, unknown>, tripId?: string): void {
+    const record = this.modelRegistry.getRecord(modelName);
+    if (!record) return;
+
+    const slots: Array<{ slot: string; entry: { version: string; endpointName?: string } }> = [];
+    if (record.challenger?.endpointName) slots.push({ slot: 'challenger', entry: record.challenger });
+    if (record.shadow?.endpointName) slots.push({ slot: 'shadow', entry: record.shadow });
+    if (record.experimental?.endpointName) slots.push({ slot: 'experimental', entry: record.experimental });
+
+    for (const { slot, entry } of slots) {
+      void this.modelRegistry
+        .invokeEndpoint(entry.endpointName!, features, entry.version)
+        .then((res) => {
+          this.inferenceLog.log({
+            modelName,
+            modelVersion: `${entry.version}:${slot}`,
+            inputFeatures: features,
+            output: res.output,
+            confidence: res.confidence,
+            fallbackUsed: false,
+            latencyMs: 0,
+            tripId,
+          });
+        })
+        .catch(() => {});
+    }
   }
 }

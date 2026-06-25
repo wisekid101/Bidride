@@ -5,6 +5,7 @@ export interface AiResponseEnvelope<T> {
   fallbackUsed: boolean;
   confidence: number;
   inferenceId: string;
+  predictionTimestamp: string;
 }
 
 export interface ModelHealthMetrics {

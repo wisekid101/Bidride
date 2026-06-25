@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   DollarSign,
   FileText,
+  Brain,
   LogOut,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { href: '/fraud', label: 'Fraud', icon: AlertTriangle },
   { href: '/earnings-floor', label: 'Earnings Floor', icon: DollarSign },
   { href: '/refunds', label: 'Refunds', icon: FileText },
+  { href: '/ai', label: 'AI Models', icon: Brain },
 ];
 
 export function AdminNav() {

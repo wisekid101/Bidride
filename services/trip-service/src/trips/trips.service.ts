@@ -228,6 +228,9 @@ export class TripsService {
     // Fire-and-forget: recalculate trust scores for both parties post-trip
     this.scheduleTrustRefresh(trip.riderId, trip.driverId);
 
+    // Fire-and-forget: record bid outcome for AI training data pipeline
+    this.recordBidOutcome(trip, finalFare, floorResult.totalDriverEarnings, platformFee);
+
     return updated;
   }
 
@@ -444,6 +447,40 @@ export class TripsService {
         } catch {}
       })();
     }
+  }
+
+  private recordBidOutcome(
+    trip: { id: string; pickupLat: unknown; pickupLng: unknown; acceptedAt: Date | null; createdAt: Date },
+    finalFare: number,
+    driverEarnings: number,
+    platformFee: number,
+  ): void {
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL;
+    if (!AI_SERVICE_URL) return;
+
+    const pickupLat = Number(trip.pickupLat);
+    const pickupLng = Number(trip.pickupLng);
+    const zoneKey = !isNaN(pickupLat) && !isNaN(pickupLng)
+      ? getZoneKey(pickupLat, pickupLng)
+      : undefined;
+    const timeToAcceptanceMs =
+      trip.acceptedAt ? trip.acceptedAt.getTime() - trip.createdAt.getTime() : undefined;
+
+    void fetch(`${AI_SERVICE_URL}/ai/bid-outcome`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tripId: trip.id,
+        zoneKey,
+        wasAccepted: true,
+        timeToAcceptanceMs,
+        finalFare,
+        finalAcceptedAmount: finalFare,
+        driverEarnings,
+        platformFee,
+      }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
   }
 
   private detectAirportTrip(pickup: string, dropoff: string): boolean {

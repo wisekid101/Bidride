@@ -1,12 +1,16 @@
 import { InferenceController } from './inference.controller';
 import { FallbackService } from '../services/fallback.service';
 import { ModelHealthService } from '../services/model-health.service';
+import { BidWinProbabilityEngine } from '../bid-prediction/bid-win-probability.engine';
 
 const mockModelRegistry = {
   invoke: jest.fn(),
+  getRecord: jest.fn().mockReturnValue(undefined), // no shadow slots configured
+  invokeEndpoint: jest.fn(),
 } as any;
 
 const fallbackService = new FallbackService();
+const bidEngine = new BidWinProbabilityEngine();
 
 const mockInferenceLog = {
   log: jest.fn(),
@@ -15,7 +19,7 @@ const mockInferenceLog = {
 const mockFeatures = {
   buildFareFeatures: jest.fn().mockResolvedValue({ distanceMiles: 3, durationMin: 12 }),
   buildFraudFeatures: jest.fn().mockReturnValue({ userId: 'u-1', linkedAccounts: 0, deviceFingerprints: 1, fraudFlagCount: 0, disputeCount: 0, accountAgeDays: 100, totalTrips: 5 }),
-  buildBidFeatures: jest.fn().mockReturnValue({ bidAmount: 20, aiFare: 18 }),
+  buildBidFeatures: jest.fn().mockResolvedValue({ bidAmount: 20, aiFare: 18 }),
   buildSurgeFeatures: jest.fn().mockResolvedValue({ lat: 40.7, lng: -74.1, currentRequests: 0 }),
   buildDriverEarningsFeatures: jest.fn().mockReturnValue({ lat: 40.7, lng: -74.1 }),
 } as any;
@@ -25,13 +29,14 @@ let healthService: ModelHealthService;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  healthService = new ModelHealthService(); // fresh per test — health state must not bleed across
+  healthService = new ModelHealthService();
   controller = new InferenceController(
     mockModelRegistry,
     fallbackService,
     mockInferenceLog,
     healthService,
     mockFeatures,
+    bidEngine,
   );
 });
 
@@ -51,6 +56,7 @@ describe('InferenceController — response envelope', () => {
     expect(result.confidence).toBe(0);
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);
     expect(result.inferenceId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.predictionTimestamp).toBeDefined();
   });
 
   it('POST /ai/fraud-score returns correct envelope when model unavailable', async () => {
@@ -65,18 +71,36 @@ describe('InferenceController — response envelope', () => {
 
     expect(result.data).toHaveProperty('fraudProbability');
     expect(result.fallbackUsed).toBe(true);
+    expect(result.predictionTimestamp).toBeDefined();
   });
 
-  it('POST /ai/bid-win-probability returns correct envelope', async () => {
-    mockModelRegistry.invoke.mockRejectedValue(new Error('No endpoint'));
-
+  it('POST /ai/bid-win-probability uses rule engine — never fallback', async () => {
     const result = await controller.bidWinProbability({
-      bidAmount: 20, aiFare: 18, distanceMiles: 3, durationMin: 12,
+      bidAmount: 20, aiFare: 18, distanceMiles: 3,
     });
 
     expect(result.data).toHaveProperty('probability');
-    expect(result.data.probability).toBeGreaterThanOrEqual(0);
-    expect(result.data.probability).toBeLessThanOrEqual(1);
+    expect(result.data).toHaveProperty('confidence');
+    expect(result.data).toHaveProperty('explanation');
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.modelVersion).toBe('rule-v1');
+    expect(result.data.probability).toBeGreaterThanOrEqual(0.05);
+    expect(result.data.probability).toBeLessThanOrEqual(0.95);
+    expect(result.predictionTimestamp).toBeDefined();
+    // Verify modelRegistry.invoke was NOT called — engine runs directly
+    expect(mockModelRegistry.invoke).not.toHaveBeenCalled();
+  });
+
+  it('POST /ai/bid-win-probability includes explanation strings', async () => {
+    const result = await controller.bidWinProbability({
+      bidAmount: 25, aiFare: 18,
+      riderTrustScore: 900,
+      availableDriversInZone: 10,
+      isAirport: true,
+    });
+
+    expect(Array.isArray(result.data.explanation)).toBe(true);
+    expect(result.data.explanation.length).toBeGreaterThan(0);
   });
 
   it('POST /ai/surge-forecast returns correct envelope', async () => {
@@ -85,15 +109,15 @@ describe('InferenceController — response envelope', () => {
     const result = await controller.surgeForecast({ lat: 40.7, lng: -74.1 });
 
     expect(result.data).toHaveProperty('forecastedMultiplier');
+    expect(result.predictionTimestamp).toBeDefined();
   });
 
-  it('POST /ai/driver-earnings returns correct envelope', async () => {
+  it('POST /ai/driver-earnings returns floor estimate', async () => {
     mockModelRegistry.invoke.mockRejectedValue(new Error('No endpoint'));
 
     const result = await controller.driverEarnings({ lat: 40.7, lng: -74.1 });
 
     expect(result.data).toHaveProperty('estimatedEarnings');
-    // Floor formula: (3 × $1.10) + (12 × $0.22) + $2.50 = $8.44
     expect(result.data.estimatedEarnings).toBe(8.44);
   });
 });
@@ -112,6 +136,18 @@ describe('InferenceController — inference logging', () => {
         modelName: 'fare-adjustment',
         fallbackUsed: true,
         latencyMs: expect.any(Number),
+      }),
+    );
+  });
+
+  it('logs bid-win-probability with rule engine version', async () => {
+    await controller.bidWinProbability({ bidAmount: 20, aiFare: 18 });
+
+    expect(mockInferenceLog.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelName: 'bid-win-probability',
+        modelVersion: 'rule-v1',
+        fallbackUsed: false,
       }),
     );
   });
