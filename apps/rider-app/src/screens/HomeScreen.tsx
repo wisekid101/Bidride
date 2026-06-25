@@ -4,16 +4,21 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
+  ScrollView,
   ActivityIndicator,
   Platform,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Marker, Circle } from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
+import { geocodingApi, ResolvedAddress } from '../api/geocoding';
 import { useTripStore } from '../store/trip.store';
+import { useAddressStore } from '../store/address.store';
+import { AddressAutocomplete } from '../components/AddressAutocomplete';
+import { EwrTerminalPicker } from '../components/EwrTerminalPicker';
+import { detectEwrAddress } from '../constants/airports';
 
 interface FareEstimate {
   fare: number;
@@ -26,13 +31,18 @@ export function HomeScreen() {
   const navigation = useNavigation<any>();
   const mapRef = useRef<MapView>(null);
   const { activeTrip } = useTripStore();
+  const { recentAddresses, homeAddress, workAddress, addRecent } = useAddressStore();
 
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [pickupAddress, setPickupAddress] = useState('');
-  const [dropoffAddress, setDropoffAddress] = useState('');
+  const [pickupResolved, setPickupResolved] = useState<ResolvedAddress | null>(null);
+  const [dropoffResolved, setDropoffResolved] = useState<ResolvedAddress | null>(null);
   const [fareEstimate, setFareEstimate] = useState<FareEstimate | null>(null);
   const [loadingFare, setLoadingFare] = useState(false);
   const [requestingRide, setRequestingRide] = useState(false);
+  const [fareError, setFareError] = useState<string | null>(null);
+  const [ewrVisible, setEwrVisible] = useState(false);
+  const pendingEwrAddress = useRef<ResolvedAddress | null>(null);
+  const sessionToken = useRef(Math.random().toString(36).slice(2)).current;
 
   useEffect(() => {
     (async () => {
@@ -40,67 +50,117 @@ export function HomeScreen() {
       if (status !== 'granted') return;
 
       const location = await Location.getCurrentPositionAsync({});
-      setCurrentLocation({
-        lat: location.coords.latitude,
-        lng: location.coords.longitude,
-      });
+      const coords = { lat: location.coords.latitude, lng: location.coords.longitude };
+      setCurrentLocation(coords);
+
+      try {
+        const { formattedAddress } = await geocodingApi.reverseGeocode(coords.lat, coords.lng);
+        setPickupResolved({ placeId: '', formattedAddress, lat: coords.lat, lng: coords.lng });
+      } catch {
+        setPickupResolved({ placeId: '', formattedAddress: 'Current Location', ...coords });
+      }
     })();
   }, []);
 
-  // Redirect if active trip
   useEffect(() => {
-    if (activeTrip) {
-      navigation.navigate('Tracking');
-    }
+    if (activeTrip) navigation.navigate('Tracking');
   }, [activeTrip]);
 
-  const getEstimate = async () => {
-    if (!currentLocation || !dropoffAddress) return;
+  const getEstimate = async (pickup: ResolvedAddress, dropoff: ResolvedAddress) => {
+    setFareError(null);
     setLoadingFare(true);
     try {
       const estimate = await api.post<FareEstimate>('/pricing/estimate', {
-        pickupLat: currentLocation.lat,
-        pickupLng: currentLocation.lng,
-        dropoffLat: currentLocation.lat + 0.05, // placeholder — geocoded dropoff
-        dropoffLng: currentLocation.lng + 0.05,
+        pickupLat: pickup.lat,
+        pickupLng: pickup.lng,
+        dropoffLat: dropoff.lat,
+        dropoffLng: dropoff.lng,
       });
       setFareEstimate(estimate);
-    } catch (err) {
-      console.error('Fare estimate failed', err);
+    } catch {
+      setFareError('Could not estimate fare. Please try again.');
     } finally {
       setLoadingFare(false);
     }
   };
 
+  const finalizeDropoff = (addr: ResolvedAddress) => {
+    addRecent(addr);
+    setDropoffResolved(addr);
+    setFareEstimate(null);
+    if (pickupResolved) getEstimate(pickupResolved, addr);
+  };
+
+  const handleDropoffResolved = (addr: ResolvedAddress) => {
+    if (detectEwrAddress(addr.formattedAddress)) {
+      pendingEwrAddress.current = addr;
+      setEwrVisible(true);
+      return;
+    }
+    finalizeDropoff(addr);
+  };
+
+  const handleEwrTerminalSelect = (addr: ResolvedAddress) => {
+    setEwrVisible(false);
+    pendingEwrAddress.current = null;
+    finalizeDropoff(addr);
+  };
+
+  const handleEwrDismiss = () => {
+    setEwrVisible(false);
+    if (pendingEwrAddress.current) {
+      finalizeDropoff(pendingEwrAddress.current);
+      pendingEwrAddress.current = null;
+    }
+  };
+
   const requestRide = async () => {
-    if (!currentLocation || !fareEstimate) return;
+    if (!pickupResolved || !dropoffResolved || !fareEstimate) return;
     setRequestingRide(true);
     try {
       const trip = await api.post<{ id: string; aiFare: number }>('/trips', {
-        pickupAddress: pickupAddress || 'Current Location',
-        pickupLat: currentLocation.lat,
-        pickupLng: currentLocation.lng,
-        dropoffAddress,
-        dropoffLat: currentLocation.lat + 0.05,
-        dropoffLng: currentLocation.lng + 0.05,
+        pickupAddress: pickupResolved.formattedAddress,
+        pickupLat: pickupResolved.lat,
+        pickupLng: pickupResolved.lng,
+        dropoffAddress: dropoffResolved.formattedAddress,
+        dropoffLat: dropoffResolved.lat,
+        dropoffLng: dropoffResolved.lng,
         rideType: 'standard',
       });
 
       useTripStore.getState().setActiveTrip({
         id: trip.id,
         status: 'searching',
-        pickupAddress: pickupAddress || 'Current Location',
-        dropoffAddress,
+        pickupAddress: pickupResolved.formattedAddress,
+        dropoffAddress: dropoffResolved.formattedAddress,
+        pickupLat: pickupResolved.lat,
+        pickupLng: pickupResolved.lng,
+        dropoffLat: dropoffResolved.lat,
+        dropoffLng: dropoffResolved.lng,
         aiFare: trip.aiFare,
       });
 
       navigation.navigate('Tracking');
-    } catch (err) {
-      console.error('Ride request failed', err);
+    } catch {
+      setFareError('Could not request ride. Please try again.');
     } finally {
       setRequestingRide(false);
     }
   };
+
+  const shortcuts: { label: string; addr: ResolvedAddress }[] = [
+    ...(homeAddress ? [{ label: '🏠 Home', addr: homeAddress }] : []),
+    ...(workAddress ? [{ label: '💼 Work', addr: workAddress }] : []),
+    {
+      label: '✈️ EWR',
+      addr: {
+        placeId: 'EWR',
+        formattedAddress: 'Newark Liberty International Airport',
+        lat: 40.6895,
+        lng: -74.1745,
+      },
+    },
+  ];
 
   return (
     <View style={styles.container}>
@@ -121,39 +181,62 @@ export function HomeScreen() {
             coordinate={{ latitude: currentLocation.lat, longitude: currentLocation.lng }}
             title="You"
           />
+          {dropoffResolved && (
+            <Marker
+              coordinate={{ latitude: dropoffResolved.lat, longitude: dropoffResolved.lng }}
+              title="Destination"
+              pinColor={Colors.gold}
+            />
+          )}
         </MapView>
       )}
 
       <View style={styles.bottomSheet}>
         <View style={styles.pill} />
-
         <Text style={styles.heading}>Where to?</Text>
 
-        <View style={styles.inputRow}>
-          <View style={styles.dot} />
-          <TextInput
-            style={styles.input}
-            placeholder="Pickup location"
-            placeholderTextColor={Colors.textSecondary}
-            value={pickupAddress}
-            onChangeText={setPickupAddress}
-          />
-        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.shortcuts}
+          contentContainerStyle={styles.shortcutsContent}
+        >
+          {shortcuts.map(({ label, addr }) => (
+            <TouchableOpacity
+              key={label}
+              style={styles.shortcutChip}
+              onPress={() => handleDropoffResolved(addr)}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.shortcutText}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
-        <View style={styles.inputRow}>
-          <View style={[styles.dot, styles.dotDestination]} />
-          <TextInput
-            style={styles.input}
-            placeholder="Destination"
-            placeholderTextColor={Colors.textSecondary}
-            value={dropoffAddress}
-            onChangeText={setDropoffAddress}
-            onSubmitEditing={getEstimate}
-            returnKeyType="done"
-          />
-        </View>
+        <AddressAutocomplete
+          placeholder="Pickup location"
+          dotColor={Colors.primary}
+          initialValue={pickupResolved?.formattedAddress ?? ''}
+          sessionToken={sessionToken}
+          showRecents={false}
+          onAddressResolved={(addr) => {
+            setPickupResolved(addr);
+            setFareEstimate(null);
+          }}
+        />
 
-        {loadingFare && <ActivityIndicator color={Colors.primary} style={{ marginTop: Spacing.md }} />}
+        <AddressAutocomplete
+          placeholder="Where to?"
+          dotColor={Colors.gold}
+          sessionToken={sessionToken}
+          recentAddresses={recentAddresses}
+          showRecents
+          onAddressResolved={handleDropoffResolved}
+        />
+
+        {fareError && <Text style={styles.errorText}>{fareError}</Text>}
+
+        {loadingFare && <ActivityIndicator color={Colors.primary} style={styles.fareLoader} />}
 
         {fareEstimate && !loadingFare && (
           <View style={styles.fareCard}>
@@ -171,10 +254,7 @@ export function HomeScreen() {
         )}
 
         <TouchableOpacity
-          style={[
-            styles.requestButton,
-            (!fareEstimate || requestingRide) && styles.requestButtonDisabled,
-          ]}
+          style={[styles.requestButton, (!fareEstimate || requestingRide) && styles.requestButtonDisabled]}
           onPress={requestRide}
           disabled={!fareEstimate || requestingRide}
           activeOpacity={0.85}
@@ -196,6 +276,12 @@ export function HomeScreen() {
           <Text style={styles.bidButtonText}>Make an offer instead</Text>
         </TouchableOpacity>
       </View>
+
+      <EwrTerminalPicker
+        visible={ewrVisible}
+        onSelect={handleEwrTerminalSelect}
+        onDismiss={handleEwrDismiss}
+      />
     </View>
   );
 }
@@ -233,27 +319,31 @@ const styles = StyleSheet.create({
     fontWeight: Typography.weight.bold,
     marginBottom: Spacing.md,
   },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  shortcuts: {
+    marginBottom: Spacing.md,
+  },
+  shortcutsContent: {
+    gap: Spacing.sm,
+    paddingRight: Spacing.sm,
+  },
+  shortcutChip: {
     backgroundColor: Colors.background,
-    borderRadius: Radius.md,
+    borderRadius: Radius.full,
     paddingHorizontal: Spacing.md,
-    marginBottom: Spacing.sm,
-    height: 48,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.primary,
-    marginRight: Spacing.sm,
-  },
-  dotDestination: { backgroundColor: Colors.gold },
-  input: {
-    flex: 1,
+  shortcutText: {
     color: Colors.text,
-    fontSize: Typography.size.base,
+    fontSize: Typography.size.sm,
+    fontWeight: Typography.weight.medium,
+  },
+  fareLoader: { marginTop: Spacing.sm },
+  errorText: {
+    color: Colors.error,
+    fontSize: Typography.size.sm,
+    marginTop: Spacing.sm,
   },
   fareCard: {
     backgroundColor: Colors.background,
@@ -262,7 +352,11 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
     marginBottom: Spacing.sm,
   },
-  fareRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  fareRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   fareLabel: { color: Colors.textSecondary, fontSize: Typography.size.sm },
   fareAmount: {
     color: Colors.text,
@@ -285,7 +379,11 @@ const styles = StyleSheet.create({
     fontSize: Typography.size.md,
     fontWeight: Typography.weight.bold,
   },
-  bidButton: { alignItems: 'center', paddingVertical: Spacing.sm, marginTop: Spacing.xs },
+  bidButton: {
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
   bidButtonText: { color: Colors.textSecondary, fontSize: Typography.size.sm },
 });
 

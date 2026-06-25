@@ -5,6 +5,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { RidersModule } from './riders/riders.module';
 import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
 import { TrustedContactsModule } from './trusted-contacts/trusted-contacts.module';
+import { GeocodingModule } from './geocoding/geocoding.module';
 
 @Module({
   controllers: [HealthController],
@@ -14,6 +15,7 @@ import { TrustedContactsModule } from './trusted-contacts/trusted-contacts.modul
     RidersModule,
     PaymentMethodsModule,
     TrustedContactsModule,
+    GeocodingModule,
   ],
 })
 export class AppModule {}
