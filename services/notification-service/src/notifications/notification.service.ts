@@ -2,14 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as AWS from 'aws-sdk';
 import { Twilio } from 'twilio';
-
-interface PushPayload {
-  token: string;
-  title: string;
-  body: string;
-  data?: Record<string, string>;
-  priority?: 'default' | 'high';
-}
+import { FcmService } from './fcm.service';
 
 interface SmsPayload {
   to: string;
@@ -27,11 +20,13 @@ interface EmailPayload {
 export class NotificationService {
   private readonly ses: AWS.SES;
   private readonly twilio: Twilio;
-  private readonly firebaseServerKey: string;
   private readonly fromEmail = 'hello@bidride.com';
   private readonly fromPhone: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly fcm: FcmService,
+  ) {
     this.ses = new AWS.SES({ region: config.get('AWS_REGION', 'us-east-1') });
 
     this.twilio = new Twilio(
@@ -39,60 +34,27 @@ export class NotificationService {
       config.getOrThrow('TWILIO_AUTH_TOKEN'),
     );
 
-    this.firebaseServerKey = config.getOrThrow('FIREBASE_SERVER_KEY');
     this.fromPhone = config.getOrThrow('TWILIO_PHONE_NUMBER');
   }
 
-  // ─── Push Notifications (FCM) ─────────────────────────────────────────────
+  // ─── Push Notifications (FCM HTTP v1) ─────────────────────────────────────
 
-  async sendPush(payload: PushPayload): Promise<void> {
-    const message = {
-      to: payload.token,
-      notification: {
-        title: payload.title,
-        body: payload.body,
-      },
-      data: payload.data ?? {},
-      priority: payload.priority ?? 'high',
-      android: { priority: 'high' },
-      apns: {
-        headers: { 'apns-priority': '10' },
-        payload: { aps: { sound: 'default', badge: 1 } },
-      },
-    };
-
-    const response = await fetch('https://fcm.googleapis.com/fcm/send', {
-      method: 'POST',
-      headers: {
-        Authorization: `key=${this.firebaseServerKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('FCM push failed:', error);
-    }
+  async sendPush(
+    token: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
+    await this.fcm.send({ token, title, body, data });
   }
 
-  async sendPushToMultiple(tokens: string[], title: string, body: string, data?: Record<string, string>): Promise<void> {
-    if (tokens.length === 0) return;
-    const message = {
-      registration_ids: tokens,
-      notification: { title, body },
-      data: data ?? {},
-      priority: 'high',
-    };
-
-    await fetch('https://fcm.googleapis.com/fcm/send', {
-      method: 'POST',
-      headers: {
-        Authorization: `key=${this.firebaseServerKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
+  async sendPushToMultiple(
+    tokens: string[],
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
+    await this.fcm.sendMultiple(tokens, title, body, data);
   }
 
   // ─── SMS (Twilio) ─────────────────────────────────────────────────────────
@@ -110,9 +72,7 @@ export class NotificationService {
     });
   }
 
-  // Masked calling and SMS are handled by ProxyService (Twilio Proxy API).
-  // This stub is retained so callers that already use NotificationService compile.
-  // New callers should inject ProxyService directly.
+  // Masked calling/SMS handled by ProxyService (Twilio Proxy API).
   async sendMaskedCall(_riderPhone: string, _driverPhone: string): Promise<{ proxyNumber: string }> {
     throw new Error('Use ProxyService.initiateCall() instead of sendMaskedCall()');
   }
@@ -125,17 +85,19 @@ export class NotificationService {
       return;
     }
 
-    await this.ses.sendEmail({
-      Source: `BidRide <${this.fromEmail}>`,
-      Destination: { ToAddresses: [payload.to] },
-      Message: {
-        Subject: { Data: payload.subject, Charset: 'UTF-8' },
-        Body: {
-          Html: { Data: payload.htmlBody, Charset: 'UTF-8' },
-          Text: { Data: payload.textBody ?? '', Charset: 'UTF-8' },
+    await this.ses
+      .sendEmail({
+        Source: `BidRide <${this.fromEmail}>`,
+        Destination: { ToAddresses: [payload.to] },
+        Message: {
+          Subject: { Data: payload.subject, Charset: 'UTF-8' },
+          Body: {
+            Html: { Data: payload.htmlBody, Charset: 'UTF-8' },
+            Text: { Data: payload.textBody ?? '', Charset: 'UTF-8' },
+          },
         },
-      },
-    }).promise();
+      })
+      .promise();
   }
 
   // ─── Templated Notifications ──────────────────────────────────────────────
@@ -146,7 +108,7 @@ export class NotificationService {
     vehicleInfo: string,
     eta: string,
   ): Promise<void> {
-    await this.sendPush({
+    await this.fcm.send({
       token: pushToken,
       title: 'Driver on the way!',
       body: `${driverName} · ${vehicleInfo} · ETA ${eta}`,
@@ -154,13 +116,16 @@ export class NotificationService {
     });
   }
 
-  async notifyDriverNewRequest(pushToken: string, pickupArea: string, takeHome: number): Promise<void> {
-    await this.sendPush({
+  async notifyDriverNewRequest(
+    pushToken: string,
+    pickupArea: string,
+    takeHome: number,
+  ): Promise<void> {
+    await this.fcm.send({
       token: pushToken,
       title: 'New ride request',
       body: `Pickup: ${pickupArea} · Take-home: $${takeHome.toFixed(2)}`,
       data: { type: 'NEW_REQUEST' },
-      priority: 'high',
     });
   }
 
@@ -171,8 +136,25 @@ export class NotificationService {
     });
   }
 
-  async notifyDriverFloorSupplement(pushToken: string, supplement: number, totalEarnings: number): Promise<void> {
-    await this.sendPush({
+  async notifySosTrustedContactPush(
+    pushToken: string,
+    riderName: string,
+    tripId: string,
+  ): Promise<void> {
+    await this.fcm.send({
+      token: pushToken,
+      title: '🚨 Safety Alert',
+      body: `${riderName} activated an SOS during their ride. Trip: ${tripId.slice(0, 8)}`,
+      data: { type: 'SOS_ALERT', tripId },
+    });
+  }
+
+  async notifyDriverFloorSupplement(
+    pushToken: string,
+    supplement: number,
+    totalEarnings: number,
+  ): Promise<void> {
+    await this.fcm.send({
       token: pushToken,
       title: 'Earnings Floor Activated',
       body: `BidRide added $${supplement.toFixed(2)} — your guaranteed take-home: $${totalEarnings.toFixed(2)}`,
@@ -180,7 +162,12 @@ export class NotificationService {
     });
   }
 
-  async sendDriverWeeklyPayout(email: string, driverName: string, amount: number, periodEnd: string): Promise<void> {
+  async sendDriverWeeklyPayout(
+    email: string,
+    driverName: string,
+    amount: number,
+    periodEnd: string,
+  ): Promise<void> {
     await this.sendEmail({
       to: email,
       subject: `Your BidRide payout: $${amount.toFixed(2)}`,
@@ -195,7 +182,11 @@ export class NotificationService {
     });
   }
 
-  async sendFcraAdverseActionLetter(email: string, driverName: string, checkrReportUrl: string): Promise<void> {
+  async sendFcraAdverseActionLetter(
+    email: string,
+    driverName: string,
+    checkrReportUrl: string,
+  ): Promise<void> {
     await this.sendEmail({
       to: email,
       subject: 'Important: BidRide Driver Application — Decision Notice',
