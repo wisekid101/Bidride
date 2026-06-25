@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import * as AWS from 'aws-sdk';
+import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
+import { REDIS_CLIENT } from '../redis/redis.module';
 
 interface FareInput {
   pickupLat: number;
@@ -45,7 +47,10 @@ export class FareEngineService {
   private readonly sagemaker: AWS.SageMakerRuntime;
   private modelVersion = 'fare-engine-v1';
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
+  ) {
     this.sagemaker = new AWS.SageMakerRuntime({
       region: process.env.AWS_REGION ?? 'us-east-1',
     });
@@ -126,17 +131,17 @@ export class FareEngineService {
 
   private async getSurgeScore(lat: number, lng: number): Promise<number> {
     const zone = this.getZoneKey(lat, lng);
-    const key = `surge:${zone}`;
 
-    // Cached by demand monitoring — default 0 (no surge) if not set
     const prismaConfig = await this.prisma.platformConfig.findUnique({
       where: { key: 'ai_surge_config' },
     });
-    const config = prismaConfig?.value as { requests_per_zone_threshold: number } ?? { requests_per_zone_threshold: 150 };
+    const config = (prismaConfig?.value as { requests_per_zone_threshold: number } | null) ?? { requests_per_zone_threshold: 150 };
 
-    const raw = process.env.REDIS_URL
-      ? 0 // In production, read from Redis — DI'd separately
-      : 0;
+    let raw = 0;
+    if (this.redis) {
+      const val = await this.redis.get(`surge:requests:${zone}`);
+      raw = val ? parseInt(val, 10) : 0;
+    }
 
     return Math.min(1.0, raw / config.requests_per_zone_threshold);
   }

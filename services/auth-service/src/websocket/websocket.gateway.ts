@@ -13,6 +13,14 @@ import { Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { JwtPayload } from '../auth/token.service';
+import { PrismaService } from '../prisma/prisma.service';
+
+const DRIVER_SESSION_TTL_SEC = 86400; // 24h max session key lifetime
+const DRIVER_ZONE_TTL_SEC = 30;       // Zone key heartbeat — removed on disconnect
+
+function getZoneKey(lat: number, lng: number): string {
+  return `${Math.floor(lat / 0.018)}:${Math.floor(lng / 0.022)}`;
+}
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -28,6 +36,7 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
   constructor(
     private readonly jwt: JwtService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly prisma: PrismaService,
   ) {
     // Separate Redis client for subscription (can't use same client for both pub/sub and commands)
     this.subscriber = redis.duplicate();
@@ -58,6 +67,19 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
         socket.join('admin:broadcast');
       }
 
+      // Open driver session log
+      if (payload.role === 'driver') {
+        void (async () => {
+          try {
+            const log = await this.prisma.driverSessionLog.create({
+              data: { driverUserId: payload.sub },
+              select: { id: true },
+            });
+            await this.redis.setex(`driver:${payload.sub}:session_log_id`, DRIVER_SESSION_TTL_SEC, log.id);
+          } catch {}
+        })();
+      }
+
       socket.emit('connected', { userId: payload.sub });
     } catch {
       socket.disconnect();
@@ -73,6 +95,39 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
       this.userSockets.delete(userId);
     } else {
       this.userSockets.set(userId, sockets);
+    }
+
+    // Close driver session log and remove from surge:drivers zone
+    if (socket.data.role === 'driver') {
+      void (async () => {
+        try {
+          const [logId, zone] = await Promise.all([
+            this.redis.get(`driver:${userId}:session_log_id`),
+            this.redis.get(`driver:${userId}:zone`),
+          ]);
+          if (logId) {
+            const endedAt = new Date();
+            const log = await this.prisma.driverSessionLog.findUnique({
+              where: { id: logId },
+              select: { startedAt: true },
+            });
+            await this.prisma.driverSessionLog.update({
+              where: { id: logId },
+              data: {
+                endedAt,
+                durationSec: log
+                  ? Math.round((endedAt.getTime() - log.startedAt.getTime()) / 1000)
+                  : null,
+              },
+            });
+            await this.redis.del(`driver:${userId}:session_log_id`);
+          }
+          if (zone) {
+            await this.redis.srem(`surge:drivers:${zone}`, userId);
+            await this.redis.del(`driver:${userId}:zone`);
+          }
+        } catch {}
+      })();
     }
   }
 
@@ -100,6 +155,19 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
       JSON.stringify({ lat: data.lat, lng: data.lng, heading: data.heading, ts: Date.now() }),
     );
 
+    // Maintain surge:drivers:{zone} Set for AI demand/supply tracking
+    void (async () => {
+      try {
+        const zone = getZoneKey(data.lat, data.lng);
+        const prevZone = await this.redis.get(`driver:${userId}:zone`);
+        if (prevZone !== zone) {
+          if (prevZone) await this.redis.srem(`surge:drivers:${prevZone}`, userId);
+          await this.redis.sadd(`surge:drivers:${zone}`, userId);
+        }
+        await this.redis.setex(`driver:${userId}:zone`, DRIVER_ZONE_TTL_SEC, zone);
+      } catch {}
+    })();
+
     // Broadcast to rider if in active trip
     if (data.tripId) {
       this.server.to(`trip:${data.tripId}`).emit('driver:location', {
@@ -107,6 +175,12 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
         lng: data.lng,
         heading: data.heading,
       });
+
+      // Trigger route deviation monitoring in safety-service (async, non-blocking)
+      this.redis.publish(
+        'safety:location:update',
+        JSON.stringify({ tripId: data.tripId, lat: data.lat, lng: data.lng }),
+      ).catch(() => {});
     }
   }
 

@@ -6,10 +6,12 @@ import { PricingController } from './pricing.controller';
 import { FareEngineService } from './fare-engine.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtStrategy } from './jwt.strategy';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
   imports: [
     ConfigModule,
+    RedisModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

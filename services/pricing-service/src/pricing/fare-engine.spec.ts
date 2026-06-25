@@ -5,6 +5,10 @@ const mockPrisma = {
   platformConfig: { findUnique: jest.fn().mockResolvedValue(null) },
 } as any;
 
+const mockRedis = {
+  get: jest.fn().mockResolvedValue(null),
+} as any;
+
 // Stub SageMaker — return 0 adjustment by default
 jest.mock('aws-sdk', () => ({
   SageMakerRuntime: jest.fn().mockImplementation(() => ({
@@ -14,7 +18,7 @@ jest.mock('aws-sdk', () => ({
   })),
 }));
 
-const service = new FareEngineService(mockPrisma);
+const service = new FareEngineService(mockPrisma, mockRedis);
 
 describe('FareEngineService', () => {
   const baseInput = {
@@ -72,8 +76,27 @@ describe('FareEngineService', () => {
   });
 
   it('surge multiplier defaults to 1.0 when no surge', async () => {
+    mockRedis.get.mockResolvedValue(null);
     const result = await service.estimateFare(baseInput);
     expect(result.surgeMultiplier).toBe(1.0);
+  });
+
+  it('reads surge:requests:{zone} from Redis and applies multiplier', async () => {
+    // 150 requests = 100% of threshold → surge score = 1.0 → multiplier = 1 + (1.0 × 0.4) = 1.4
+    mockRedis.get.mockResolvedValue('150');
+    mockPrisma.platformConfig.findUnique.mockResolvedValue({
+      key: 'ai_surge_config',
+      value: { requests_per_zone_threshold: 150 },
+    });
+
+    const result = await service.estimateFare(baseInput);
+
+    expect(mockRedis.get).toHaveBeenCalledWith(expect.stringContaining('surge:requests:'));
+    expect(result.surgeMultiplier).toBe(1.4);
+
+    // Restore defaults
+    mockRedis.get.mockResolvedValue(null);
+    mockPrisma.platformConfig.findUnique.mockResolvedValue(null);
   });
 
   it('fare calculation is deterministic with same inputs (no AI)', async () => {

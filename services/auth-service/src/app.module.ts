@@ -5,9 +5,12 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
+import { WebSocketEventGateway } from './websocket/websocket.gateway';
+import { PrismaService } from './prisma/prisma.service';
 
 @Module({
   controllers: [HealthController],
+  providers: [WebSocketEventGateway, PrismaService],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([

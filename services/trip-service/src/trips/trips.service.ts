@@ -17,6 +17,11 @@ import { REDIS_CLIENT } from '../redis/redis.module';
 const PLATFORM_FEE_RATE = 0.20;
 const NO_SHOW_WAIT_MINUTES = 5;
 const DROPOFF_LOCK_RADIUS_MILES = 0.2;
+const SURGE_COUNTER_TTL_SEC = 600; // 10-minute rolling window
+
+function getZoneKey(lat: number, lng: number): string {
+  return `${Math.floor(lat / 0.018)}:${Math.floor(lng / 0.022)}`;
+}
 
 @Injectable()
 export class TripsService {
@@ -30,8 +35,17 @@ export class TripsService {
   async createTrip(userId: string, dto: CreateTripDto) {
     const rider = await this.resolveRider(userId);
 
+    await this.assertNoActiveFraudHold(userId);
+
+    // Fetch real trust score — used as a pricing feature. Default 500 for brand-new users only.
+    const trustRecord = await this.prisma.trustScore.findUnique({
+      where: { userId },
+      select: { trustScore: true },
+    });
+    const riderTrustScore = trustRecord?.trustScore ?? 500;
+
     // Get AI fare from pricing service (internal HTTP call)
-    const aiFare = await this.getPricingEstimate(dto);
+    const aiFare = await this.getPricingEstimate(dto, riderTrustScore, rider.totalTrips);
     const now = new Date();
 
     const trip = await this.prisma.trip.create({
@@ -62,6 +76,12 @@ export class TripsService {
     // Cache trip state for real-time access
     await this.redis.setex(`trip:${trip.id}:state`, 7200, TripStatus.searching);
 
+    // Increment surge demand counter for pickup zone (fire-and-forget)
+    const surgeKey = `surge:requests:${getZoneKey(dto.pickupLat, dto.pickupLng)}`;
+    void this.redis.incr(surgeKey)
+      .then(() => this.redis.expire(surgeKey, SURGE_COUNTER_TTL_SEC))
+      .catch(() => {});
+
     // Begin dispatch (async — finds available drivers in zone)
     this.dispatch.broadcastRequest(trip).catch(console.error);
 
@@ -76,6 +96,8 @@ export class TripsService {
     if (driver.status !== 'approved') {
       throw new ForbiddenException('Driver not approved.');
     }
+
+    await this.assertNoActiveFraudHold(userId);
 
     // Atomic claim — prevent race condition with other drivers
     const claimed = await this.redis.set(
@@ -103,7 +125,25 @@ export class TripsService {
     });
 
     await this.redis.setex(`trip:${tripId}:state`, 7200, TripStatus.accepted);
-    await this.dispatch.notifyRiderDriverAssigned(tripId, driver.id);
+
+    // Fetch enriched driver info for rider notification
+    const driverDetail = await this.prisma.driver.findUnique({
+      where: { id: driver.id },
+      include: {
+        vehicles: { where: { isActive: true }, take: 1 },
+        user: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    const activeVehicle = driverDetail?.vehicles[0] ?? null;
+    await this.dispatch.notifyRiderDriverAssigned(tripId, driver.id, {
+      name: [driverDetail?.user?.firstName, driverDetail?.user?.lastName].filter(Boolean).join(' ') || 'Your Driver',
+      badge: (driver.currentBadge as string) ?? 'Verified',
+      vehicleMake: activeVehicle?.make,
+      vehicleModel: activeVehicle?.model,
+      vehicleColor: activeVehicle?.color,
+      licensePlate: activeVehicle?.licensePlate,
+    });
 
     return updated;
   }
@@ -185,6 +225,9 @@ export class TripsService {
     await this.redis.del(`trip:${tripId}:claimed`);
     await this.dispatch.notifyTripCompleted(tripId, finalFare, floorResult);
 
+    // Fire-and-forget: recalculate trust scores for both parties post-trip
+    this.scheduleTrustRefresh(trip.riderId, trip.driverId);
+
     return updated;
   }
 
@@ -229,10 +272,31 @@ export class TripsService {
       throw new BadRequestException('Trip already rated.');
     }
 
-    return this.prisma.trip.update({
+    const updatedTrip = await this.prisma.trip.update({
       where: { id: tripId },
       data: { riderRatingDriver: dto.rating },
     });
+
+    // Recalculate driver's average rating across all rated completed trips
+    if (trip.driverId) {
+      const avg = await this.prisma.trip.aggregate({
+        where: { driverId: trip.driverId, riderRatingDriver: { not: null } },
+        _avg: { riderRatingDriver: true },
+      });
+      if (avg._avg.riderRatingDriver !== null) {
+        await this.prisma.driver.update({
+          where: { id: trip.driverId },
+          data: { avgRating: avg._avg.riderRatingDriver },
+        });
+      }
+    }
+
+    // Fire-and-forget: recalculate driver trust after a new rating lands
+    if (trip.driverId) {
+      this.scheduleTrustRefresh(trip.riderId, trip.driverId);
+    }
+
+    return updatedTrip;
   }
 
   async markNoShow(tripId: string, userId: string) {
@@ -306,9 +370,11 @@ export class TripsService {
     return driver;
   }
 
-  private async getPricingEstimate(dto: CreateTripDto): Promise<number> {
-    // Internal HTTP call to pricing-service:3005
-    // For now returns a placeholder; wired in app.module via HttpModule
+  private async getPricingEstimate(
+    dto: CreateTripDto,
+    riderTrustScore: number,
+    riderTotalTrips: number,
+  ): Promise<number> {
     const PRICING_SERVICE_URL = process.env.PRICING_SERVICE_URL ?? 'http://localhost:3005';
     const response = await fetch(`${PRICING_SERVICE_URL}/pricing/estimate`, {
       method: 'POST',
@@ -319,12 +385,65 @@ export class TripsService {
         dropoffLat: dto.dropoffLat,
         dropoffLng: dto.dropoffLng,
         rideType: dto.rideType ?? 'standard',
+        riderTrustScore,
+        riderTotalTrips,
       }),
     });
 
     if (!response.ok) throw new BadRequestException('Pricing service unavailable.');
     const data = await response.json() as { fare: number };
     return data.fare;
+  }
+
+  private async assertNoActiveFraudHold(userId: string): Promise<void> {
+    const hold = await this.prisma.fraudAlert.findFirst({
+      where: { userId, holdReleasedAt: null },
+      select: { id: true },
+    });
+    if (hold) {
+      throw new ForbiddenException({
+        code: 'ACCOUNT_UNDER_REVIEW',
+        message: 'Your account is under safety review. Please contact support.',
+      });
+    }
+  }
+
+  private scheduleTrustRefresh(riderId: string, driverId: string | null): void {
+    const TRUST_URL = process.env.TRUST_SERVICE_URL ?? 'http://localhost:3009';
+
+    void (async () => {
+      try {
+        const rider = await this.prisma.rider.findUnique({
+          where: { id: riderId },
+          select: { userId: true },
+        });
+        if (rider?.userId) {
+          await fetch(`${TRUST_URL}/internal/trust/recalculate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: rider.userId }),
+          });
+        }
+      } catch {}
+    })();
+
+    if (driverId) {
+      void (async () => {
+        try {
+          const driver = await this.prisma.driver.findUnique({
+            where: { id: driverId },
+            select: { userId: true },
+          });
+          if (driver?.userId) {
+            await fetch(`${TRUST_URL}/internal/trust/recalculate`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: driver.userId }),
+            });
+          }
+        } catch {}
+      })();
+    }
   }
 
   private detectAirportTrip(pickup: string, dropoff: string): boolean {

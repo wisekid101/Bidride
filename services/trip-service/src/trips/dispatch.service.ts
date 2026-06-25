@@ -1,11 +1,15 @@
 import { Injectable, Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { PrismaService } from '../prisma/prisma.service';
 
 // Publishes real-time events to WebSocket gateway via Redis Pub/Sub
 @Injectable()
 export class DispatchService {
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async broadcastRequest(trip: {
     id: string;
@@ -34,11 +38,28 @@ export class DispatchService {
     await this.redis.publish('dispatch:requests', payload);
   }
 
-  async notifyRiderDriverAssigned(tripId: string, driverId: string): Promise<void> {
+  async notifyRiderDriverAssigned(
+    tripId: string,
+    driverId: string,
+    driverInfo: {
+      name: string;
+      badge: string;
+      vehicleMake?: string;
+      vehicleModel?: string;
+      vehicleColor?: string;
+      licensePlate?: string;
+    },
+  ): Promise<void> {
     await this.publish(`rider:trip:${tripId}`, {
       event: 'driver:assigned',
       tripId,
       driverId,
+      driverName: driverInfo.name,
+      driverBadge: driverInfo.badge,
+      vehicleMake: driverInfo.vehicleMake,
+      vehicleModel: driverInfo.vehicleModel,
+      vehicleColor: driverInfo.vehicleColor,
+      licensePlate: driverInfo.licensePlate,
     });
   }
 
@@ -125,6 +146,15 @@ export class DispatchService {
     await Promise.all(
       targetDriverUserIds.map((userId) => this.publish(`user:${userId}:events`, payload)),
     );
+
+    // Log bid exposure for AI training data — fire-and-forget
+    void this.prisma.driverBidExposure.createMany({
+      data: targetDriverUserIds.map((driverUserId) => ({
+        bidId: bid.id,
+        tripId: trip.id,
+        driverUserId,
+      })),
+    }).catch(() => {});
   }
 
   async notifyBidAcceptedByDriver(

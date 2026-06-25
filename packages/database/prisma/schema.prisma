@@ -298,6 +298,7 @@ model User {
   trustScore         TrustScore?
   multiAccountLinksA MultiAccountLink[]  @relation("LinkUserA")
   multiAccountLinksB MultiAccountLink[]  @relation("LinkUserB")
+  fraudAlerts        FraudAlert[]
 
   @@map("users")
 }
@@ -1137,6 +1138,56 @@ model PlatformConfig {
   admin AdminUser? @relation(fields: [changedBy], references: [id])
 
   @@map("platform_config")
+}
+
+// ─── Fraud Alerts ─────────────────────────────────────────────────────────────
+
+model FraudAlert {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  userRole         String    @map("user_role") @db.VarChar(10)
+  tripId           String?   @map("trip_id") @db.Uuid
+  fraudProbability Decimal   @map("fraud_probability") @db.Decimal(5, 2)
+  triggerSignals   Json      @map("trigger_signals")
+  holdPlacedAt     DateTime  @default(now()) @map("hold_placed_at")
+  holdReleasedAt   DateTime? @map("hold_released_at")
+  status           String    @default("pending") @map("status") @db.VarChar(20)
+  reviewedById     String?   @map("reviewed_by_id") @db.Uuid
+  reviewedAt       DateTime? @map("reviewed_at")
+  decision         String?   @db.VarChar(20)
+  reviewNotes      String?   @map("review_notes") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("fraud_alerts")
+}
+
+// ─── AI Data Foundation ──────────────────────────────────────────────────────
+
+model DriverBidExposure {
+  id           String   @id @default(uuid()) @db.Uuid
+  bidId        String   @map("bid_id") @db.Uuid
+  tripId       String   @map("trip_id") @db.Uuid
+  driverUserId String   @map("driver_user_id") @db.Uuid
+  exposedAt    DateTime @default(now()) @map("exposed_at")
+
+  @@index([bidId])
+  @@index([driverUserId, exposedAt(sort: Desc)])
+  @@map("driver_bid_exposures")
+}
+
+model DriverSessionLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  driverUserId String    @map("driver_user_id") @db.Uuid
+  startedAt    DateTime  @default(now()) @map("started_at")
+  endedAt      DateTime? @map("ended_at")
+  durationSec  Int?      @map("duration_sec")
+
+  @@index([driverUserId, startedAt(sort: Desc)])
+  @@map("driver_session_logs")
 }
 
 // ─── AI Logging ───────────────────────────────────────────────────────────────
