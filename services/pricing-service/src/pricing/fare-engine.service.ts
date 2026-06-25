@@ -1,5 +1,4 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
-import * as AWS from 'aws-sdk';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
@@ -42,19 +41,20 @@ const MINIMUM_FARE = 5.00;
 const AI_ADJUSTMENT_CAP = 2.00;
 const AVG_SPEED_MPH = 20; // Newark city average
 
+interface AiAdjustmentResult {
+  adjustment: number;
+  modelVersion: string;
+  fallbackUsed: boolean;
+}
+
 @Injectable()
 export class FareEngineService {
-  private readonly sagemaker: AWS.SageMakerRuntime;
   private modelVersion = 'fare-engine-v1';
 
   constructor(
     private readonly prisma: PrismaService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
-  ) {
-    this.sagemaker = new AWS.SageMakerRuntime({
-      region: process.env.AWS_REGION ?? 'us-east-1',
-    });
-  }
+  ) {}
 
   async estimateFare(input: FareInput): Promise<FareEstimate> {
     const now = input.requestedAt ?? new Date();
@@ -77,7 +77,7 @@ export class FareEngineService {
 
     const rawFare = (BASE_FARE + distanceComponent + durationComponent + airportComponent + nightComponent) * surgeMultiplier;
 
-    const aiAdjustment = await this.getAiAdjustment({
+    const aiResult = await this.getAiAdjustment({
       distanceMiles,
       durationMin,
       surgeZoneScore,
@@ -89,7 +89,7 @@ export class FareEngineService {
       riderTotalTrips: input.riderTotalTrips ?? 0,
     });
 
-    const fare = Math.max(rawFare + aiAdjustment, MINIMUM_FARE);
+    const fare = Math.max(rawFare + aiResult.adjustment, MINIMUM_FARE);
 
     return {
       fare: Math.round(fare * 100) / 100,
@@ -103,29 +103,36 @@ export class FareEngineService {
         surge: Math.round((rawFare - (rawFare / surgeMultiplier)) * 100) / 100,
         airport: airportComponent,
         night: nightComponent,
-        aiAdjustment: Math.round(aiAdjustment * 100) / 100,
+        aiAdjustment: Math.round(aiResult.adjustment * 100) / 100,
       },
-      modelVersion: this.modelVersion,
+      modelVersion: aiResult.modelVersion,
     };
   }
 
-  private async getAiAdjustment(features: object): Promise<number> {
-    const endpointName = process.env.SAGEMAKER_FARE_ENDPOINT;
-    if (!endpointName) return 0;
+  private async getAiAdjustment(features: object): Promise<AiAdjustmentResult> {
+    const aiServiceUrl = process.env.AI_SERVICE_URL;
+    if (!aiServiceUrl) {
+      return { adjustment: 0, modelVersion: 'fallback-v1', fallbackUsed: true };
+    }
 
     try {
-      const response = await this.sagemaker.invokeEndpoint({
-        EndpointName: endpointName,
-        ContentType: 'application/json',
-        Body: JSON.stringify(features),
-      }).promise();
+      const res = await fetch(`${aiServiceUrl}/ai/fare-adjustment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(features),
+        signal: AbortSignal.timeout(3000),
+      });
 
-      const result = JSON.parse(response.Body?.toString() ?? '{"adjustment":0}') as { adjustment: number };
-      // Bound AI adjustment to ±$2.00 — no single model prediction can distort fare significantly
-      return Math.max(-AI_ADJUSTMENT_CAP, Math.min(AI_ADJUSTMENT_CAP, result.adjustment));
+      if (!res.ok) throw new Error(`ai-service returned ${res.status}`);
+
+      const envelope = await res.json() as { data: { adjustment: number }; modelVersion: string; fallbackUsed: boolean };
+      return {
+        adjustment: Math.max(-AI_ADJUSTMENT_CAP, Math.min(AI_ADJUSTMENT_CAP, envelope.data.adjustment)),
+        modelVersion: envelope.modelVersion,
+        fallbackUsed: envelope.fallbackUsed,
+      };
     } catch {
-      // Fall back to 0 adjustment — never block a trip on AI unavailability
-      return 0;
+      return { adjustment: 0, modelVersion: 'fallback-v1', fallbackUsed: true };
     }
   }
 

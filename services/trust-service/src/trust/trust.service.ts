@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import * as AWS from 'aws-sdk';
-import { ConfigService } from '@nestjs/config';
+import { Prisma, TicketCategory } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 interface TrustInputs {
@@ -46,18 +45,7 @@ const FRAUD_AUTO_HOLD_THRESHOLD = 90.0;
 
 @Injectable()
 export class TrustService {
-  private readonly sagemaker: AWS.SageMakerRuntime;
-  private readonly fraudEndpoint: string | undefined;
-
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-  ) {
-    this.sagemaker = new AWS.SageMakerRuntime({
-      region: config.get('AWS_REGION', 'us-east-1'),
-    });
-    this.fraudEndpoint = config.get('SAGEMAKER_FRAUD_ENDPOINT');
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   async calculateTrustScore(inputs: TrustInputs): Promise<TrustResult> {
     // Rule-based trust score (0–1000)
@@ -136,7 +124,15 @@ export class TrustService {
 
     // Auto-hold if fraud threshold exceeded
     if (fraudProbability >= FRAUD_AUTO_HOLD_THRESHOLD) {
-      await this.triggerFraudHold(inputs.userId, fraudProbability);
+      await this.triggerFraudHold(inputs.userId, fraudProbability, {
+        linkedAccounts: inputs.linkedAccounts,
+        deviceFingerprints: inputs.deviceFingerprints,
+        fraudFlagCount: inputs.fraudFlagCount,
+        disputeCount: inputs.disputeCount,
+        accountAgeDays: inputs.accountAgeDays,
+        totalTrips: inputs.totalTrips,
+        ruleScore: score,
+      });
     }
 
     return { trustScore: score, fraudProbability, verificationConfidence, badge };
@@ -168,35 +164,147 @@ export class TrustService {
   }
 
   private async getFraudProbability(inputs: TrustInputs, ruleScore: number): Promise<number> {
-    if (this.fraudEndpoint) {
+    const aiServiceUrl = process.env.AI_SERVICE_URL;
+    if (aiServiceUrl) {
       try {
-        const response = await this.sagemaker.invokeEndpoint({
-          EndpointName: this.fraudEndpoint,
-          ContentType: 'application/json',
-          Body: JSON.stringify({ ...inputs, ruleScore }),
-        }).promise();
-
-        const result = JSON.parse(response.Body?.toString() ?? '{"probability":0}') as { probability: number };
-        return Math.max(0, Math.min(100, result.probability));
+        const res = await fetch(`${aiServiceUrl}/ai/fraud-score`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...inputs, ruleScore }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const envelope = await res.json() as { data: { fraudProbability: number } };
+          return Math.max(0, Math.min(100, envelope.data.fraudProbability));
+        }
       } catch {
-        // Fall back to rule-based
+        // fall through to rule-based
       }
     }
 
     // Rule-based fraud probability
     let probability = 0;
-    if (inputs.linkedAccounts > 2) probability += 30;
+    if (inputs.linkedAccounts > 2)   probability += 30;
     if (inputs.deviceFingerprints > 5) probability += 20;
-    if (inputs.fraudFlagCount > 0) probability += 40;
-    if (inputs.disputeCount > 3) probability += 20;
+    if (inputs.fraudFlagCount > 0)   probability += 40;
+    if (inputs.disputeCount > 3)     probability += 20;
     if (inputs.accountAgeDays < 7 && inputs.totalTrips === 0) probability += 10;
 
     return Math.min(100, probability);
   }
 
-  private async triggerFraudHold(userId: string, fraudProbability: number): Promise<void> {
-    // Publishes to admin queue — human admin reviews within 2 hours
-    // No automated permanent action
-    console.log(`FRAUD HOLD: user=${userId} probability=${fraudProbability} — Admin review required within 2 hours`);
+  async triggerFraudHold(
+    userId: string,
+    fraudProbability: number,
+    triggerSignals: Prisma.InputJsonObject = {},
+  ): Promise<void> {
+    const trustScore = await this.prisma.trustScore.findUnique({
+      where: { userId },
+      select: { userRole: true },
+    });
+
+    await this.prisma.fraudAlert.create({
+      data: {
+        userId,
+        userRole: trustScore?.userRole ?? 'rider',
+        fraudProbability,
+        triggerSignals,
+        status: 'pending',
+      },
+    });
+
+    console.warn(
+      `[TrustService] FRAUD HOLD placed: user=${userId} probability=${fraudProbability}% — Admin review required within 2 hours`,
+    );
+  }
+
+  async recalculateForUser(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        rider: { select: { id: true, totalTrips: true, stripeCustomerId: true } },
+        driver: {
+          select: {
+            id: true,
+            totalTrips: true,
+            avgRating: true,
+            payoutBankVerified: true,
+            backgroundCheckStatus: true,
+          },
+        },
+        deviceFingerprints: { select: { id: true } },
+        multiAccountLinksA: { select: { id: true } },
+        multiAccountLinksB: { select: { id: true } },
+      },
+    });
+    if (!user) return;
+
+    const isRider = user.rider !== null;
+    const userRole: 'rider' | 'driver' = isRider ? 'rider' : 'driver';
+    const accountAgeDays = Math.floor(
+      (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    const deviceFingerprints = user.deviceFingerprints.length;
+    const linkedAccounts = user.multiAccountLinksA.length + user.multiAccountLinksB.length;
+
+    let totalTrips = 0;
+    let avgRating = 0;
+    let identityVerified = false;
+    let paymentVerified = false;
+
+    if (isRider) {
+      totalTrips = user.rider!.totalTrips;
+      identityVerified = user.phoneVerified;
+      paymentVerified = user.rider!.stripeCustomerId !== null;
+    } else {
+      totalTrips = user.driver!.totalTrips;
+      identityVerified = user.driver!.backgroundCheckStatus === 'clear';
+      paymentVerified = user.driver!.payoutBankVerified;
+      avgRating = Number(user.driver!.avgRating);
+    }
+
+    const fraudFlagCount = await this.prisma.fraudAlert.count({
+      where: { userId, status: { in: ['pending', 'under_review', 'escalated'] } },
+    });
+
+    const disputeCount = await this.prisma.supportTicket.count({
+      where: {
+        userId,
+        category: {
+          in: [
+            TicketCategory.driver_complaint,
+            TicketCategory.rider_complaint,
+            TicketCategory.payment_issue,
+          ],
+        },
+      },
+    });
+
+    const successfulTripStreak = await this.prisma.trip.count({
+      where: {
+        ...(isRider
+          ? { riderId: user.rider!.id }
+          : { driverId: user.driver!.id }),
+        status: 'completed',
+        completedAt: { gte: new Date(Date.now() - 30 * 24 * 3600 * 1000) },
+      },
+    });
+
+    await this.calculateTrustScore({
+      userId,
+      userRole,
+      identityVerified,
+      paymentVerified,
+      accountAgeDays,
+      totalTrips,
+      successfulTripStreak,
+      avgRating,
+      disputeCount,
+      fraudFlagCount,
+      deviceFingerprints,
+      linkedAccounts,
+      phoneAgeDays: undefined,
+      emailVerified: user.emailVerified,
+    });
   }
 }

@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { TrustService } from './trust.service';
+import { TrustController } from './trust.controller';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Module({
-  imports: [ConfigModule],
+  controllers: [TrustController],
   providers: [TrustService, PrismaService],
   exports: [TrustService],
 })

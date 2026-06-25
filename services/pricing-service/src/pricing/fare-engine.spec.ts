@@ -9,15 +9,7 @@ const mockRedis = {
   get: jest.fn().mockResolvedValue(null),
 } as any;
 
-// Stub SageMaker — return 0 adjustment by default
-jest.mock('aws-sdk', () => ({
-  SageMakerRuntime: jest.fn().mockImplementation(() => ({
-    invokeEndpoint: jest.fn().mockReturnValue({
-      promise: jest.fn().mockResolvedValue({ Body: JSON.stringify({ adjustment: 0 }) }),
-    }),
-  })),
-}));
-
+// AI_SERVICE_URL not set in tests — getAiAdjustment returns {adjustment:0} immediately
 const service = new FareEngineService(mockPrisma, mockRedis);
 
 describe('FareEngineService', () => {
