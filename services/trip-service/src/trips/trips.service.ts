@@ -85,7 +85,32 @@ export class TripsService {
     // Begin dispatch (async — finds available drivers in zone)
     this.dispatch.broadcastRequest(trip).catch(console.error);
 
+    // Store planned route + compute safety score (fire-and-forget)
+    void this.storeTripRouteSafety(
+      trip.id,
+      dto.pickupLat, dto.pickupLng,
+      dto.dropoffLat, dto.dropoffLng,
+      trip.isNightRide,
+      trip.isAirportTrip,
+    ).catch(() => {});
+
     return trip;
+  }
+
+  private async storeTripRouteSafety(
+    tripId: string,
+    pickupLat: number, pickupLng: number,
+    dropoffLat: number, dropoffLng: number,
+    isNightRide: boolean,
+    isAirportTrip: boolean,
+  ): Promise<void> {
+    const SAFETY_URL = process.env.SAFETY_SERVICE_URL ?? 'http://localhost:3006';
+    await fetch(`${SAFETY_URL}/internal/routes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tripId, pickupLat, pickupLng, dropoffLat, dropoffLng, isNightRide, isAirportTrip }),
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => {}); // Graceful fallback — trip creation never blocked by this
   }
 
   async acceptTrip(tripId: string, userId: string) {

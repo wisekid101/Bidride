@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Shield, AlertTriangle, Phone } from 'lucide-react';
+import { Shield, AlertTriangle, MapPin, Clock } from 'lucide-react';
 
 interface SosEvent {
   id: string;
@@ -22,30 +22,58 @@ interface PanicEvent {
   initiatedByRole: 'rider' | 'driver';
   createdAt: string;
   adminAssignedId: string | null;
-  // Note: DO NOT display rider identity on panic — contact driver only
+  // DO NOT display rider identity on panic — contact driver only
 }
+
+interface DeviationAlert {
+  id: string;
+  tripId: string;
+  type: 'spatial' | 'time_overrun';
+  riskLevel: 'low' | 'moderate' | 'high';
+  deviationMiles: number | null;
+  elapsedMin: number | null;
+  expectedMin: number | null;
+  escalated: boolean;
+  escalationType: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+const RISK_BADGE: Record<string, string> = {
+  high: 'bg-red-900/60 text-red-300 border border-red-700',
+  moderate: 'bg-amber-900/50 text-amber-300 border border-amber-700',
+  low: 'bg-slate-700/50 text-slate-300 border border-slate-600',
+};
 
 export default function SafetyPage() {
   const [sosQueue, setSosQueue] = useState<SosEvent[]>([]);
   const [panicQueue, setPanicQueue] = useState<PanicEvent[]>([]);
+  const [deviationAlerts, setDeviationAlerts] = useState<DeviationAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSos, setSelectedSos] = useState<SosEvent | null>(null);
+  const [riskFilter, setRiskFilter] = useState<string>('');
 
   useEffect(() => {
-    fetchQueues();
-    const interval = setInterval(fetchQueues, 10000); // Refresh every 10s
+    fetchAll();
+    const interval = setInterval(fetchAll, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  const fetchQueues = async () => {
+  const fetchAll = async () => {
     try {
-      const [sosRes, panicRes] = await Promise.all([
+      const [sosRes, panicRes, devRes] = await Promise.all([
         fetch('/api/admin/safety/sos?status=active'),
         fetch('/api/admin/safety/panic?status=active'),
+        fetch('/api/admin/safety/deviations?limit=30'),
       ]);
-      const [sos, panic] = await Promise.all([sosRes.json(), panicRes.json()]);
-      setSosQueue(sos);
-      setPanicQueue(panic);
+      const [sos, panic, devs] = await Promise.all([
+        sosRes.json(),
+        panicRes.json(),
+        devRes.json(),
+      ]);
+      setSosQueue(Array.isArray(sos) ? sos : []);
+      setPanicQueue(Array.isArray(panic) ? panic : []);
+      setDeviationAlerts(Array.isArray(devs) ? devs : []);
     } catch {
       /* handled by retry interval */
     } finally {
@@ -55,7 +83,7 @@ export default function SafetyPage() {
 
   const assignSos = async (sosId: string) => {
     await fetch(`/api/admin/safety/sos/${sosId}/assign`, { method: 'POST' });
-    fetchQueues();
+    fetchAll();
   };
 
   const resolveSos = async (sosId: string, notes: string) => {
@@ -64,7 +92,7 @@ export default function SafetyPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notes }),
     });
-    fetchQueues();
+    fetchAll();
     setSelectedSos(null);
   };
 
@@ -76,14 +104,25 @@ export default function SafetyPage() {
     return { label: `${Math.round(secondsLeft)}s`, color: 'text-teal-400', urgent: false };
   };
 
+  const filteredDeviations = riskFilter
+    ? deviationAlerts.filter((d) => d.riskLevel === riskFilter)
+    : deviationAlerts;
+
+  const highDeviationCount = deviationAlerts.filter((d) => d.riskLevel === 'high').length;
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
         <Shield className="w-6 h-6 text-red-400" />
         <h1 className="text-2xl font-bold text-white">Safety Incident Center</h1>
+        {highDeviationCount > 0 && (
+          <span className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+            {highDeviationCount} HIGH RISK
+          </span>
+        )}
       </div>
 
-      {/* Panic Queue — DO NOT CONTACT RIDER rule is prominently displayed */}
+      {/* Panic Queue — DO NOT CONTACT RIDER rule */}
       {panicQueue.length > 0 && (
         <div className="bg-red-950/30 border border-red-700 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -133,11 +172,8 @@ export default function SafetyPage() {
         {loading && (
           <div className="px-4 py-8 text-center text-muted-foreground text-sm">Loading…</div>
         )}
-
         {!loading && sosQueue.length === 0 && (
-          <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-            No active SOS events. All clear.
-          </div>
+          <div className="px-4 py-8 text-center text-muted-foreground text-sm">No active SOS events. All clear.</div>
         )}
 
         <div className="divide-y divide-border">
@@ -146,23 +182,15 @@ export default function SafetyPage() {
             return (
               <div
                 key={sos.id}
-                className={`px-4 py-3 flex items-center gap-4 cursor-pointer hover:bg-secondary/30 ${
-                  sla.urgent ? 'border-l-2 border-l-red-500' : ''
-                }`}
+                className={`px-4 py-3 flex items-center gap-4 cursor-pointer hover:bg-secondary/30 ${sla.urgent ? 'border-l-2 border-l-red-500' : ''}`}
                 onClick={() => setSelectedSos(sos)}
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white">
-                      Trip {sos.tripId.slice(0, 8)}…
-                    </span>
-                    <span className="text-xs bg-secondary rounded-full px-2 py-0.5 text-muted-foreground capitalize">
-                      {sos.initiatedByRole}
-                    </span>
+                    <span className="text-sm font-medium text-white">Trip {sos.tripId.slice(0, 8)}…</span>
+                    <span className="text-xs bg-secondary rounded-full px-2 py-0.5 text-muted-foreground capitalize">{sos.initiatedByRole}</span>
                     {sos.recordingExists && (
-                      <span className="text-xs bg-teal-900/50 text-teal-400 rounded-full px-2 py-0.5">
-                        Recording
-                      </span>
+                      <span className="text-xs bg-teal-900/50 text-teal-400 rounded-full px-2 py-0.5">Recording</span>
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
@@ -187,13 +215,94 @@ export default function SafetyPage() {
         </div>
       </div>
 
+      {/* Route Deviation Alerts */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-amber-400" />
+            <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+              Route Deviation Alerts
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              className="text-xs bg-secondary border border-border rounded px-2 py-1 text-muted-foreground"
+              value={riskFilter}
+              onChange={(e) => setRiskFilter(e.target.value)}
+            >
+              <option value="">All risk levels</option>
+              <option value="high">High only</option>
+              <option value="moderate">Moderate only</option>
+              <option value="low">Low only</option>
+            </select>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="px-4 py-6 text-center text-muted-foreground text-sm">Loading…</div>
+        ) : filteredDeviations.length === 0 ? (
+          <div className="px-4 py-6 text-center text-muted-foreground text-sm">No deviation alerts.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground border-b border-border">
+                  <th className="text-left px-4 py-2">Trip</th>
+                  <th className="text-left px-4 py-2">Type</th>
+                  <th className="text-left px-4 py-2">Risk</th>
+                  <th className="text-right px-4 py-2">Deviation</th>
+                  <th className="text-right px-4 py-2">Elapsed / Expected</th>
+                  <th className="text-left px-4 py-2">Escalation</th>
+                  <th className="text-right px-4 py-2">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/30">
+                {filteredDeviations.map((d) => (
+                  <tr
+                    key={d.id}
+                    className={`hover:bg-secondary/20 ${d.riskLevel === 'high' ? 'border-l-2 border-l-red-500' : ''}`}
+                  >
+                    <td className="px-4 py-2 font-mono text-white">{d.tripId.slice(0, 8)}…</td>
+                    <td className="px-4 py-2">
+                      <span className="capitalize text-slate-300">
+                        {d.type === 'spatial' ? '📍 Spatial' : '⏱ Time overrun'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${RISK_BADGE[d.riskLevel]}`}>
+                        {d.riskLevel}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono">
+                      {d.deviationMiles != null ? `${Number(d.deviationMiles).toFixed(2)} mi` : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-slate-300">
+                      {d.elapsedMin != null ? `${Number(d.elapsedMin).toFixed(0)}m` : '—'}
+                      {d.expectedMin != null ? ` / ${d.expectedMin}m` : ''}
+                    </td>
+                    <td className="px-4 py-2">
+                      {d.escalated ? (
+                        <span className={`text-[10px] font-semibold ${d.escalationType === 'admin_alert' ? 'text-red-400' : 'text-amber-400'}`}>
+                          {d.escalationType === 'admin_alert' ? '🚨 Admin alerted' : '✉ Check-in sent'}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right text-muted-foreground">
+                      {new Date(d.createdAt).toLocaleTimeString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* SOS Detail Panel */}
       {selectedSos && (
-        <SosDetailPanel
-          sos={selectedSos}
-          onResolve={resolveSos}
-          onClose={() => setSelectedSos(null)}
-        />
+        <SosDetailPanel sos={selectedSos} onResolve={resolveSos} onClose={() => setSelectedSos(null)} />
       )}
     </div>
   );
@@ -216,11 +325,8 @@ function SosDetailPanel({
       <div className="bg-card rounded-2xl border border-border w-full max-w-lg p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-lg text-white">SOS Detail</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white text-sm">
-            Close
-          </button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white text-sm">Close</button>
         </div>
-
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Trip ID</span>
@@ -232,9 +338,7 @@ function SosDetailPanel({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">GPS</span>
-            <span className="text-white font-mono text-xs">
-              {sos.gpsLat.toFixed(5)}, {sos.gpsLng.toFixed(5)}
-            </span>
+            <span className="text-white font-mono text-xs">{sos.gpsLat?.toFixed(5)}, {sos.gpsLng?.toFixed(5)}</span>
           </div>
           {sos.recordingExists && (
             <div className="bg-yellow-950/30 border border-yellow-700 rounded-lg p-3">
@@ -245,7 +349,6 @@ function SosDetailPanel({
             </div>
           )}
         </div>
-
         <div>
           <label className="text-sm text-muted-foreground block mb-1">Incident Category</label>
           <select
@@ -261,7 +364,6 @@ function SosDetailPanel({
             <option value="other">Other</option>
           </select>
         </div>
-
         <div>
           <label className="text-sm text-muted-foreground block mb-1">Resolution Notes</label>
           <textarea
@@ -271,7 +373,6 @@ function SosDetailPanel({
             onChange={(e) => setNotes(e.target.value)}
           />
         </div>
-
         <button
           className="w-full bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-semibold py-2 rounded-lg text-sm"
           disabled={!notes.trim() || !category}

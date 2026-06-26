@@ -11,6 +11,7 @@ import { RefundsModule } from './refunds/refunds.module';
 import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
 import { MarketplaceAdminModule } from './marketplace/marketplace.module';
+import { SafetyAdminModule } from './safety/safety-admin.module';
 
 @Module({
   controllers: [HealthController],
@@ -26,6 +27,7 @@ import { MarketplaceAdminModule } from './marketplace/marketplace.module';
     SupportModule,
     AiModule,
     MarketplaceAdminModule,
+    SafetyAdminModule,
   ],
 })
 export class AppModule {}
