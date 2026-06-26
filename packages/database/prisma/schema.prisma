@@ -391,6 +391,8 @@ model Driver {
   notifications         DriverNotification[]
   airportQueueEntries   AirportQueueEntry[]
   driverEarnings        DriverEarning[]
+  wallet                DriverWallet?
+  payoutAttempts        PayoutAttempt[]
 
   @@map("drivers")
 }
@@ -1278,6 +1280,125 @@ model ProxySession {
 
   @@index([status, expiresAt])
   @@map("proxy_sessions")
+}
+
+// ─── Sprint 6: Payments, Financial Ledger & Business Operations ───────────────
+
+model FinancialLedger {
+  id            String   @id @default(uuid()) @db.Uuid
+  correlationId String   @map("correlation_id") @db.VarChar(100)
+  entryType     String   @map("entry_type") @db.VarChar(30)
+  accountType   String   @map("account_type") @db.VarChar(20)
+  accountId     String   @map("account_id") @db.VarChar(100)
+  direction     String   @db.VarChar(6)
+  amount        Decimal  @db.Decimal(10, 2)
+  currency      String   @default("usd") @db.VarChar(3)
+  tripId        String?  @map("trip_id") @db.VarChar(100)
+  refundId      String?  @map("refund_id") @db.VarChar(100)
+  payoutId      String?  @map("payout_id") @db.VarChar(100)
+  actorType     String   @default("system") @map("actor_type") @db.VarChar(20)
+  actorId       String?  @map("actor_id") @db.VarChar(100)
+  sourceEvent   String   @map("source_event") @db.VarChar(50)
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([correlationId])
+  @@index([accountId, createdAt(sort: Desc)])
+  @@index([tripId])
+  @@index([entryType, createdAt(sort: Desc)])
+  @@map("financial_ledger")
+}
+
+model DriverWallet {
+  id               String   @id @default(uuid()) @db.Uuid
+  driverId         String   @unique @map("driver_id") @db.Uuid
+  pendingBalance   Decimal  @default(0.00) @map("pending_balance") @db.Decimal(10, 2)
+  availableBalance Decimal  @default(0.00) @map("available_balance") @db.Decimal(10, 2)
+  lifetimeEarnings Decimal  @default(0.00) @map("lifetime_earnings") @db.Decimal(10, 2)
+  lifetimePaid     Decimal  @default(0.00) @map("lifetime_paid") @db.Decimal(10, 2)
+  lastPayoutAt     DateTime? @map("last_payout_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  driver       Driver             @relation(fields: [driverId], references: [id])
+  transactions WalletTransaction[]
+
+  @@map("driver_wallets")
+}
+
+model WalletTransaction {
+  id           String   @id @default(uuid()) @db.Uuid
+  walletId     String   @map("wallet_id") @db.Uuid
+  driverId     String   @map("driver_id") @db.Uuid
+  type         String   @db.VarChar(30)
+  direction    String   @db.VarChar(6)
+  amount       Decimal  @db.Decimal(10, 2)
+  balanceAfter Decimal  @map("balance_after") @db.Decimal(10, 2)
+  tripId       String?  @map("trip_id") @db.VarChar(100)
+  payoutId     String?  @map("payout_id") @db.VarChar(100)
+  description  String   @db.VarChar(200)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  wallet DriverWallet @relation(fields: [walletId], references: [id])
+
+  @@index([walletId, createdAt(sort: Desc)])
+  @@index([driverId, createdAt(sort: Desc)])
+  @@map("wallet_transactions")
+}
+
+model PayoutBatch {
+  id          String    @id @default(uuid()) @db.Uuid
+  batchType   String    @map("batch_type") @db.VarChar(20)
+  periodStart DateTime  @map("period_start") @db.Date
+  periodEnd   DateTime  @map("period_end") @db.Date
+  totalAmount Decimal   @map("total_amount") @db.Decimal(12, 2)
+  driverCount Int       @default(0) @map("driver_count")
+  status      String    @db.VarChar(20)
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  attempts PayoutAttempt[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@map("payout_batches")
+}
+
+model PayoutAttempt {
+  id               String    @id @default(uuid()) @db.Uuid
+  batchId          String?   @map("batch_id") @db.Uuid
+  driverId         String    @map("driver_id") @db.Uuid
+  amount           Decimal   @db.Decimal(10, 2)
+  stripeTransferId String?   @unique @map("stripe_transfer_id") @db.VarChar(100)
+  status           String    @db.VarChar(20)
+  failureReason    String?   @map("failure_reason") @db.VarChar(200)
+  attemptNumber    Int       @default(1) @map("attempt_number")
+  nextRetryAt      DateTime? @map("next_retry_at")
+  succeededAt      DateTime? @map("succeeded_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  batch  PayoutBatch? @relation(fields: [batchId], references: [id])
+  driver Driver       @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, createdAt(sort: Desc)])
+  @@index([status, nextRetryAt])
+  @@map("payout_attempts")
+}
+
+model PaymentReconciliation {
+  id                String    @id @default(uuid()) @db.Uuid
+  stripeObjectId    String    @unique @map("stripe_object_id") @db.VarChar(100)
+  stripeObjectType  String    @map("stripe_object_type") @db.VarChar(30)
+  stripeAmount      Decimal   @map("stripe_amount") @db.Decimal(10, 2)
+  localAmount       Decimal?  @map("local_amount") @db.Decimal(10, 2)
+  status            String    @db.VarChar(20)
+  mismatchReason    String?   @map("mismatch_reason") @db.VarChar(200)
+  resolvedAt        DateTime? @map("resolved_at")
+  resolvedByAdminId String?   @map("resolved_by_admin_id") @db.VarChar(100)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([stripeObjectType, createdAt(sort: Desc)])
+  @@map("payment_reconciliation")
 }
 
 // ─── Sprint 5: Safety AI + Route Intelligence ─────────────────────────────────

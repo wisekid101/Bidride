@@ -12,6 +12,7 @@ import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
 import { MarketplaceAdminModule } from './marketplace/marketplace.module';
 import { SafetyAdminModule } from './safety/safety-admin.module';
+import { FinanceModule } from './finance/finance.module';
 
 @Module({
   controllers: [HealthController],
@@ -28,6 +29,7 @@ import { SafetyAdminModule } from './safety/safety-admin.module';
     AiModule,
     MarketplaceAdminModule,
     SafetyAdminModule,
+    FinanceModule,
   ],
 })
 export class AppModule {}

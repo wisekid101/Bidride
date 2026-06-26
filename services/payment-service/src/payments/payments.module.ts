@@ -6,6 +6,9 @@ import { PaymentsInternalController } from './payments.internal.controller';
 import { StripeWebhookController } from './payments.webhook.controller';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisModule } from '../redis/redis.module';
+import { LedgerService } from '../ledger/ledger.service';
+import { WalletService } from '../wallet/wallet.service';
+import { ReconciliationService } from '../reconciliation/reconciliation.service';
 
 @Module({
   imports: [
@@ -18,7 +21,7 @@ import { RedisModule } from '../redis/redis.module';
     }),
   ],
   controllers: [PaymentsInternalController, StripeWebhookController],
-  providers: [PaymentService, PrismaService],
+  providers: [PaymentService, PrismaService, LedgerService, WalletService, ReconciliationService],
   exports: [PaymentService],
 })
 export class PaymentsModule {}

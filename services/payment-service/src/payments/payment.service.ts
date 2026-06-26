@@ -9,6 +9,9 @@ import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { LedgerService } from '../ledger/ledger.service';
+import { WalletService } from '../wallet/wallet.service';
+import { ReconciliationService } from '../reconciliation/reconciliation.service';
 
 const INSTANT_PAYOUT_FEE = 0.99;
 const MIN_PAYOUT_BALANCE = 10.00;
@@ -23,6 +26,9 @@ export class PaymentService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly ledger?: LedgerService,
+    private readonly wallet?: WalletService,
+    private readonly reconciliation?: ReconciliationService,
   ) {
     this.stripe = new Stripe(config.getOrThrow('STRIPE_SECRET_KEY'), {
       apiVersion: '2024-04-10',
@@ -75,6 +81,20 @@ export class PaymentService {
         status: paymentIntent.status === 'succeeded' ? 'succeeded' : 'pending',
       },
     });
+
+    // Fire-and-forget: write ledger entries + reconcile
+    void this.ledger?.recordRiderPayment({
+      tripId,
+      riderId,
+      amount,
+      commission: Math.round(amount * 0.20 * 100) / 100,
+      correlationId: `charge:${tripId}`,
+    }).catch(() => {});
+    void this.reconciliation?.reconcilePaymentIntent({
+      stripeId: paymentIntent.id,
+      stripeAmountCents: Math.round(amount * 100),
+      stripeStatus: paymentIntent.status,
+    }).catch(() => {});
 
     return { paymentIntentId: paymentIntent.id, status: paymentIntent.status };
   }
@@ -207,6 +227,15 @@ export class PaymentService {
         paidAt: new Date(),
       },
     });
+
+    // Fire-and-forget: wallet debit + ledger
+    void this.wallet?.debitPayout(driverId, payout.id, payoutAmount).catch(() => {});
+    void this.ledger?.recordPayout({
+      driverId,
+      amount: payoutAmount,
+      payoutId: payout.id,
+      correlationId: `instant_payout:${payout.id}`,
+    }).catch(() => {});
 
     return {
       payoutId: payout.id,
@@ -395,6 +424,20 @@ export class PaymentService {
               data: { status: 'failed' },
             });
           }
+        }
+        break;
+      }
+      case 'charge.dispute.created': {
+        const dispute = event.data.object as Stripe.Dispute;
+        const piId = typeof dispute.payment_intent === 'string'
+          ? dispute.payment_intent
+          : (dispute.payment_intent as Stripe.PaymentIntent | null)?.id;
+        if (piId) {
+          void this.reconciliation?.recordDispute({
+            stripeDisputeId: dispute.id,
+            stripeAmountCents: dispute.amount,
+            paymentIntentId: piId,
+          }).catch(() => {});
         }
         break;
       }
