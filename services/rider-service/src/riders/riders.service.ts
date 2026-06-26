@@ -145,6 +145,18 @@ export class RidersService {
     return { trips, total, page, pages: Math.ceil(total / limit) };
   }
 
+  async setPushToken(userId: string, token: string) {
+    const rider = await this.prisma.rider.findUnique({ where: { userId } });
+    if (!rider) throw new NotFoundException('Rider not found');
+
+    await this.prisma.rider.update({
+      where: { id: rider.id },
+      data: { pushToken: token },
+    });
+
+    return { success: true };
+  }
+
   async getRewardPoints(userId: string) {
     const rider = await this.prisma.rider.findUnique({
       where: { userId },

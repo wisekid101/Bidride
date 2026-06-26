@@ -12,10 +12,10 @@ export class PaymentMethodsService {
   async listPaymentMethods(userId: string) {
     const rider = await this.prisma.rider.findUnique({
       where: { userId },
-      select: { id: true, stripeCustomerId: true },
+      select: { id: true, stripeCustomerId: true, defaultPaymentMethodId: true },
     });
     if (!rider) throw new NotFoundException('Rider not found');
-    if (!rider.stripeCustomerId) return { paymentMethods: [] };
+    if (!rider.stripeCustomerId) return { paymentMethods: [], defaultPaymentMethodId: null };
 
     const methods = await this.stripe.paymentMethods.list({
       customer: rider.stripeCustomerId,
@@ -29,8 +29,9 @@ export class PaymentMethodsService {
         last4: pm.card!.last4,
         expMonth: pm.card!.exp_month,
         expYear: pm.card!.exp_year,
-        isDefault: false, // set below
+        isDefault: pm.id === rider.defaultPaymentMethodId,
       })),
+      defaultPaymentMethodId: rider.defaultPaymentMethodId,
     };
   }
 
@@ -60,13 +61,37 @@ export class PaymentMethodsService {
       usage: 'off_session',
     });
 
-    return { clientSecret: intent.client_secret };
+    return { clientSecret: intent.client_secret, customerId };
+  }
+
+  async setDefaultPaymentMethod(userId: string, paymentMethodId: string) {
+    const rider = await this.prisma.rider.findUnique({
+      where: { userId },
+      select: { id: true, stripeCustomerId: true },
+    });
+    if (!rider?.stripeCustomerId) throw new NotFoundException('Rider has no payment methods');
+
+    const pm = await this.stripe.paymentMethods.retrieve(paymentMethodId);
+    if (pm.customer !== rider.stripeCustomerId) {
+      throw new BadRequestException('Payment method not found on this account');
+    }
+
+    await this.prisma.rider.update({
+      where: { id: rider.id },
+      data: { defaultPaymentMethodId: paymentMethodId },
+    });
+
+    await this.stripe.customers.update(rider.stripeCustomerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+
+    return { success: true, defaultPaymentMethodId: paymentMethodId };
   }
 
   async removePaymentMethod(userId: string, paymentMethodId: string) {
     const rider = await this.prisma.rider.findUnique({
       where: { userId },
-      select: { stripeCustomerId: true },
+      select: { id: true, stripeCustomerId: true, defaultPaymentMethodId: true },
     });
     if (!rider?.stripeCustomerId) throw new NotFoundException('Rider has no payment methods');
 
@@ -76,6 +101,22 @@ export class PaymentMethodsService {
     }
 
     await this.stripe.paymentMethods.detach(paymentMethodId);
+
+    if (rider.defaultPaymentMethodId === paymentMethodId) {
+      await this.prisma.rider.update({
+        where: { id: rider.id },
+        data: { defaultPaymentMethodId: null },
+      });
+    }
+
     return { success: true };
+  }
+
+  async hasDefaultPaymentMethod(userId: string): Promise<boolean> {
+    const rider = await this.prisma.rider.findUnique({
+      where: { userId },
+      select: { defaultPaymentMethodId: true },
+    });
+    return !!rider?.defaultPaymentMethodId;
   }
 }

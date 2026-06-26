@@ -30,6 +30,14 @@ export default function ProfileScreen() {
       <View style={styles.section}>
         <TouchableOpacity
           style={styles.row}
+          onPress={() => router.push('/payment-methods')}
+        >
+          <Text style={styles.rowText}>Payment Methods</Text>
+          <Text style={styles.rowChevron}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.row, styles.rowLast]}
           onPress={() => router.push('/trusted-contacts')}
         >
           <Text style={styles.rowText}>Trusted Contacts</Text>
@@ -38,7 +46,7 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.section}>
-        <TouchableOpacity style={[styles.row, styles.rowDanger]} onPress={handleSignOut}>
+        <TouchableOpacity style={[styles.row, styles.rowLast, styles.rowDanger]} onPress={handleSignOut}>
           <Text style={styles.rowTextDanger}>Sign Out</Text>
         </TouchableOpacity>
       </View>
@@ -70,8 +78,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  rowLast: { borderBottomWidth: 0 },
   rowText: { color: Colors.text, fontSize: Typography.size.base },
   rowChevron: { color: Colors.textSecondary, fontSize: Typography.size.lg },
-  rowDanger: { borderBottomWidth: 0 },
+  rowDanger: {},
   rowTextDanger: { color: Colors.safety, fontSize: Typography.size.base },
 });

@@ -10,8 +10,15 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { IsString, IsNotEmpty } from 'class-validator';
 import { RidersService, UpdateProfileDto, SetHomeAddressDto } from './riders.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+
+class SetPushTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+}
 
 @Controller('riders')
 export class RidersController {
@@ -30,6 +37,13 @@ export class RidersController {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.ridersService.updateProfile(userId, dto);
+  }
+
+  @Patch('me/push-token')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  setPushToken(@Headers('x-user-id') userId: string, @Body() dto: SetPushTokenDto) {
+    return this.ridersService.setPushToken(userId, dto.token);
   }
 
   @Post('me/addresses')

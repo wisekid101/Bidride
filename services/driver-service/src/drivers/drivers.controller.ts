@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { IsString, IsNotEmpty } from 'class-validator';
 import { DriversService } from './drivers.service';
 import {
   SubmitPersonalInfoDto,
@@ -22,6 +23,12 @@ import {
 } from './dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+
+class SetPushTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+}
 
 @Controller('drivers')
 export class DriversController {
@@ -68,6 +75,13 @@ export class DriversController {
   @UseGuards(JwtAuthGuard)
   getPerformanceStats(@Headers('x-user-id') userId: string) {
     return this.driversService.getPerformanceStats(userId);
+  }
+
+  @Patch('me/push-token')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  setPushToken(@Headers('x-user-id') userId: string, @Body() dto: SetPushTokenDto) {
+    return this.driversService.setPushToken(userId, dto.token);
   }
 
   // Admin endpoints

@@ -3,12 +3,43 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 import { useDriverStore } from '../src/store/driver.store';
+import { api } from '../src/api/client';
 
 SplashScreen.preventAutoHideAsync();
 
+async function registerPushToken() {
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== 'granted') return;
+
+    const { data: token } = await Notifications.getExpoPushTokenAsync();
+    await api.patch('/drivers/me/push-token', { token });
+  } catch {
+    // Push token registration is best-effort — do not block app startup
+  }
+}
+
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('default', {
+    name: 'default',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#00D4C6',
+  });
+}
+
 export default function RootLayout() {
-  const { loadTokens } = useDriverStore();
+  const { loadTokens, isAuthenticated } = useDriverStore();
 
   const [fontsLoaded] = useFonts({
     'Inter-Regular': require('../assets/fonts/Inter-Regular.ttf'),
@@ -26,6 +57,12 @@ export default function RootLayout() {
     });
   }, [fontsLoaded]);
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      void registerPushToken();
+    }
+  }, [isAuthenticated]);
+
   if (!fontsLoaded) return null;
 
   return (
@@ -36,8 +73,10 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="incoming-request" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+        <Stack.Screen name="navigating-to-pickup" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="in-trip" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="airport-mode" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="wallet" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </>
   );

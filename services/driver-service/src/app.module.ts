@@ -5,6 +5,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { DriversModule } from './drivers/drivers.module';
 import { DocumentsModule } from './documents/documents.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
+import { EarningsModule } from './earnings/earnings.module';
 
 @Module({
   controllers: [HealthController],
@@ -14,6 +15,7 @@ import { VehiclesModule } from './vehicles/vehicles.module';
     DriversModule,
     DocumentsModule,
     VehiclesModule,
+    EarningsModule,
   ],
 })
 export class AppModule {}

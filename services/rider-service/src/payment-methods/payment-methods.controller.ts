@@ -3,14 +3,22 @@ import {
   Get,
   Post,
   Delete,
+  Body,
   Param,
   Headers,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { IsString, IsNotEmpty } from 'class-validator';
 import { PaymentMethodsService } from './payment-methods.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+
+class SetDefaultDto {
+  @IsString()
+  @IsNotEmpty()
+  paymentMethodId: string;
+}
 
 @Controller('riders/me/payment-methods')
 export class PaymentMethodsController {
@@ -27,6 +35,13 @@ export class PaymentMethodsController {
   @HttpCode(HttpStatus.OK)
   createSetupIntent(@Headers('x-user-id') userId: string) {
     return this.paymentMethodsService.createSetupIntent(userId);
+  }
+
+  @Post('default')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  setDefault(@Headers('x-user-id') userId: string, @Body() dto: SetDefaultDto) {
+    return this.paymentMethodsService.setDefaultPaymentMethod(userId, dto.paymentMethodId);
   }
 
   @Delete(':paymentMethodId')

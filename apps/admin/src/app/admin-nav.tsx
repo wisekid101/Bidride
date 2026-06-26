@@ -11,6 +11,9 @@ import {
   FileText,
   Brain,
   BarChart2,
+  CreditCard,
+  Activity,
+  HeadphonesIcon,
   LogOut,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -20,8 +23,11 @@ const NAV_ITEMS = [
   { href: '/drivers', label: 'Drivers', icon: Users },
   { href: '/safety', label: 'Safety', icon: Shield },
   { href: '/fraud', label: 'Fraud', icon: AlertTriangle },
+  { href: '/finance', label: 'Finance', icon: CreditCard },
   { href: '/earnings-floor', label: 'Earnings Floor', icon: DollarSign },
   { href: '/refunds', label: 'Refunds', icon: FileText },
+  { href: '/operations', label: 'Operations', icon: Activity },
+  { href: '/support', label: 'Support', icon: HeadphonesIcon },
   { href: '/ai', label: 'AI Models', icon: Brain },
   { href: '/marketplace', label: 'Marketplace', icon: BarChart2 },
 ];
@@ -52,7 +58,7 @@ export function AdminNav() {
       </div>
 
       {/* Nav links */}
-      <nav className="flex-1 px-2 py-4 space-y-0.5">
+      <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (

@@ -197,6 +197,18 @@ export class DriversService {
     };
   }
 
+  async setPushToken(userId: string, token: string) {
+    const driver = await this.prisma.driver.findUnique({ where: { userId } });
+    if (!driver) throw new NotFoundException('Driver not found');
+
+    await this.prisma.driver.update({
+      where: { id: driver.id },
+      data: { pushToken: token },
+    });
+
+    return { success: true };
+  }
+
   // Admin endpoints below
 
   async listForAdmin(filters: {

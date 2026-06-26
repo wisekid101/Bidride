@@ -312,6 +312,7 @@ model Rider {
   currentBadge           RiderBadge  @default(verified) @map("current_badge")
   stripeCustomerId       String?     @unique @map("stripe_customer_id") @db.VarChar(100)
   defaultPaymentMethodId String?     @map("default_payment_method_id") @db.VarChar(100)
+  pushToken              String?     @map("push_token") @db.VarChar(500)
   corporateAccountId     String?     @map("corporate_account_id") @db.Uuid
   rewardPoints           Int         @default(0) @map("rewards_points")
   rewardTier             RewardsTier @default(silver) @map("rewards_tier")
@@ -370,6 +371,7 @@ model Driver {
   acceptanceRate            Decimal               @default(0.00) @map("acceptance_rate") @db.Decimal(5, 2)
   completionRate            Decimal               @default(0.00) @map("completion_rate") @db.Decimal(5, 2)
   isAvailable               Boolean               @default(false) @map("is_available")
+  pushToken                 String?               @map("push_token") @db.VarChar(500)
   onboardingStep            String                @default("personal_info") @map("onboarding_step") @db.VarChar(50)
   appliedAt                 DateTime              @default(now()) @map("applied_at")
   approvedAt                DateTime?             @map("approved_at")

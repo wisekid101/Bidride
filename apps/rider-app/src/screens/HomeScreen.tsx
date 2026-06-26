@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Alert,
   Platform,
 } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
@@ -41,8 +42,17 @@ export function HomeScreen() {
   const [requestingRide, setRequestingRide] = useState(false);
   const [fareError, setFareError] = useState<string | null>(null);
   const [ewrVisible, setEwrVisible] = useState(false);
+  const [hasDefaultPaymentMethod, setHasDefaultPaymentMethod] = useState<boolean | null>(null);
   const pendingEwrAddress = useRef<ResolvedAddress | null>(null);
   const sessionToken = useRef(Math.random().toString(36).slice(2)).current;
+
+  useEffect(() => {
+    api.get<{ paymentMethods: { isDefault: boolean }[]; defaultPaymentMethodId: string | null }>(
+      '/riders/me/payment-methods',
+    )
+      .then((res) => setHasDefaultPaymentMethod(!!res.defaultPaymentMethodId))
+      .catch(() => setHasDefaultPaymentMethod(false));
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -116,6 +126,19 @@ export function HomeScreen() {
 
   const requestRide = async () => {
     if (!pickupResolved || !dropoffResolved || !fareEstimate) return;
+
+    if (!hasDefaultPaymentMethod) {
+      Alert.alert(
+        'Payment Method Required',
+        'Please add a payment method before requesting a ride.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Add Card', onPress: () => navigation.navigate('PaymentMethods') },
+        ],
+      );
+      return;
+    }
+
     setRequestingRide(true);
     try {
       const trip = await api.post<{ id: string; aiFare: number }>('/trips', {

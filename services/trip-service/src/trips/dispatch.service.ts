@@ -3,7 +3,10 @@ import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { PrismaService } from '../prisma/prisma.service';
 
+const NOTIFICATION_SERVICE = process.env.NOTIFICATION_SERVICE_URL ?? 'http://localhost:3008';
+
 // Publishes real-time events to WebSocket gateway via Redis Pub/Sub
+// Also sends FCM push notifications for events that may occur while app is backgrounded
 @Injectable()
 export class DispatchService {
   constructor(
@@ -61,6 +64,14 @@ export class DispatchService {
       vehicleColor: driverInfo.vehicleColor,
       licensePlate: driverInfo.licensePlate,
     });
+
+    // Push: rider's app may be backgrounded — notify them their driver is assigned
+    const vehicleInfo = [driverInfo.vehicleMake, driverInfo.vehicleModel, driverInfo.vehicleColor]
+      .filter(Boolean).join(' ');
+    void this.pushToRiderByTrip(tripId, 'Driver on the way!',
+      `${driverInfo.name} · ${vehicleInfo || 'Vehicle info TBD'}`,
+      { type: 'DRIVER_ASSIGNED', tripId },
+    );
   }
 
   async notifyRiderDriverArrived(tripId: string): Promise<void> {
@@ -69,6 +80,11 @@ export class DispatchService {
       tripId,
       timestamp: new Date().toISOString(),
     });
+
+    void this.pushToRiderByTrip(tripId, 'Your driver has arrived',
+      'Please head to your pickup location.',
+      { type: 'DRIVER_ARRIVED', tripId },
+    );
   }
 
   async notifyRiderTripStarted(tripId: string): Promise<void> {
@@ -90,6 +106,11 @@ export class DispatchService {
       finalFare,
     });
 
+    void this.pushToRiderByTrip(tripId, 'Trip complete!',
+      `Your fare: $${finalFare.toFixed(2)}. Thank you for riding with BidRide.`,
+      { type: 'TRIP_COMPLETED', tripId, finalFare: String(finalFare) },
+    );
+
     if (!floorResult.floorMet) {
       await this.publish(`driver:trip:${tripId}`, {
         event: 'earnings:floor_triggered',
@@ -97,6 +118,11 @@ export class DispatchService {
         supplement: floorResult.supplement,
         totalEarnings: floorResult.totalDriverEarnings,
       });
+
+      void this.pushToDriverByTrip(tripId, 'Earnings Floor Activated',
+        `BidRide added $${floorResult.supplement.toFixed(2)} — your take-home: $${floorResult.totalDriverEarnings.toFixed(2)}`,
+        { type: 'FLOOR_SUPPLEMENT', tripId },
+      );
     }
   }
 
@@ -147,6 +173,15 @@ export class DispatchService {
       targetDriverUserIds.map((userId) => this.publish(`user:${userId}:events`, payload)),
     );
 
+    // Push to backgrounded drivers: look up their tokens
+    void this.pushBidToDrivers(
+      targetDriverUserIds,
+      trip.pickupAddress,
+      Number(bid.riderOffer),
+      bid.id,
+      trip.id,
+    );
+
     // Log bid exposure for AI training data — fire-and-forget
     void this.prisma.driverBidExposure.createMany({
       data: targetDriverUserIds.map((driverUserId) => ({
@@ -170,6 +205,11 @@ export class DispatchService {
       finalFare,
       driverId: driver.id,
     });
+
+    void this.pushToRiderByTrip(tripId, 'Bid accepted!',
+      `Your offer was accepted. Fare: $${finalFare.toFixed(2)}`,
+      { type: 'BID_ACCEPTED', tripId, bidId },
+    );
   }
 
   async notifyBidDeclinedByDriver(tripId: string, bidId: string): Promise<void> {
@@ -196,6 +236,11 @@ export class DispatchService {
       driverId: driver.id,
       expiresAt: expiresAt.toISOString(),
     });
+
+    void this.pushToRiderByTrip(tripId, 'Counter offer received!',
+      `Driver countered at $${counterAmount.toFixed(2)}. Expires soon!`,
+      { type: 'BID_COUNTERED', tripId, bidId, counterAmount: String(counterAmount) },
+    );
   }
 
   async notifyDriverCounterAccepted(
@@ -220,6 +265,11 @@ export class DispatchService {
       finalFare,
       driverId,
     });
+
+    void this.pushToDriverByUserId(driverId, 'Rider accepted your counter!',
+      `Trip confirmed at $${finalFare.toFixed(2)}. Head to pickup.`,
+      { type: 'COUNTER_ACCEPTED', tripId, bidId },
+    );
   }
 
   async notifyDriverCounterDeclined(
@@ -263,7 +313,108 @@ export class DispatchService {
     });
   }
 
+  // ─── Private helpers ─────────────────────────────────────────────────────
+
   private async publish(channel: string, data: object): Promise<void> {
     await this.redis.publish(channel, JSON.stringify(data));
+  }
+
+  private async pushToRiderByTrip(
+    tripId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
+    try {
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+        select: { rider: { select: { pushToken: true } } },
+      });
+      const token = trip?.rider?.pushToken;
+      if (!token) return;
+      await this.sendFcmPush(token, title, body, data);
+    } catch { /* fire-and-forget — WebSocket is primary delivery */ }
+  }
+
+  private async pushToDriverByTrip(
+    tripId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
+    try {
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+        select: { driver: { select: { pushToken: true } } },
+      });
+      const token = trip?.driver?.pushToken;
+      if (!token) return;
+      await this.sendFcmPush(token, title, body, data);
+    } catch { /* fire-and-forget */ }
+  }
+
+  private async pushToDriverByUserId(
+    driverUserId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
+    try {
+      const driver = await this.prisma.driver.findUnique({
+        where: { userId: driverUserId },
+        select: { pushToken: true },
+      });
+      if (!driver?.pushToken) return;
+      await this.sendFcmPush(driver.pushToken, title, body, data);
+    } catch { /* fire-and-forget */ }
+  }
+
+  private async pushBidToDrivers(
+    driverUserIds: string[],
+    pickupAddress: string,
+    bidAmount: number,
+    bidId: string,
+    tripId: string,
+  ): Promise<void> {
+    try {
+      const drivers = await this.prisma.driver.findMany({
+        where: { userId: { in: driverUserIds }, pushToken: { not: null } },
+        select: { pushToken: true },
+      });
+      const tokens = drivers.map((d) => d.pushToken!).filter(Boolean);
+      if (tokens.length === 0) return;
+      const shortAddr = pickupAddress.split(',')[0];
+      await this.sendFcmPushMultiple(tokens,
+        'New bid request',
+        `Pickup: ${shortAddr} · Offer: $${bidAmount.toFixed(2)}`,
+        { type: 'BID_REQUEST', bidId, tripId },
+      );
+    } catch { /* fire-and-forget */ }
+  }
+
+  private async sendFcmPush(
+    token: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
+    await fetch(`${NOTIFICATION_SERVICE}/internal/notifications/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, title, body, data }),
+    });
+  }
+
+  private async sendFcmPushMultiple(
+    tokens: string[],
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
+    await fetch(`${NOTIFICATION_SERVICE}/internal/notifications/push-multiple`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokens, title, body, data }),
+    });
   }
 }
