@@ -5,6 +5,7 @@ import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { useAuthStore } from '../src/store/auth.store';
 import { api } from '../src/api/client';
 
@@ -22,7 +23,7 @@ async function registerPushToken() {
 
     if (finalStatus !== 'granted') return;
 
-    const { data: token } = await Notifications.getExpoPushTokenAsync();
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: 'bidride-rider' });
     await api.patch('/riders/me/push-token', { token });
   } catch {
     // Push token registration is best-effort — do not block app startup
@@ -65,8 +66,10 @@ export default function RootLayout() {
 
   if (!fontsLoaded) return null;
 
+  const stripeKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? 'pk_test_REPLACE_WITH_REAL_KEY';
+
   return (
-    <>
+    <StripeProvider publishableKey={stripeKey} merchantIdentifier="merchant.com.bidride.rider">
       <StatusBar style="light" backgroundColor="#0A2342" />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="(auth)" />
@@ -79,6 +82,6 @@ export default function RootLayout() {
         <Stack.Screen name="trusted-contacts" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="payment-methods" options={{ animation: 'slide_from_right' }} />
       </Stack>
-    </>
+    </StripeProvider>
   );
 }

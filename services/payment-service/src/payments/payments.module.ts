@@ -4,6 +4,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { PaymentService } from './payment.service';
 import { PaymentsInternalController } from './payments.internal.controller';
 import { StripeWebhookController } from './payments.webhook.controller';
+import { PayoutDriverController } from '../payouts/payout.driver.controller';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisModule } from '../redis/redis.module';
 import { LedgerService } from '../ledger/ledger.service';
@@ -20,8 +22,8 @@ import { ReconciliationService } from '../reconciliation/reconciliation.service'
       inject: [ConfigService],
     }),
   ],
-  controllers: [PaymentsInternalController, StripeWebhookController],
-  providers: [PaymentService, PrismaService, LedgerService, WalletService, ReconciliationService],
+  controllers: [PaymentsInternalController, StripeWebhookController, PayoutDriverController],
+  providers: [PaymentService, PrismaService, LedgerService, WalletService, ReconciliationService, JwtAuthGuard],
   exports: [PaymentService],
 })
 export class PaymentsModule {}

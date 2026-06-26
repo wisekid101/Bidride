@@ -46,6 +46,19 @@
           "icon": "./assets/notification-icon.png",
           "color": "#00D4C6"
         }
+      ],
+      [
+        "react-native-maps",
+        {
+          "googleMapsApiKey": "REPLACE_WITH_GOOGLE_MAPS_API_KEY"
+        }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.bidride.rider",
+          "enableGooglePay": false
+        }
       ]
     ],
     "experiments": {
@@ -57,7 +70,8 @@
       },
       "eas": {
         "projectId": "bidride-rider"
-      }
+      },
+      "stripePublishableKey": "pk_test_REPLACE_WITH_REAL_KEY"
     }
   }
 }

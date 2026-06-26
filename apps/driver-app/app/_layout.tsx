@@ -22,7 +22,7 @@ async function registerPushToken() {
 
     if (finalStatus !== 'granted') return;
 
-    const { data: token } = await Notifications.getExpoPushTokenAsync();
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: 'bidride-driver' });
     await api.patch('/drivers/me/push-token', { token });
   } catch {
     // Push token registration is best-effort — do not block app startup

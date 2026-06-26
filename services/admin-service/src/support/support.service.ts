@@ -313,6 +313,47 @@ export class SupportService {
     return updated;
   }
 
+  // ─── Admin: stats ─────────────────────────────────────────────────────────
+
+  async getStats() {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [open, inReview, resolvedToday, urgent, avgMs] = await Promise.all([
+      this.prisma.supportTicket.count({ where: { status: 'open' as any } }),
+      this.prisma.supportTicket.count({ where: { status: 'in_review' as any } }),
+      this.prisma.supportTicket.count({
+        where: { status: 'resolved' as any, updatedAt: { gte: todayStart } },
+      }),
+      this.prisma.supportTicket.count({
+        where: { priority: 'urgent' as any, status: { notIn: ['resolved', 'closed'] as any[] } },
+      }),
+      this.prisma.supportTicket
+        .findMany({
+          where: { status: 'resolved' as any, resolvedAt: { not: null } },
+          select: { createdAt: true, resolvedAt: true },
+          take: 100,
+          orderBy: { resolvedAt: 'desc' },
+        })
+        .then((tickets) => {
+          if (!tickets.length) return 0;
+          const total = tickets.reduce(
+            (s, t) => s + (t.resolvedAt!.getTime() - t.createdAt.getTime()),
+            0,
+          );
+          return total / tickets.length / (1000 * 60 * 60);
+        }),
+    ]);
+
+    return {
+      openTickets: open,
+      inProgressTickets: inReview,
+      resolvedToday,
+      urgentTickets: urgent,
+      avgResolutionHours: Math.round(avgMs * 10) / 10,
+    };
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   private async requireTicket(ticketId: string) {

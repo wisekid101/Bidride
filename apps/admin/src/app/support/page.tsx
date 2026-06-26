@@ -5,13 +5,20 @@ import { useEffect, useState, useCallback } from 'react';
 interface SupportTicket {
   id: string;
   userId: string;
-  role: 'rider' | 'driver';
+  userRole: 'rider' | 'driver';
   category: string;
   subject: string;
-  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  status: 'open' | 'in_review' | 'waiting_on_user' | 'resolved' | 'escalated' | 'closed';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   createdAt: string;
   updatedAt: string;
+}
+
+interface TicketListResponse {
+  tickets: SupportTicket[];
+  total: number;
+  page: number;
+  pages: number;
 }
 
 interface SupportStats {
@@ -35,8 +42,10 @@ async function apiFetch<T>(path: string): Promise<T> {
 
 const STATUS_COLOR: Record<string, string> = {
   open: '#F4B400',
-  in_progress: '#00D4C6',
+  in_review: '#00D4C6',
+  waiting_on_user: '#F97316',
   resolved: '#22C55E',
+  escalated: '#EF4444',
   closed: '#6B7280',
 };
 
@@ -96,9 +105,9 @@ export default function SupportPage() {
     setLoading(true);
     setError(null);
     try {
-      const ticketData = await apiFetch<SupportTicket[]>('/admin/support/tickets?limit=50').catch(() => []);
+      const listRes = await apiFetch<TicketListResponse>('/admin/support/tickets?limit=50').catch(() => null);
       const statsData = await apiFetch<SupportStats>('/admin/support/stats').catch(() => null);
-      setTickets(ticketData);
+      setTickets(listRes?.tickets ?? []);
       setStats(statsData);
     } catch (e) {
       setError((e as Error).message);
@@ -110,7 +119,7 @@ export default function SupportPage() {
   useEffect(() => { void load(); }, [load]);
 
   const filteredTickets = tickets.filter((t) => {
-    if (filter === 'open') return t.status === 'open' || t.status === 'in_progress';
+    if (filter === 'open') return t.status === 'open' || t.status === 'in_review' || t.status === 'waiting_on_user';
     if (filter === 'urgent') return t.priority === 'urgent';
     return true;
   });
@@ -199,7 +208,7 @@ export default function SupportPage() {
                     {t.id.slice(0, 8)}…
                   </td>
                   <td style={{ padding: '10px 12px' }}>
-                    <Badge label={t.role} color={t.role === 'driver' ? '#00D4C6' : '#F4B400'} />
+                    <Badge label={t.userRole} color={t.userRole === 'driver' ? '#00D4C6' : '#F4B400'} />
                   </td>
                   <td style={{ padding: '10px 12px', fontWeight: 600, maxWidth: 280 }}>{t.subject}</td>
                   <td style={{ padding: '10px 12px', color: '#9CA3AF' }}>{t.category}</td>

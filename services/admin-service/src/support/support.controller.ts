@@ -46,6 +46,19 @@ export class UserTicketController {
   }
 }
 
+// ─── Admin-facing stats ───────────────────────────────────────────────────────
+
+@UseGuards(AdminSessionGuard)
+@Controller('admin/support')
+export class AdminSupportStatsController {
+  constructor(private readonly support: SupportService) {}
+
+  @Get('stats')
+  stats() {
+    return this.support.getStats();
+  }
+}
+
 // ─── Admin-facing ─────────────────────────────────────────────────────────────
 
 @UseGuards(AdminSessionGuard)

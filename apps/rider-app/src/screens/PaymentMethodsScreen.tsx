@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { useStripe } from '@stripe/stripe-react-native';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 
@@ -38,6 +39,7 @@ interface ListResponse {
 
 export function PaymentMethodsScreen() {
   const navigation = useNavigation<any>();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -109,17 +111,32 @@ export function PaymentMethodsScreen() {
     setAddingCard(true);
     setError(null);
     try {
-      await api.post<{ clientSecret: string; customerId: string }>(
+      const { clientSecret, customerId } = await api.post<{ clientSecret: string; customerId: string }>(
         '/riders/me/payment-methods/setup-intent',
         {},
       );
-      Alert.alert(
-        'Add Card',
-        'Stripe Payment Sheet integration requires @stripe/stripe-react-native. ' +
-          'In production, this launches the Stripe PaymentSheet with the setup intent. ' +
-          'For beta, please use the Stripe test card 4242 4242 4242 4242.',
-        [{ text: 'OK', onPress: () => void load() }],
-      );
+
+      const { error: initError } = await initPaymentSheet({
+        customerId,
+        setupIntentClientSecret: clientSecret,
+        merchantDisplayName: 'BidRide',
+        allowsDelayedPaymentMethods: false,
+      });
+
+      if (initError) {
+        setError(initError.message);
+        return;
+      }
+
+      const { error: presentError } = await presentPaymentSheet();
+
+      if (presentError) {
+        if (presentError.code !== 'Canceled') {
+          setError(presentError.message);
+        }
+      } else {
+        await load();
+      }
     } catch {
       setError('Could not initialize card setup. Try again.');
     } finally {

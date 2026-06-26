@@ -17,7 +17,7 @@ import { api } from '../api/client';
 
 interface WalletData {
   takeHome: number;
-  tripCount: number;
+  trips: number;
   tips: number;
   pendingWallet: number;
   availableWallet: number;
@@ -25,16 +25,14 @@ interface WalletData {
   periodLabel: string;
 }
 
-interface Transaction {
+interface TripEarning {
   id: string;
-  tripId: string | null;
-  amount: number;
-  date: string;
-}
-
-interface HistoryData {
-  total: number;
-  earnings: Transaction[];
+  completedAt: string;
+  pickupArea: string;
+  dropoffArea: string;
+  takeHome: number;
+  floorSupplement: number;
+  ratingGiven: number | null;
 }
 
 function AmountDisplay({ value, size = 'large', prefix = '$' }: { value: number; size?: 'hero' | 'large' | 'medium' | 'small'; prefix?: string }) {
@@ -54,7 +52,7 @@ function AmountDisplay({ value, size = 'large', prefix = '$' }: { value: number;
 export function WalletScreen() {
   const navigation = useNavigation<any>();
   const [wallet, setWallet] = useState<WalletData | null>(null);
-  const [history, setHistory] = useState<Transaction[]>([]);
+  const [history, setHistory] = useState<TripEarning[]>([]);
   const [loading, setLoading] = useState(true);
   const [payoutLoading, setPayoutLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,10 +63,10 @@ export function WalletScreen() {
     try {
       const [todayData, historyData] = await Promise.all([
         api.get<WalletData>('/driver/earnings/today'),
-        api.get<HistoryData>('/driver/earnings/history?limit=10'),
+        api.get<TripEarning[]>('/driver/earnings/history?limit=10'),
       ]);
       setWallet(todayData);
-      setHistory(historyData.earnings ?? []);
+      setHistory(historyData ?? []);
     } catch {
       setError('Could not load wallet data. Try again.');
     } finally {
@@ -180,7 +178,7 @@ export function WalletScreen() {
               </View>
               <View style={styles.stat}>
                 <Text style={styles.statLabel}>Trips</Text>
-                <Text style={styles.statValue}>{wallet.tripCount}</Text>
+                <Text style={styles.statValue}>{wallet.trips}</Text>
               </View>
               <View style={styles.stat}>
                 <Text style={styles.statLabel}>Tips</Text>
@@ -204,12 +202,12 @@ export function WalletScreen() {
           history.map((tx) => (
             <View key={tx.id} style={styles.txRow}>
               <View>
-                <Text style={styles.txLabel}>Trip completed</Text>
-                <Text style={styles.txDate}>{new Date(tx.date).toLocaleDateString('en-US', {
+                <Text style={styles.txLabel}>{tx.pickupArea} → {tx.dropoffArea}</Text>
+                <Text style={styles.txDate}>{new Date(tx.completedAt).toLocaleDateString('en-US', {
                   month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
                 })}</Text>
               </View>
-              <AmountDisplay value={tx.amount} size="small" prefix="+ $" />
+              <AmountDisplay value={tx.takeHome} size="small" prefix="+ $" />
             </View>
           ))
         )}
