@@ -10,6 +10,7 @@ import { PlatformConfigModule } from './platform-config/platform-config.module';
 import { RefundsModule } from './refunds/refunds.module';
 import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
+import { MarketplaceAdminModule } from './marketplace/marketplace.module';
 
 @Module({
   controllers: [HealthController],
@@ -24,6 +25,7 @@ import { AiModule } from './ai/ai.module';
     RefundsModule,
     SupportModule,
     AiModule,
+    MarketplaceAdminModule,
   ],
 })
 export class AppModule {}

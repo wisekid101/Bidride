@@ -10,6 +10,7 @@ import {
   DollarSign,
   FileText,
   Brain,
+  BarChart2,
   LogOut,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: '/earnings-floor', label: 'Earnings Floor', icon: DollarSign },
   { href: '/refunds', label: 'Refunds', icon: FileText },
   { href: '/ai', label: 'AI Models', icon: Brain },
+  { href: '/marketplace', label: 'Marketplace', icon: BarChart2 },
 ];
 
 export function AdminNav() {

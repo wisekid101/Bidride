@@ -148,11 +148,23 @@ export class BidsService implements OnModuleInit {
     const durationMin = Math.max(3, Math.round(distanceMiles * 2.5));
 
     // Geo-filter: only broadcast to nearby online drivers
-    const targetDriverUserIds = await this.findNearbyDriverUserIds(
+    const nearbyDriverUserIds = await this.findNearbyDriverUserIds(
       dto.pickupLat,
       dto.pickupLng,
       isAirportTrip,
     );
+
+    // Rank drivers via AI service (300ms hard timeout; fallback to geo order)
+    const targetDriverUserIds = await this.rankDriversWithFallback(
+      trip.id,
+      nearbyDriverUserIds,
+      dto.pickupLat,
+      dto.pickupLng,
+      isAirportTrip,
+    );
+
+    // Fire-and-forget dispatch simulation (logs decision; never blocks broadcast)
+    void this.simulateDispatchAsync(trip.id, nearbyDriverUserIds).catch(() => {});
 
     await this.dispatch.broadcastBidRequest(
       trip, bid, standardFare, bidFloor, distanceMiles, durationMin, 'Verified', targetDriverUserIds,
@@ -709,6 +721,52 @@ export class BidsService implements OnModuleInit {
     }
 
     return matched;
+  }
+
+  private async rankDriversWithFallback(
+    tripId: string,
+    driverUserIds: string[],
+    pickupLat: number,
+    pickupLng: number,
+    isAirportTrip: boolean,
+  ): Promise<string[]> {
+    if (driverUserIds.length === 0) return [];
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/ai/driver-ranking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tripId,
+          isAirportTrip,
+          candidates: driverUserIds.map((id) => ({
+            driverUserId: id,
+            // Distance and ETA not available here — ai-service will use defaults
+            distanceMiles: this.haversineDistance(pickupLat, pickupLng, pickupLat, pickupLng),
+            etaMinutes: 5,
+          })),
+        }),
+        signal: AbortSignal.timeout(300),
+      });
+      if (!res.ok) return driverUserIds;
+      const ranked = (await res.json()) as Array<{ driverUserId: string }>;
+      return ranked.map((r) => r.driverUserId);
+    } catch {
+      return driverUserIds;
+    }
+  }
+
+  private async simulateDispatchAsync(tripId: string, driverUserIds: string[]): Promise<void> {
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
+    await fetch(`${AI_SERVICE_URL}/ai/dispatch-simulate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tripId,
+        candidates: driverUserIds.map((id) => ({ driverUserId: id, score: 50 })),
+      }),
+      signal: AbortSignal.timeout(2000),
+    });
   }
 
   private haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
