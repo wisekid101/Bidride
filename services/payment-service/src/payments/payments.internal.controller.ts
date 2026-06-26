@@ -5,8 +5,10 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { IsString, Min, IsInt } from 'class-validator';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
 
 class AuthorizeHoldDto {
@@ -37,11 +39,13 @@ class VoidHoldDto {
 
 // Internal controller — only reachable from within the VPC (not exposed via public ALB)
 @Controller('payments/internal')
+@UseGuards(ThrottlerGuard)
 export class PaymentsInternalController {
   constructor(private readonly payments: PaymentService) {}
 
   @Post('authorize')
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   authorize(@Body() dto: AuthorizeHoldDto) {
     if (!dto.stripeCustomerId || !dto.paymentMethodId) {
       throw new BadRequestException('stripeCustomerId and paymentMethodId are required.');

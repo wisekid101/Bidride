@@ -11,17 +11,19 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { BidsService } from './bids.service';
 import { SubmitBidDto, CounterBidDto } from './bids.dto';
 
 @Controller('bids')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), ThrottlerGuard)
 export class BidsController {
   constructor(private readonly bids: BidsService) {}
 
   /** Rider submits a bid — creates trip + bid atomically */
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   submitBid(@Request() req: any, @Body() dto: SubmitBidDto) {
     return this.bids.submitBid(req.user.sub, dto);
   }

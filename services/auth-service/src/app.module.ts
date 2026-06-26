@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { WebSocketEventGateway } from './websocket/websocket.gateway';
 import { PrismaService } from './prisma/prisma.service';
+import { ObservabilityModule } from './observability/observability.module';
 
 @Module({
   controllers: [HealthController],
@@ -26,6 +27,7 @@ import { PrismaService } from './prisma/prisma.service';
     }),
     RedisModule,
     AuthModule,
+    ObservabilityModule,
   ],
 })
 export class AppModule {}

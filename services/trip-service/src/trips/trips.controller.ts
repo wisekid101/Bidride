@@ -11,16 +11,18 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { TripsService } from './trips.service';
 import { CreateTripDto, EndTripDto, RateTripDto, CancelTripDto } from './dto';
 
 @Controller('trips')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), ThrottlerGuard)
 export class TripsController {
   constructor(private readonly trips: TripsService) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   createTrip(@Request() req: any, @Body() dto: CreateTripDto) {
     return this.trips.createTrip(req.user.sub, dto);
   }
