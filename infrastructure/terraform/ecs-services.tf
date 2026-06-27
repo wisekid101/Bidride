@@ -125,6 +125,8 @@ resource "aws_secretsmanager_secret" "per_service" {
     "checkr-api-key"                  = "driver-service"
     "checkr-webhook-secret"           = "driver-service"
     "admin-jwt-secret"                = "admin-service"
+    "flightaware-api-key"             = "airport-service"
+    "founder-jwt-secret"              = "admin-service"
   }
 
   name                    = "bidride/${var.environment}/${each.key}"
@@ -218,7 +220,7 @@ locals {
       memory        = 1024
       desired_count = 2
       alb_key       = "auth"
-      secrets       = ["database-url", "redis-url", "jwt-secret"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "twilio-account-sid", "twilio-auth-token", "twilio-phone-number"]
     }
     trip-service = {
       port          = 3002
@@ -274,7 +276,7 @@ locals {
       memory        = 512
       desired_count = 1
       alb_key       = "notification"
-      secrets       = ["database-url", "redis-url", "twilio-account-sid", "twilio-auth-token", "twilio-phone-number", "fcm-project-id", "fcm-service-account-email", "fcm-service-account-private-key"]
+      secrets       = ["database-url", "redis-url", "twilio-account-sid", "twilio-auth-token", "twilio-phone-number", "twilio-proxy-service-sid", "fcm-project-id", "fcm-service-account-email", "fcm-service-account-private-key"]
     }
     trust-service = {
       port          = 3009
@@ -290,7 +292,7 @@ locals {
       memory        = 512
       desired_count = 1
       alb_key       = "airport"
-      secrets       = ["database-url", "redis-url"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "flightaware-api-key"]
     }
     admin-service = {
       port          = 3011
@@ -298,7 +300,7 @@ locals {
       memory        = 512
       desired_count = 1
       alb_key       = "admin"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "admin-jwt-secret"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "admin-jwt-secret", "founder-jwt-secret"]
     }
     ai-service = {
       port          = 3012
@@ -338,11 +340,13 @@ resource "aws_ecs_task_definition" "services" {
       [
         { name = "NODE_ENV", value = var.environment },
         { name = "PORT",     value = tostring(each.value.port) },
+        { name = "AI_SERVICE_URL", value = "http://bidride-ai-service-${var.environment}.${aws_ecs_cluster.main.name}.local:3012" },
       ],
-      # Google Maps API key injected as plain env var (not in Secrets Manager
-      # because it's an API key restriction by referrer/IP, not a shared secret).
       each.key == "rider-service" && var.google_maps_api_key != "" ? [
         { name = "GOOGLE_MAPS_API_KEY", value = var.google_maps_api_key }
+      ] : [],
+      each.key == "admin-service" && var.founder_signing_public_key != "" ? [
+        { name = "FOUNDER_SIGNING_PUBLIC_KEY", value = var.founder_signing_public_key }
       ] : []
     )
 
@@ -363,7 +367,7 @@ resource "aws_ecs_task_definition" "services" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -sf http://localhost:${each.value.port}/health/live || exit 1"]
+      command     = ["CMD-SHELL", "curl -sf http://localhost:${each.value.port}${each.key == "auth-service" ? "/health/live" : "/health"} || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3

@@ -34,7 +34,8 @@ variable "db_instance_class"    { default = "db.r6g.large" }
 variable "cache_node_type"      { default = "cache.r6g.large" }
 variable "db_password"          { sensitive = true }
 variable "founder_email"        {}
-variable "google_maps_api_key"  { sensitive = true; default = "" }
+variable "google_maps_api_key"       { sensitive = true; default = "" }
+variable "founder_signing_public_key" { sensitive = false; default = "" }
 
 # ─── VPC ─────────────────────────────────────────────────────────────────────
 

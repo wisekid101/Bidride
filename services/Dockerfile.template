@@ -31,7 +31,7 @@ RUN pnpm --filter @bidride/${SERVICE_NAME} build
 # ─── Stage 2: Runner ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init curl
 
 WORKDIR /app
 
@@ -43,16 +43,21 @@ RUN addgroup --system --gid 1001 nodejs && \
 ARG SERVICE_NAME
 COPY --from=builder --chown=nestjs:nodejs /app/services/${SERVICE_NAME}/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/database/generated ./packages/database/generated
+# Copy Prisma schema and migrations so ECS run-task migration overrides work
+COPY --from=builder --chown=nestjs:nodejs /app/packages/database/prisma ./packages/database/prisma
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/services/${SERVICE_NAME}/node_modules ./services/${SERVICE_NAME}/node_modules
 
 USER nestjs
 
-EXPOSE 3000
+ARG PORT=3001
+EXPOSE $PORT
 
 # dumb-init handles signal forwarding for graceful shutdown
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/main"]
 
+# ECS task definition healthCheck overrides this at runtime with the correct port.
+# This HEALTHCHECK is only used when running the container standalone (local testing).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', r => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
+  CMD curl -sf http://localhost:${PORT:-3001}/health || exit 1

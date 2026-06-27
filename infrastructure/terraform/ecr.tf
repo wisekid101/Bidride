@@ -15,6 +15,7 @@ locals {
     "trust-service",
     "airport-service",
     "admin-service",
+    "ai-service",
   ]
 }
 

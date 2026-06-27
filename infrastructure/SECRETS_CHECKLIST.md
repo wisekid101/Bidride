@@ -138,6 +138,22 @@ aws secretsmanager put-secret-value \
 - **Note:** Signs admin session cookies. Separate from rider/driver JWT to prevent privilege escalation.
 - [ ] Populated
 
+### `founder-jwt-secret`
+- **Format:** Random string, minimum 64 characters
+- **Generate:** `openssl rand -base64 64 | tr -d '\n'`
+- **Note:** Used by admin-service to verify Founder-signed JWTs for earnings floor formula changes. Pair with `FOUNDER_SIGNING_PUBLIC_KEY` Terraform variable (RSA keypair).
+- [ ] Populated
+
+---
+
+## Airport — FlightAware
+
+### `flightaware-api-key`
+- **Format:** API key string from FlightAware AeroAPI
+- **Get value:** flightaware.com → AeroAPI → My Account → API Keys
+- **Note:** airport-service calls `getOrThrow('FLIGHTAWARE_API_KEY')` — service will crash without this.
+- [ ] Populated
+
 ---
 
 ## Verification
@@ -152,7 +168,7 @@ aws secretsmanager list-secrets \
   --output table \
   --region us-east-1
 
-# Should show 13 entries:
+# Should show 17 entries:
 # bidride/production/database-url
 # bidride/production/redis-url
 # bidride/production/jwt-secret
@@ -163,12 +179,15 @@ aws secretsmanager list-secrets \
 # bidride/production/twilio-account-sid
 # bidride/production/twilio-auth-token
 # bidride/production/twilio-phone-number
+# bidride/production/twilio-proxy-service-sid
 # bidride/production/fcm-project-id
 # bidride/production/fcm-service-account-email
 # bidride/production/fcm-service-account-private-key
 # bidride/production/checkr-api-key
 # bidride/production/checkr-webhook-secret
 # bidride/production/admin-jwt-secret
+# bidride/production/founder-jwt-secret
+# bidride/production/flightaware-api-key
 ```
 
 **Note:** `internal-service-key` should also be set as the env var that ECS task definitions reference. Terraform's `ecs-services.tf` injects it as `INTERNAL_SERVICE_KEY`.

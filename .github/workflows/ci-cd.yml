@@ -115,6 +115,7 @@ jobs:
           - trust-service
           - airport-service
           - admin-service
+          - ai-service
 
     steps:
       - uses: actions/checkout@v4
@@ -133,12 +134,12 @@ jobs:
           docker build \
             -f services/Dockerfile.template \
             --build-arg SERVICE_NAME=$SERVICE \
-            -t $ECR_REGISTRY/bidride-$SERVICE:$IMAGE_TAG \
-            -t $ECR_REGISTRY/bidride-$SERVICE:latest \
-            --cache-from $ECR_REGISTRY/bidride-$SERVICE:latest \
+            -t $ECR_REGISTRY/bidride/$SERVICE:$IMAGE_TAG \
+            -t $ECR_REGISTRY/bidride/$SERVICE:latest \
+            --cache-from $ECR_REGISTRY/bidride/$SERVICE:latest \
             .
-          docker push $ECR_REGISTRY/bidride-$SERVICE:$IMAGE_TAG
-          docker push $ECR_REGISTRY/bidride-$SERVICE:latest
+          docker push $ECR_REGISTRY/bidride/$SERVICE:$IMAGE_TAG
+          docker push $ECR_REGISTRY/bidride/$SERVICE:latest
 
   # ─── Deploy Staging ────────────────────────────────────────────────────────
   deploy-staging:
@@ -161,23 +162,28 @@ jobs:
         run: |
           aws ecs run-task \
             --cluster bidride-staging \
-            --task-definition bidride-migrations \
-            --overrides '{"containerOverrides":[{"name":"migrate","command":["pnpm","db:migrate:prod"]}]}' \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PRIVATE_SUBNETS }}],securityGroups=[${{ secrets.ECS_SECURITY_GROUP }}]}"
+            --task-definition bidride-auth-service-staging \
+            --launch-type FARGATE \
+            --overrides '{"containerOverrides":[{"name":"auth-service","command":["node","node_modules/.bin/prisma","migrate","deploy","--schema","packages/database/prisma/schema.prisma"]}]}' \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PRIVATE_SUBNETS }}],securityGroups=[${{ secrets.ECS_SECURITY_GROUP }}],assignPublicIp=DISABLED}"
       - name: Update ECS services
         run: |
-          for service in auth trip driver rider pricing safety payment notification trust airport admin; do
+          for service in auth-service trip-service driver-service rider-service pricing-service \
+                         safety-service payment-service notification-service trust-service \
+                         airport-service admin-service ai-service; do
             aws ecs update-service \
               --cluster bidride-staging \
-              --service bidride-${service}-service \
+              --service bidride-${service}-staging \
               --force-new-deployment
           done
       - name: Wait for deployment
         run: |
-          for service in auth trip driver rider pricing safety payment notification trust airport admin; do
+          for service in auth-service trip-service driver-service rider-service pricing-service \
+                         safety-service payment-service notification-service trust-service \
+                         airport-service admin-service ai-service; do
             aws ecs wait services-stable \
               --cluster bidride-staging \
-              --services bidride-${service}-service
+              --services bidride-${service}-staging
           done
       - name: Smoke tests
         run: |
@@ -212,35 +218,40 @@ jobs:
         run: |
           aws ecs run-task \
             --cluster bidride-production \
-            --task-definition bidride-migrations \
-            --overrides '{"containerOverrides":[{"name":"migrate","command":["pnpm","db:migrate:prod"]}]}' \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PROD_PRIVATE_SUBNETS }}],securityGroups=[${{ secrets.PROD_ECS_SECURITY_GROUP }}]}"
+            --task-definition bidride-auth-service-production \
+            --launch-type FARGATE \
+            --overrides '{"containerOverrides":[{"name":"auth-service","command":["node","node_modules/.bin/prisma","migrate","deploy","--schema","packages/database/prisma/schema.prisma"]}]}' \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PROD_PRIVATE_SUBNETS }}],securityGroups=[${{ secrets.PROD_ECS_SECURITY_GROUP }}],assignPublicIp=DISABLED}"
 
       - name: Blue-green deploy — Safety Service first (always)
         run: |
           aws ecs update-service \
             --cluster bidride-production \
-            --service bidride-safety-service \
+            --service bidride-safety-service-production \
             --force-new-deployment
           aws ecs wait services-stable \
             --cluster bidride-production \
-            --services bidride-safety-service
+            --services bidride-safety-service-production
 
       - name: Deploy remaining services
         run: |
-          for service in auth trip driver rider pricing payment notification trust airport admin; do
+          for service in auth-service trip-service driver-service rider-service pricing-service \
+                         payment-service notification-service trust-service airport-service \
+                         admin-service ai-service; do
             aws ecs update-service \
               --cluster bidride-production \
-              --service bidride-${service}-service \
+              --service bidride-${service}-production \
               --force-new-deployment
           done
 
       - name: Wait for all services
         run: |
-          for service in auth trip driver rider pricing payment notification trust airport admin; do
+          for service in auth-service trip-service driver-service rider-service pricing-service \
+                         payment-service notification-service trust-service airport-service \
+                         admin-service ai-service; do
             aws ecs wait services-stable \
               --cluster bidride-production \
-              --services bidride-${service}-service
+              --services bidride-${service}-production
           done
 
       - name: Production smoke tests
