@@ -28,12 +28,13 @@ provider "aws" {
 
 # ─── Variables ────────────────────────────────────────────────────────────────
 
-variable "aws_region"         { default = "us-east-1" }
-variable "environment"        { default = "production" }
-variable "db_instance_class"  { default = "db.r6g.large" }
-variable "cache_node_type"    { default = "cache.r6g.large" }
-variable "db_password"        { sensitive = true }
-variable "founder_email"      {}
+variable "aws_region"           { default = "us-east-1" }
+variable "environment"          { default = "production" }
+variable "db_instance_class"    { default = "db.r6g.large" }
+variable "cache_node_type"      { default = "cache.r6g.large" }
+variable "db_password"          { sensitive = true }
+variable "founder_email"        {}
+variable "google_maps_api_key"  { sensitive = true; default = "" }
 
 # ─── VPC ─────────────────────────────────────────────────────────────────────
 
@@ -69,12 +70,22 @@ resource "aws_security_group" "ecs" {
   name   = "bidride-ecs-${var.environment}"
   vpc_id = module.vpc.vpc_id
 
+  # ALB → ECS: services on ports 3001–3011
   ingress {
-    from_port       = 3000
+    from_port       = 3001
     to_port         = 3011
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
+
+  # ECS → ECS: internal service-to-service (e.g., trip/trust/pricing calling ai-service on 3012)
+  ingress {
+    from_port = 3001
+    to_port   = 3012
+    protocol  = "tcp"
+    self      = true
+  }
+
   egress { from_port = 0; to_port = 0; protocol = "-1"; cidr_blocks = ["0.0.0.0/0"] }
 }
 

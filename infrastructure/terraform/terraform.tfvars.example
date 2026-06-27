@@ -1,0 +1,31 @@
+# BidRide — Terraform Variable Reference
+# Copy to terraform.tfvars and fill in real values before running terraform apply.
+# terraform.tfvars must NEVER be committed to git.
+
+# ─── AWS ─────────────────────────────────────────────────────────────────────
+aws_region  = "us-east-1"
+environment = "production"   # or "staging"
+
+# ─── Domain & TLS ─────────────────────────────────────────────────────────────
+domain_name = "api.bidride.com"
+
+# If the ACM cert already exists in us-east-1, paste its ARN here.
+# Leave empty to have Terraform look it up by domain_name.
+acm_certificate_arn = ""
+# acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# ─── RDS ─────────────────────────────────────────────────────────────────────
+db_instance_class = "db.r6g.large"    # internal alpha: db.t4g.medium to save cost
+db_password       = "REPLACE_WITH_STRONG_PASSWORD_MIN_32_CHARS"
+
+# ─── ElastiCache ─────────────────────────────────────────────────────────────
+cache_node_type = "cache.r6g.large"   # internal alpha: cache.t4g.micro to save cost
+
+# ─── Notifications ───────────────────────────────────────────────────────────
+founder_email = "brownmarq184@gmail.com"
+
+# ─── Google Maps ──────────────────────────────────────────────────────────────
+# Used by rider-service for address geocoding (pickup/dropoff autocomplete).
+# Get from: Google Cloud Console → APIs & Services → Credentials → Create API Key
+# Restrict to: Maps Geocoding API, from your ECS task IPs or VPC CIDR.
+google_maps_api_key = "AIzaSy-REPLACE-WITH-REAL-KEY"

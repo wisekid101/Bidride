@@ -20,17 +20,19 @@ locals {
   certificate_arn = var.acm_certificate_arn != "" ? var.acm_certificate_arn : data.aws_acm_certificate.api[0].arn
 
   services = {
+    # auth-service exposes /health/live (Sprint 12 H2 fix — setGlobalPrefix exclusions).
+    # All other services expose /health only (no /live sub-path).
     auth         = { port = 3001, health_path = "/health/live" }
-    trip         = { port = 3002, health_path = "/health/live" }
-    driver       = { port = 3003, health_path = "/health/live" }
-    rider        = { port = 3004, health_path = "/health/live" }
-    pricing      = { port = 3005, health_path = "/health/live" }
-    safety       = { port = 3006, health_path = "/health/live" }
-    payment      = { port = 3007, health_path = "/health/live" }
-    notification = { port = 3008, health_path = "/health/live" }
-    trust        = { port = 3009, health_path = "/health/live" }
-    airport      = { port = 3010, health_path = "/health/live" }
-    admin        = { port = 3011, health_path = "/health/live" }
+    trip         = { port = 3002, health_path = "/health" }
+    driver       = { port = 3003, health_path = "/health" }
+    rider        = { port = 3004, health_path = "/health" }
+    pricing      = { port = 3005, health_path = "/health" }
+    safety       = { port = 3006, health_path = "/health" }
+    payment      = { port = 3007, health_path = "/health" }
+    notification = { port = 3008, health_path = "/health" }
+    trust        = { port = 3009, health_path = "/health" }
+    airport      = { port = 3010, health_path = "/health" }
+    admin        = { port = 3011, health_path = "/health" }
   }
 
   # Path routing rules — ordered by priority (lower = higher priority).
