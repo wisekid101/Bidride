@@ -63,15 +63,15 @@ Copy and paste this entire block into Terminal:
 ```bash
 aws s3api create-bucket --bucket bidride-terraform-state --region us-east-1
 aws s3api put-bucket-versioning --bucket bidride-terraform-state --versioning-configuration Status=Enabled
-aws dynamodb create-table \
-  --table-name bidride-terraform-locks \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
+aws s3api put-bucket-encryption \
+  --bucket bidride-terraform-state \
+  --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
 ```
 
 If you see "BucketAlreadyOwnedByYou" — that's fine, keep going.
+
+Note: No DynamoDB table is needed. Terraform uses an S3-native lock file instead (simpler and cheaper).
 
 - [ ] Done
 
@@ -173,11 +173,13 @@ Should say "Terraform has been successfully initialized!"
 terraform plan -out=bidride.tfplan
 ```
 
-This lists everything Terraform will create. It should say something like "Plan: ~90 to add, 0 to change, 0 to destroy."
+This lists everything Terraform will create. It should say something like "Plan: ~206 to add, 0 to change, 0 to destroy."
 
 Read through it. If anything says "destroy" that you didn't expect, stop and call your engineer.
 
-**Estimated monthly cost (alpha sizing):** ~$185/month
+**Estimated monthly cost (alpha sizing):** ~$500/month
+(Breakdown: Fargate 18 tasks $225, NAT Gateways 3× $99, RDS 3 instances $107, other $69.
+The figure $185 in earlier docs was incorrect — see cost note at the bottom of this file.)
 
 - [ ] Reviewed, no unexpected destroys
 
@@ -487,5 +489,8 @@ BidRide is running on AWS. For day-to-day operations, see `docs/OPERATIONS_RUNBO
 - Stripe Dashboard: https://dashboard.stripe.com
 - CloudWatch Alarms: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#alarmsV2
 
-**Cost reminder:** Running at internal alpha sizing costs ~$185/month.
+**Cost reminder:** Running at internal alpha sizing costs ~$500/month.
+Primary drivers: 18 Fargate task instances ($225), 3 HA NAT Gateways ($99), RDS Multi-AZ + 2 replicas ($107).
+To reduce alpha cost, consider reducing desired_count to 1 for all services (~$72 savings) or using
+single_nat_gateway=true in terraform.tfvars (~$66 savings) — discuss with your engineer before changing.
 Scale up to production sizing (`db.r6g.large`, `cache.r6g.large`) when you have consistent traffic.

@@ -40,8 +40,11 @@ aws sts get-caller-identity
 
 Run once before `terraform init`. If the bucket already exists, skip.
 
+State locking uses an S3-native lock file (`use_lockfile = true`, Terraform ≥ 1.10).
+No DynamoDB table is required.
+
 ```bash
-# Create state bucket
+# Create and harden the state bucket
 aws s3api create-bucket \
   --bucket bidride-terraform-state \
   --region us-east-1
@@ -54,14 +57,6 @@ aws s3api put-bucket-encryption \
   --bucket bidride-terraform-state \
   --server-side-encryption-configuration \
   '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-
-# Create DynamoDB lock table
-aws dynamodb create-table \
-  --table-name bidride-terraform-locks \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
 ```
 
 ---
@@ -112,7 +107,9 @@ terraform validate      # must pass before apply
 terraform plan -out=bidride.tfplan
 
 # Review the plan carefully:
-# Expected ~90 resources: VPC, RDS, ElastiCache, ECS, ALB, S3, SQS, IAM, CloudWatch, SecretsManager
+# Expected ~206 resources: VPC (28), ECS services+task defs+IAM (54), ECR (24),
+# Secrets Manager (19), Cloud Map (13), CloudWatch (16), RDS (3), ElastiCache (1),
+# S3 (16), SQS (16), ALB+listeners+TGs+rules (25), KMS+aliases (2), misc (9)
 ```
 
 **STOP HERE. Show terraform plan output to Founder for approval before apply.**
@@ -498,10 +495,9 @@ aws ecs describe-tasks \
 ### Terraform state locked
 
 ```bash
-# If a previous apply was interrupted
-aws dynamodb delete-item \
-  --table-name bidride-terraform-locks \
-  --key '{"LockID":{"S":"bidride-terraform-state/production/terraform.tfstate"}}' \
+# If a previous apply was interrupted, the S3 lock file must be removed.
+# Lock file path: production/terraform.tfstate.tflock
+aws s3 rm s3://bidride-terraform-state/production/terraform.tfstate.tflock \
   --region us-east-1
 ```
 

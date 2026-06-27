@@ -7,11 +7,11 @@ terraform {
     }
   }
   backend "s3" {
-    bucket         = "bidride-terraform-state"
-    key            = "production/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
-    dynamodb_table = "bidride-terraform-locks"
+    bucket       = "bidride-terraform-state"
+    key          = "production/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
   }
 }
 
