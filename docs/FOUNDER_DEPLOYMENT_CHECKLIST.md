@@ -312,7 +312,7 @@ aws secretsmanager put-secret-value \
   --secret-string "$(openssl rand -base64 64 | tr -d '\n')"
 ```
 
-Verify all 17 secrets are set:
+Verify all 19 secrets are set:
 ```bash
 aws secretsmanager list-secrets \
   --filter Key=name,Values=bidride/production \
@@ -320,9 +320,9 @@ aws secretsmanager list-secrets \
   --output table
 ```
 
-Should show 17 entries.
+Should show 19 entries.
 
-- [ ] All 17 secrets populated
+- [ ] All 19 secrets populated
 
 ---
 

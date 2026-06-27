@@ -187,8 +187,7 @@ jobs:
           done
       - name: Smoke tests
         run: |
-          curl -f https://staging-api.bidride.com/v1/health
-          curl -f https://staging-admin.bidride.com/health
+          BIDRIDE_API_URL=https://staging-api.bidride.com bash infrastructure/scripts/smoke-test.sh
 
   # ─── Deploy Production ─────────────────────────────────────────────────────
   deploy-production:
@@ -256,10 +255,7 @@ jobs:
 
       - name: Production smoke tests
         run: |
-          for svc in auth trip driver rider pricing safety payment notification trust airport admin; do
-            curl -sf https://api.bidride.com/v1/health -H "X-Service: $svc" || echo "WARN: $svc health check failed"
-          done
-          curl -f https://admin.bidride.com/health
+          BIDRIDE_API_URL=https://api.bidride.com bash infrastructure/scripts/smoke-test.sh
 
       - name: Notify on success
         if: success()

@@ -4,7 +4,7 @@
 
 # ─── Variables ────────────────────────────────────────────────────────────────
 
-variable "db_name"     { default = "bidride" }
+variable "db_name" { default = "bidride" }
 variable "db_username" { default = "bidride_admin" }
 
 # ─── IAM: ECS Execution Role (ECR pull + CloudWatch logs + Secrets Manager) ──
@@ -71,10 +71,24 @@ resource "aws_iam_role_policy" "ecs_task_s3" {
         "${aws_s3_bucket.buckets["photos"].arn}/*",
         "${aws_s3_bucket.buckets["tax_docs"].arn}/*",
       ]
-    }, {
+      }, {
       Effect   = "Allow"
       Action   = ["s3:ListBucket"]
       Resource = values(aws_s3_bucket.buckets)[*].arn
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_task_kms" {
+  name = "bidride-ecs-task-kms-${var.environment}"
+  role = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+      Resource = aws_kms_key.recordings.arn
     }]
   })
 }
@@ -137,6 +151,40 @@ resource "aws_secretsmanager_secret" "per_service" {
 
 locals {
   all_secrets = merge(aws_secretsmanager_secret.shared, aws_secretsmanager_secret.per_service)
+
+  # Cloud Map private DNS — each service resolves as <name>.bidride.internal:<port>
+  service_base_urls = {
+    for k, v in local.ecs_services : k => "http://${k}.bidride.internal:${v.port}"
+  }
+}
+
+# ─── Cloud Map: Private Service Discovery ────────────────────────────────────
+# Gives every ECS task a stable DNS name within the VPC, eliminating the need
+# for ALB hairpin routing for service-to-service calls.
+
+resource "aws_service_discovery_private_dns_namespace" "internal" {
+  name        = "bidride.internal"
+  description = "BidRide private service mesh"
+  vpc         = module.vpc.vpc_id
+}
+
+resource "aws_service_discovery_service" "services" {
+  for_each = local.ecs_services
+
+  name = each.key
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.internal.id
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+    routing_policy = "MULTIVALUE"
+  }
+
+  health_check_custom_config {
+    failure_threshold = 1
+  }
 }
 
 # ─── CloudWatch Log Groups ────────────────────────────────────────────────────
@@ -307,7 +355,7 @@ locals {
       cpu           = 1024
       memory        = 2048
       desired_count = 1
-      alb_key       = null  # VPC-internal only — not exposed through ALB
+      alb_key       = null # VPC-internal only — not exposed through ALB
       secrets       = ["redis-url", "internal-service-key"]
     }
   }
@@ -339,9 +387,46 @@ resource "aws_ecs_task_definition" "services" {
     environment = concat(
       [
         { name = "NODE_ENV", value = var.environment },
-        { name = "PORT",     value = tostring(each.value.port) },
-        { name = "AI_SERVICE_URL", value = "http://bidride-ai-service-${var.environment}.${aws_ecs_cluster.main.name}.local:3012" },
+        { name = "PORT", value = tostring(each.value.port) },
+        { name = "AI_SERVICE_URL", value = local.service_base_urls["ai-service"] },
       ],
+      # trip-service → pricing, notification, driver, airport, trust
+      each.key == "trip-service" ? [
+        { name = "PRICING_SERVICE_URL", value = local.service_base_urls["pricing-service"] },
+        { name = "NOTIFICATION_SERVICE_URL", value = local.service_base_urls["notification-service"] },
+        { name = "DRIVER_SERVICE_URL", value = local.service_base_urls["driver-service"] },
+        { name = "AIRPORT_SERVICE_URL", value = local.service_base_urls["airport-service"] },
+        { name = "TRUST_SERVICE_URL", value = local.service_base_urls["trust-service"] },
+      ] : [],
+      # safety-service → notification, admin + S3/KMS for SOS recordings
+      each.key == "safety-service" ? [
+        { name = "NOTIFICATION_SERVICE_URL", value = local.service_base_urls["notification-service"] },
+        { name = "ADMIN_SERVICE_URL", value = local.service_base_urls["admin-service"] },
+        { name = "S3_RECORDINGS_BUCKET", value = aws_s3_bucket.buckets["recordings"].bucket },
+        { name = "KMS_RECORDINGS_KEY_ID", value = aws_kms_key.recordings.key_id },
+      ] : [],
+      # payment-service → notification
+      each.key == "payment-service" ? [
+        { name = "NOTIFICATION_SERVICE_URL", value = local.service_base_urls["notification-service"] },
+      ] : [],
+      # trust-service → notification, admin
+      each.key == "trust-service" ? [
+        { name = "NOTIFICATION_SERVICE_URL", value = local.service_base_urls["notification-service"] },
+        { name = "ADMIN_SERVICE_URL", value = local.service_base_urls["admin-service"] },
+      ] : [],
+      # admin-service → all other services for analytics/management
+      each.key == "admin-service" ? [
+        { name = "AUTH_SERVICE_URL", value = local.service_base_urls["auth-service"] },
+        { name = "TRIP_SERVICE_URL", value = local.service_base_urls["trip-service"] },
+        { name = "DRIVER_SERVICE_URL", value = local.service_base_urls["driver-service"] },
+        { name = "RIDER_SERVICE_URL", value = local.service_base_urls["rider-service"] },
+        { name = "PRICING_SERVICE_URL", value = local.service_base_urls["pricing-service"] },
+        { name = "SAFETY_SERVICE_URL", value = local.service_base_urls["safety-service"] },
+        { name = "PAYMENT_SERVICE_URL", value = local.service_base_urls["payment-service"] },
+        { name = "NOTIFICATION_SERVICE_URL", value = local.service_base_urls["notification-service"] },
+        { name = "TRUST_SERVICE_URL", value = local.service_base_urls["trust-service"] },
+        { name = "AIRPORT_SERVICE_URL", value = local.service_base_urls["airport-service"] },
+      ] : [],
       each.key == "rider-service" && var.google_maps_api_key != "" ? [
         { name = "GOOGLE_MAPS_API_KEY", value = var.google_maps_api_key }
       ] : [],
@@ -408,6 +493,10 @@ resource "aws_ecs_service" "alb_services" {
     container_port   = each.value.port
   }
 
+  service_registries {
+    registry_arn = aws_service_discovery_service.services[each.key].arn
+  }
+
   depends_on = [
     aws_lb_listener.https,
     aws_iam_role_policy_attachment.ecs_execution,
@@ -433,6 +522,10 @@ resource "aws_ecs_service" "internal_services" {
     subnets          = module.vpc.private_subnets
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = false
+  }
+
+  service_registries {
+    registry_arn = aws_service_discovery_service.services[each.key].arn
   }
 
   depends_on = [aws_iam_role_policy_attachment.ecs_execution]

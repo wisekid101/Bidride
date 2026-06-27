@@ -159,7 +159,7 @@ aws secretsmanager put-secret-value \
   --secret-string "VALUE" \
   --region us-east-1
 
-# Verify all 17 secrets are populated
+# Verify all 19 secrets are populated
 aws secretsmanager list-secrets \
   --filter Key=name,Values=bidride/production \
   --query 'SecretList[].Name' \

@@ -9,10 +9,7 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
     {
       provide: REDIS_CLIENT,
       useFactory: () =>
-        new Redis({
-          host: process.env.REDIS_HOST ?? 'localhost',
-          port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-        }),
+        new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379'),
     },
   ],
   exports: [REDIS_CLIENT],

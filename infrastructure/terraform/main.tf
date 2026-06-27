@@ -28,14 +28,20 @@ provider "aws" {
 
 # ─── Variables ────────────────────────────────────────────────────────────────
 
-variable "aws_region"           { default = "us-east-1" }
-variable "environment"          { default = "production" }
-variable "db_instance_class"    { default = "db.r6g.large" }
-variable "cache_node_type"      { default = "cache.r6g.large" }
-variable "db_password"          { sensitive = true }
-variable "founder_email"        {}
-variable "google_maps_api_key"       { sensitive = true; default = "" }
-variable "founder_signing_public_key" { sensitive = false; default = "" }
+variable "aws_region" { default = "us-east-1" }
+variable "environment" { default = "production" }
+variable "db_instance_class" { default = "db.r6g.large" }
+variable "cache_node_type" { default = "cache.r6g.large" }
+variable "db_password" { sensitive = true }
+variable "founder_email" {}
+variable "google_maps_api_key" {
+  sensitive = true
+  default   = ""
+}
+variable "founder_signing_public_key" {
+  sensitive = false
+  default   = ""
+}
 
 # ─── VPC ─────────────────────────────────────────────────────────────────────
 
@@ -51,7 +57,7 @@ module "vpc" {
   private_subnets = ["10.0.10.0/24", "10.0.11.0/24", "10.0.12.0/24"]
 
   enable_nat_gateway   = true
-  single_nat_gateway   = false  # HA: one NAT per AZ
+  single_nat_gateway   = false # HA: one NAT per AZ
   enable_dns_hostnames = true
   enable_dns_support   = true
 }
@@ -62,9 +68,24 @@ resource "aws_security_group" "alb" {
   name   = "bidride-alb-${var.environment}"
   vpc_id = module.vpc.vpc_id
 
-  ingress { from_port = 443; to_port = 443; protocol = "tcp"; cidr_blocks = ["0.0.0.0/0"] }
-  ingress { from_port = 80;  to_port = 80;  protocol = "tcp"; cidr_blocks = ["0.0.0.0/0"] }
-  egress  { from_port = 0;   to_port = 0;   protocol = "-1";  cidr_blocks = ["0.0.0.0/0"] }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 resource "aws_security_group" "ecs" {
@@ -87,7 +108,12 @@ resource "aws_security_group" "ecs" {
     self      = true
   }
 
-  egress { from_port = 0; to_port = 0; protocol = "-1"; cidr_blocks = ["0.0.0.0/0"] }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 resource "aws_security_group" "rds" {
@@ -142,12 +168,13 @@ resource "aws_db_instance" "primary" {
   backup_window           = "03:00-04:00"
   maintenance_window      = "Mon:04:00-Mon:05:00"
 
-  deletion_protection     = true
-  skip_final_snapshot     = false
+  deletion_protection       = true
+  skip_final_snapshot       = false
   final_snapshot_identifier = "bidride-${var.environment}-final"
 
   performance_insights_enabled = true
   monitoring_interval          = 60
+  monitoring_role_arn          = aws_iam_role.rds_monitoring.arn
 
   tags = { Name = "bidride-primary-${var.environment}" }
 }
@@ -159,7 +186,7 @@ resource "aws_db_instance" "replica_analytics" {
   publicly_accessible = false
 
   vpc_security_group_ids = [aws_security_group.rds.id]
-  tags = { Name = "bidride-replica-analytics-${var.environment}" }
+  tags                   = { Name = "bidride-replica-analytics-${var.environment}" }
 }
 
 resource "aws_db_instance" "replica_admin" {
@@ -169,7 +196,7 @@ resource "aws_db_instance" "replica_admin" {
   publicly_accessible = false
 
   vpc_security_group_ids = [aws_security_group.rds.id]
-  tags = { Name = "bidride-replica-admin-${var.environment}" }
+  tags                   = { Name = "bidride-replica-admin-${var.environment}" }
 }
 
 # ─── ElastiCache Redis ────────────────────────────────────────────────────────
@@ -188,16 +215,53 @@ resource "aws_elasticache_replication_group" "main" {
   port                 = 6379
   parameter_group_name = "default.redis7"
 
-  subnet_group_name       = aws_elasticache_subnet_group.main.name
-  security_group_ids      = [aws_security_group.elasticache.id]
-  at_rest_encryption_enabled  = true
-  transit_encryption_enabled  = true
+  subnet_group_name          = aws_elasticache_subnet_group.main.name
+  security_group_ids         = [aws_security_group.elasticache.id]
+  at_rest_encryption_enabled = true
+  transit_encryption_enabled = true
 
   automatic_failover_enabled = true
   multi_az_enabled           = true
 
   snapshot_retention_limit = 7
   snapshot_window          = "04:00-05:00"
+}
+
+# ─── IAM: RDS Enhanced Monitoring ────────────────────────────────────────────
+
+resource "aws_iam_role" "rds_monitoring" {
+  name = "bidride-rds-monitoring-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "monitoring.rds.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "rds_monitoring" {
+  role       = aws_iam_role.rds_monitoring.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
+}
+
+# ─── KMS: Safety Recordings ──────────────────────────────────────────────────
+# Customer-managed KMS key for SOS audio recordings (safety-service).
+# safety.service.ts stores key_id in safetyRecording DB row for audit trail.
+
+resource "aws_kms_key" "recordings" {
+  description             = "BidRide safety audio recordings encryption key"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  tags = { Service = "safety-service" }
+}
+
+resource "aws_kms_alias" "recordings" {
+  name          = "alias/bidride-recordings-${var.environment}"
+  target_key_id = aws_kms_key.recordings.key_id
 }
 
 # ─── ECS Cluster ─────────────────────────────────────────────────────────────
@@ -267,6 +331,24 @@ resource "aws_s3_bucket_public_access_block" "buckets" {
   restrict_public_buckets = true
 }
 
+# ALB requires a bucket policy granting the ALB service account write access
+# for access logs. The service account ID is region-specific (us-east-1 = 127311923021).
+data "aws_elb_service_account" "main" {}
+
+resource "aws_s3_bucket_policy" "alb_logs" {
+  bucket = aws_s3_bucket.buckets["exports"].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = data.aws_elb_service_account.main.arn }
+      Action    = "s3:PutObject"
+      Resource  = "${aws_s3_bucket.buckets["exports"].arn}/alb-access-logs/AWSLogs/*"
+    }]
+  })
+}
+
 # ─── SQS Queues ───────────────────────────────────────────────────────────────
 
 locals {
@@ -283,17 +365,17 @@ locals {
 }
 
 resource "aws_sqs_queue" "queues" {
-  for_each                  = toset(local.queues)
-  name                      = "bidride-${each.key}-${var.environment}"
-  message_retention_seconds = 86400
+  for_each                   = toset(local.queues)
+  name                       = "bidride-${each.key}-${var.environment}"
+  message_retention_seconds  = 86400
   visibility_timeout_seconds = 300
-  kms_master_key_id         = "alias/aws/sqs"
+  kms_master_key_id          = "alias/aws/sqs"
 }
 
 resource "aws_sqs_queue" "dlqs" {
   for_each                  = toset(local.queues)
   name                      = "bidride-${each.key}-${var.environment}-dlq"
-  message_retention_seconds = 1209600  # 14 days
+  message_retention_seconds = 1209600 # 14 days
 }
 
 # ─── ALB ─────────────────────────────────────────────────────────────────────
@@ -315,9 +397,10 @@ resource "aws_lb" "main" {
 
 # ─── Outputs ──────────────────────────────────────────────────────────────────
 
-output "rds_endpoint"         { value = aws_db_instance.primary.endpoint }
-output "redis_endpoint"       { value = aws_elasticache_replication_group.main.primary_endpoint_address }
-output "alb_dns_name"         { value = aws_lb.main.dns_name }
-output "ecs_cluster_name"     { value = aws_ecs_cluster.main.name }
-output "recordings_bucket"    { value = aws_s3_bucket.buckets["recordings"].bucket }
-output "documents_bucket"     { value = aws_s3_bucket.buckets["documents"].bucket }
+output "rds_endpoint" { value = aws_db_instance.primary.endpoint }
+output "redis_endpoint" { value = aws_elasticache_replication_group.main.primary_endpoint_address }
+output "alb_dns_name" { value = aws_lb.main.dns_name }
+output "ecs_cluster_name" { value = aws_ecs_cluster.main.name }
+output "recordings_bucket" { value = aws_s3_bucket.buckets["recordings"].bucket }
+output "documents_bucket" { value = aws_s3_bucket.buckets["documents"].bucket }
+output "kms_recordings_key_id" { value = aws_kms_key.recordings.key_id }

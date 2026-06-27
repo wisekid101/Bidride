@@ -52,7 +52,10 @@ check_service() {
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
       --max-time "${TIMEOUT}" --connect-timeout 5 "${url}" 2>/dev/null || echo "000")
 
-    if [[ "${http_code}" == "200" ]]; then
+    # In production mode: /health paths go directly to containers (not ALB-routed).
+    # We accept 200 (direct/local) or 401 (ALB-routed auth-protected endpoint).
+    # 401 proves the service is running and responding; auth just isn't satisfied.
+    if [[ "${http_code}" == "200" || ( "${LOCAL_MODE}" == "false" && "${http_code}" == "401" ) ]]; then
       pass "${name} (${url}) — HTTP ${http_code}"
       return 0
     fi
@@ -80,21 +83,38 @@ echo ""
 
 FAILURES=0
 
-# Service table: name | port | health_path
-# Port is used in local mode only; ignored in production (ALB) mode.
+# Service table: name | port | path
+# Port is used in local mode (direct per-service) only.
+# In production (ALB) mode the path must be ALB-routable; /health is not routed.
+# We use auth-protected endpoints — a 401 response proves the service is alive.
 declare -a SERVICES=(
-  "auth-service:3001:/health/live"
-  "trip-service:3002:/health"
-  "driver-service:3003:/health"
-  "rider-service:3004:/health"
-  "pricing-service:3005:/health"
-  "safety-service:3006:/health"
-  "payment-service:3007:/health"
-  "notification-service:3008:/health"
-  "trust-service:3009:/health"
-  "airport-service:3010:/health"
-  "admin-service:3011:/health"
-  "ai-service:3012:/ai/health"
+  "auth-service:3001:/health/live"        # local: /health/live; prod: /auth/session (401)
+  "trip-service:3002:/health"             # local: /health;      prod: /trips (401)
+  "driver-service:3003:/health"           # local: /health;      prod: /drivers (401)
+  "rider-service:3004:/health"            # local: /health;      prod: /riders/me (401)
+  "pricing-service:3005:/health"          # local: /health;      prod: /pricing/estimate (400/401)
+  "safety-service:3006:/health"           # local: /health;      prod: /safety/sos (401)
+  "payment-service:3007:/health"          # local: /health;      prod: /payments (401)
+  "notification-service:3008:/health"     # local: /health;      prod: /internal/notifications/push (401)
+  "trust-service:3009:/health"            # local: /health;      prod: /internal/trust/recalculate (401)
+  "airport-service:3010:/health"          # local: /health;      prod: /airport/queue (401)
+  "admin-service:3011:/health"            # local: /health;      prod: /admin/analytics (401)
+  "ai-service:3012:/ai/health"            # local: /ai/health;   prod: SKIPPED (VPC-internal)
+)
+
+# Production-mode paths (ALB-routable, returns 401 = service is alive)
+declare -A PROD_PATHS=(
+  ["auth-service"]="/auth/session"
+  ["trip-service"]="/trips"
+  ["driver-service"]="/drivers"
+  ["rider-service"]="/riders/me"
+  ["pricing-service"]="/pricing/surge/default"
+  ["safety-service"]="/safety/sos"
+  ["payment-service"]="/payments"
+  ["notification-service"]="/internal/notifications/push"
+  ["trust-service"]="/internal/trust/recalculate"
+  ["airport-service"]="/airport/queue"
+  ["admin-service"]="/admin/analytics"
 )
 
 for entry in "${SERVICES[@]}"; do
@@ -104,10 +124,14 @@ for entry in "${SERVICES[@]}"; do
   path="${rest#*:}"
 
   # In production mode, ai-service is VPC-internal and not ALB-accessible.
-  # Skip it in production smoke tests (or test from within the VPC).
   if [[ "${LOCAL_MODE}" == "false" && "${name}" == "ai-service" ]]; then
     warn "ai-service — SKIPPED (VPC-internal, not ALB-routed)"
     continue
+  fi
+
+  # In production mode, use ALB-routable paths (health endpoints are not ALB-routed).
+  if [[ "${LOCAL_MODE}" == "false" && -n "${PROD_PATHS[$name]:-}" ]]; then
+    path="${PROD_PATHS[$name]}"
   fi
 
   check_service "${name}" "${port}" "${path}" || FAILURES=$((FAILURES + 1))

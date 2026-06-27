@@ -10,10 +10,7 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
       provide: REDIS_CLIENT,
       inject: [ConfigService],
       useFactory: (config: ConfigService) =>
-        new Redis({
-          host: config.get('REDIS_HOST', 'localhost'),
-          port: config.get<number>('REDIS_PORT', 6379),
-        }),
+        new Redis(config.get<string>('REDIS_URL') ?? 'redis://localhost:6379'),
     },
   ],
   exports: [REDIS_CLIENT],

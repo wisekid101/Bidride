@@ -168,7 +168,7 @@ aws secretsmanager list-secrets \
   --output table \
   --region us-east-1
 
-# Should show 17 entries:
+# Should show 19 entries:
 # bidride/production/database-url
 # bidride/production/redis-url
 # bidride/production/jwt-secret
