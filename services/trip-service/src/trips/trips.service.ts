@@ -107,7 +107,7 @@ export class TripsService {
     const SAFETY_URL = process.env.SAFETY_SERVICE_URL ?? 'http://localhost:3006';
     await fetch(`${SAFETY_URL}/internal/routes`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({ tripId, pickupLat, pickupLng, dropoffLat, dropoffLng, isNightRide, isAirportTrip }),
       signal: AbortSignal.timeout(5000),
     }).catch(() => {}); // Graceful fallback — trip creation never blocked by this
@@ -354,6 +354,37 @@ export class TripsService {
     });
   }
 
+  async listRiderTrips(userId: string, limit: number, offset: number) {
+    const rider = await this.prisma.rider.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!rider) throw new NotFoundException('Rider not found.');
+
+    const trips = await this.prisma.trip.findMany({
+      where: { riderId: rider.id },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+      select: {
+        id: true,
+        pickupAddress: true,
+        dropoffAddress: true,
+        finalFare: true,
+        status: true,
+        completedAt: true,
+      },
+    });
+
+    return {
+      trips: trips.map(t => ({
+        ...t,
+        finalFare: t.finalFare ? Number(t.finalFare) : null,
+        completedAt: t.completedAt?.toISOString() ?? null,
+      })),
+    };
+  }
+
   async getTripById(tripId: string, userId: string) {
     const trip = await this.prisma.trip.findUnique({
       where: { id: tripId },
@@ -406,7 +437,7 @@ export class TripsService {
     const PRICING_SERVICE_URL = process.env.PRICING_SERVICE_URL ?? 'http://localhost:3005';
     const response = await fetch(`${PRICING_SERVICE_URL}/pricing/estimate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({
         pickupLat: dto.pickupLat,
         pickupLng: dto.pickupLng,
@@ -448,7 +479,7 @@ export class TripsService {
         if (rider?.userId) {
           await fetch(`${TRUST_URL}/internal/trust/recalculate`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
             body: JSON.stringify({ userId: rider.userId }),
           });
         }
@@ -465,7 +496,7 @@ export class TripsService {
           if (driver?.userId) {
             await fetch(`${TRUST_URL}/internal/trust/recalculate`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
               body: JSON.stringify({ userId: driver.userId }),
             });
           }
@@ -493,7 +524,7 @@ export class TripsService {
 
     void fetch(`${AI_SERVICE_URL}/ai/bid-outcome`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({
         tripId: trip.id,
         zoneKey,

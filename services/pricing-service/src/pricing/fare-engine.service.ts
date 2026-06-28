@@ -118,7 +118,7 @@ export class FareEngineService {
     try {
       const res = await fetch(`${aiServiceUrl}/ai/fare-adjustment`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
         body: JSON.stringify(features),
         signal: AbortSignal.timeout(3000),
       });

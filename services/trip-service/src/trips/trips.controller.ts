@@ -5,6 +5,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   Request,
   UseGuards,
   HttpCode,
@@ -19,6 +20,20 @@ import { CreateTripDto, EndTripDto, RateTripDto, CancelTripDto } from './dto';
 @UseGuards(AuthGuard('jwt'), ThrottlerGuard)
 export class TripsController {
   constructor(private readonly trips: TripsService) {}
+
+  @Get()
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  listTrips(
+    @Request() req: any,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.trips.listRiderTrips(
+      req.user.sub,
+      Math.min(parseInt(limit ?? '20', 10), 50),
+      parseInt(offset ?? '0', 10),
+    );
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)

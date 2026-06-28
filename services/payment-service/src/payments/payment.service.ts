@@ -26,9 +26,9 @@ export class PaymentService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    private readonly ledger?: LedgerService,
-    private readonly wallet?: WalletService,
-    private readonly reconciliation?: ReconciliationService,
+    private readonly ledger: LedgerService,
+    private readonly wallet: WalletService,
+    private readonly reconciliation: ReconciliationService,
   ) {
     this.stripe = new Stripe(config.getOrThrow('STRIPE_SECRET_KEY'), {
       apiVersion: '2024-04-10',

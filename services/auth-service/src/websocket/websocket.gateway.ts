@@ -23,7 +23,10 @@ function getZoneKey(lat: number, lng: number): string {
 }
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: {
+    origin: process.env.ALLOWED_WS_ORIGINS?.split(',').map(o => o.trim()) ?? '*',
+    credentials: !!process.env.ALLOWED_WS_ORIGINS,
+  },
   transports: ['websocket'],
 })
 export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisconnect {

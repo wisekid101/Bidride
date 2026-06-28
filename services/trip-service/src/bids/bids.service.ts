@@ -578,7 +578,7 @@ export class BidsService implements OnModuleInit {
     const url = `${process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007'}/payments/internal/authorize`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({ stripeCustomerId, paymentMethodId, amountCents: Math.round(amount * 100) }),
     });
 
@@ -601,7 +601,7 @@ export class BidsService implements OnModuleInit {
     const url = `${process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007'}/payments/internal/capture`;
     await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({ paymentIntentId: piId, amountCents: Math.round(finalFare * 100) }),
     }).catch((e: unknown) => this.logger.error(`Stripe capture failed for bid ${bidId}`, e));
 
@@ -615,7 +615,7 @@ export class BidsService implements OnModuleInit {
     const url = `${process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007'}/payments/internal/void`;
     await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({ paymentIntentId: piId }),
     }).catch((e: unknown) => this.logger.error(`Stripe void failed for bid ${bidId}`, e));
 
@@ -628,7 +628,7 @@ export class BidsService implements OnModuleInit {
     const url = `${process.env.PRICING_SERVICE_URL ?? 'http://localhost:3005'}/pricing/estimate`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({
         pickupLat: dto.pickupLat,
         pickupLng: dto.pickupLng,
@@ -735,7 +735,7 @@ export class BidsService implements OnModuleInit {
     try {
       const res = await fetch(`${AI_SERVICE_URL}/ai/driver-ranking`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
         body: JSON.stringify({
           tripId,
           isAirportTrip,
@@ -760,7 +760,7 @@ export class BidsService implements OnModuleInit {
     const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
     await fetch(`${AI_SERVICE_URL}/ai/dispatch-simulate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({
         tripId,
         candidates: driverUserIds.map((id) => ({ driverUserId: id, score: 50 })),

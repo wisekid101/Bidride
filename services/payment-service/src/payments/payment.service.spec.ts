@@ -77,7 +77,11 @@ const mockRedis = {
   expire: jest.fn().mockResolvedValue(1),
 } as any;
 
-const service = new PaymentService(mockPrisma, mockConfig, mockRedis);
+const mockLedger = { createEntries: jest.fn().mockResolvedValue(undefined), recordRiderPayment: jest.fn().mockResolvedValue(undefined), recordDriverEarning: jest.fn().mockResolvedValue(undefined), recordTip: jest.fn().mockResolvedValue(undefined), recordRefund: jest.fn().mockResolvedValue(undefined), recordBonus: jest.fn().mockResolvedValue(undefined), recordPayout: jest.fn().mockResolvedValue(undefined), recordAdjustment: jest.fn().mockResolvedValue(undefined), getLedgerEntries: jest.fn().mockResolvedValue([]) } as any;
+const mockWallet = { creditEarning: jest.fn().mockResolvedValue(undefined), releaseHold: jest.fn().mockResolvedValue(undefined), debitPayout: jest.fn().mockResolvedValue(undefined), applyAdjustment: jest.fn().mockResolvedValue(undefined), getWallet: jest.fn().mockResolvedValue({ balance: 0 }) } as any;
+const mockReconciliation = { reconcilePaymentIntent: jest.fn().mockResolvedValue(undefined), reconcileRefund: jest.fn().mockResolvedValue(undefined), recordDispute: jest.fn().mockResolvedValue(undefined), listMismatches: jest.fn().mockResolvedValue([]), resolveEntry: jest.fn().mockResolvedValue(undefined) } as any;
+
+const service = new PaymentService(mockPrisma, mockConfig, mockRedis, mockLedger, mockWallet, mockReconciliation);
 
 describe('PaymentService', () => {
   beforeEach(() => jest.clearAllMocks());

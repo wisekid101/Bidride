@@ -20,7 +20,10 @@ interface JwtPayload {
 
 @WebSocketGateway({
   namespace: '/chat',
-  cors: { origin: '*', credentials: true },
+  cors: {
+    origin: process.env.ALLOWED_WS_ORIGINS?.split(',').map(o => o.trim()) ?? '*',
+    credentials: !!process.env.ALLOWED_WS_ORIGINS,
+  },
   transports: ['websocket'],
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
