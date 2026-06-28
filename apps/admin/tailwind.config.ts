@@ -35,7 +35,7 @@ const config: Config = {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
-        // BidRide brand colors
+        // BidiRide brand colors
         gold: 'hsl(var(--gold))',
         safety: 'hsl(var(--safety))',
         teal: {

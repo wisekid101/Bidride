@@ -1,4 +1,4 @@
-# BidRide — Sprint Plan
+# BidiRide — Sprint Plan
 ## Part 2 of 3: 16 Sprints · 2 Weeks Each · Full Acceptance Criteria
 
 **Status:** FOUNDER APPROVED — 2026-06-07
@@ -208,7 +208,7 @@ Each sprint entry lists:
 ---
 
 ### Sprint 8 — Weeks 15–16
-**Goal:** BidRide Connect request and accept flow is live.
+**Goal:** BidiRide Connect request and accept flow is live.
 
 **Deliverables:**
 - Connect request endpoint: requires ≥1 shared completed trip
@@ -228,7 +228,7 @@ Each sprint entry lists:
 ---
 
 ### Sprint 9 — Weeks 17–18
-**Goal:** BidRide Connect Direct booking (Layer 1 dispatch) is live and tested.
+**Goal:** BidiRide Connect Direct booking (Layer 1 dispatch) is live and tested.
 
 **Deliverables:**
 - Direct booking flow: rider selects Connected driver → POST /trips { connectDriverId }

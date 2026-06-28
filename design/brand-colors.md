@@ -3,7 +3,7 @@
 > **Status: PLACEHOLDER — Awaiting design direction from founder**
 
 ## Direction Questions
-- What feeling should BidRide evoke? (Trust? Speed? Value? Empowerment?)
+- What feeling should BidiRide evoke? (Trust? Speed? Value? Empowerment?)
 - Who is the primary visual audience — riders or drivers?
 - Competitor reference: Uber (black/white), Lyft (magenta/white) — differentiate or follow?
 

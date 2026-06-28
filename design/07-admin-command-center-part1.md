@@ -1,11 +1,11 @@
-# BidRide — Admin Command Center v1.0 · Part 1
+# BidiRide — Admin Command Center v1.0 · Part 1
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 07-A · Part 1 of 3
 **Platform:** Web application (not mobile) — responsive, desktop-first
 **References:** 02-product-requirements-document-v1.md · 00c-trust-score-engine.md · 00d-safety-shield-system.md
 
-> The Admin Command Center is BidRide's operational nervous system.
+> The Admin Command Center is BidiRide's operational nervous system.
 > Every admin action is logged. Every safety decision has an audit trail.
 > Founder authority is permanent — no admin role can override founder-level controls.
 
@@ -42,7 +42,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  BidRide Admin            ● Live     Marcus B. (Super Admin)  [Log out]│
+│  BidiRide Admin            ● Live     Marcus B. (Super Admin)  [Log out]│
 ├──────────────┬──────────────────────────────────────────────────────┤
 │              │                                                      │
 │  🏠 Live Ops │  [Main content area — changes with nav selection]    │
@@ -87,7 +87,7 @@
 
 ```
 ┌─────────────────────────────────────────┐
-│            BidRide Admin                │
+│            BidiRide Admin                │
 │            type-h1 / centered           │
 │                                         │
 │  Email  ───────────────────────────┐   │
@@ -382,4 +382,4 @@ POST /admin/drivers/:id/notes     { note }
 
 ---
 
-*BidRide Admin Command Center — Part 1 of 3 — Confidential · Delaware LLC*
+*BidiRide Admin Command Center — Part 1 of 3 — Confidential · Delaware LLC*

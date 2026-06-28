@@ -1,4 +1,4 @@
-# BidRide — Founder Gap Analysis v1.0
+# BidiRide — Founder Gap Analysis v1.0
 
 **Status:** For Founder Review — Action Required Before Proceeding
 **Document:** Pre-06 Analysis
@@ -16,7 +16,7 @@
 
 **Documents reviewed:** 01 (Founder Discovery) · 02 (PRD v1.1) · 03 (Design System) · 04 (Component Library v1.1) · 05 (Rider App UI)
 
-**Overall assessment:** The BidRide blueprint is exceptionally strong relative to what typically exists at this stage. The core product — AI pricing, driver economics, trip lifecycle, safety architecture, and rider experience — is well-defined. However, a systematic review against the six areas specified by the founder reveals **23 confirmed gaps** ranging from critical safety requirements to missing founder intelligence tools.
+**Overall assessment:** The BidiRide blueprint is exceptionally strong relative to what typically exists at this stage. The core product — AI pricing, driver economics, trip lifecycle, safety architecture, and rider experience — is well-defined. However, a systematic review against the six areas specified by the founder reveals **23 confirmed gaps** ranging from critical safety requirements to missing founder intelligence tools.
 
 **Critical gaps (must resolve before any public launch):** 9
 **High gaps (must resolve before Phase 2 / beta):** 8
@@ -56,8 +56,8 @@
 |---|---|---|
 | **Video recording** | Not mentioned in any document — not for riders, not for drivers. Uber and Lyft both offer audio + video recording in some markets. This is a safety and legal evidence tool. A decision needs to be made: include or explicitly exclude with documented reasoning. | HIGH |
 | **Rider risk score visible to driver** | The `riders.risk_score` field is defined in the database. AI calculates it. But there is no UI element in the ride request screen (D-18) or anywhere else that surfaces this score to the driver before or after accepting a ride. Drivers make acceptance decisions blind to rider risk signals. | HIGH |
-| **Driver panic mode (discrete)** | Uber has a "discreet mode" — driver can trigger safety check without alerting the rider. If a driver feels unsafe but does not want to escalate visibly, there is no silent escalation option. A driver cannot text "Are you OK?" back to BidRide without the rider potentially noticing. | HIGH |
-| **Pre-trip vehicle safety checklist** | PRD Section 16.2 defers this to Phase 2. But Uber and Lyft both require this before shifts. It confirms: brakes, seat belts, lights, no damage. This is also a liability protection for BidRide — if a driver says their brakes failed, BidRide has no pre-trip record. | MEDIUM |
+| **Driver panic mode (discrete)** | Uber has a "discreet mode" — driver can trigger safety check without alerting the rider. If a driver feels unsafe but does not want to escalate visibly, there is no silent escalation option. A driver cannot text "Are you OK?" back to BidiRide without the rider potentially noticing. | HIGH |
+| **Pre-trip vehicle safety checklist** | PRD Section 16.2 defers this to Phase 2. But Uber and Lyft both require this before shifts. It confirms: brakes, seat belts, lights, no damage. This is also a liability protection for BidiRide — if a driver says their brakes failed, BidiRide has no pre-trip record. | MEDIUM |
 | **Driver incident history accessible to driver** | PRD D-35 mentions "Incident history" as a safety center element. No screen is designed. Drivers cannot see their own safety record. | MEDIUM |
 
 ---
@@ -90,7 +90,7 @@
 |---|---|---|
 | **"Are you OK?" passive check screen** | PRD Section 12.1 mentions that AI sends a push notification asking "Is everything okay?" with an SOS button during a hard anomaly. This is a critical in-app screen — but it was never designed in RS-005 through RS-020. The rider needs a clear, calm screen at this moment, not just a push notification that might be missed. | CRITICAL |
 | **Audio recording consent screen and workflow** | PRD R-26 mentions a toggle. But in-ride audio recording has state-specific consent laws (NJ is one-party consent; NY is one-party consent; other expansion states may differ). The actual flow — when consent is obtained, what the rider sees when a session is recorded, how recordings are stored and who can access them — is completely undefined. | CRITICAL |
-| **Driver "verified" badge detail for rider** | Rider sees name, photo, rating. But there is no "BidRide Verified" indicator that communicates the driver passed background check, ID verification, vehicle inspection. This is a trust signal that both Uber and Lyft display prominently. Riders cannot distinguish a BidRide-verified driver from an unverified one in the UI. | HIGH |
+| **Driver "verified" badge detail for rider** | Rider sees name, photo, rating. But there is no "BidiRide Verified" indicator that communicates the driver passed background check, ID verification, vehicle inspection. This is a trust signal that both Uber and Lyft display prominently. Riders cannot distinguish a BidiRide-verified driver from an unverified one in the UI. | HIGH |
 
 ---
 
@@ -150,7 +150,7 @@
 | Item | Gap | Severity |
 |---|---|---|
 | Driver document expiry → suspension workflow | PRD mentions 30-day alerts and "expired documents suspend driver." The actual workflow — grace period? Immediate suspension? What the driver sees? How they resubmit? — is not designed as a screen flow. | HIGH |
-| Insurance gap coverage periods | PRD requires rideshare endorsement but does not define how BidRide's platform-level insurance covers Period 1 (app on, no ride matched), Period 2 (ride accepted, en route to pickup), and Period 3 (passenger in vehicle). These are legally distinct coverage periods. | CRITICAL |
+| Insurance gap coverage periods | PRD requires rideshare endorsement but does not define how BidiRide's platform-level insurance covers Period 1 (app on, no ride matched), Period 2 (ride accepted, en route to pickup), and Period 3 (passenger in vehicle). These are legally distinct coverage periods. | CRITICAL |
 
 ### ✗ What is missing entirely
 
@@ -184,7 +184,7 @@
 | Item | Gap | Severity |
 |---|---|---|
 | Market Expansion Dashboard (C-126) | Component is defined in component library but no screen in any document defines what data it shows, what criteria trigger expansion readiness, or how the founder acts on it. | MEDIUM |
-| Competitor Pricing Dashboard (C-127) | Component is defined but no screen or data source is specified. How does BidRide collect competitor pricing? Manual entry? API? Scraping? None defined. | MEDIUM |
+| Competitor Pricing Dashboard (C-127) | Component is defined but no screen or data source is specified. How does BidiRide collect competitor pricing? Manual entry? API? Scraping? None defined. | MEDIUM |
 | Revenue Forecast Dashboard (C-128) | Component is defined but no screen. | MEDIUM |
 | Unit Economics Dashboard (C-129) | Component is defined but no screen. | MEDIUM |
 
@@ -193,7 +193,7 @@
 | Gap | Description | Severity |
 |---|---|---|
 | **CAC (Customer Acquisition Cost) tracking** | Not mentioned in any document. A founder running a marketplace needs to know the cost to acquire each rider and each driver — by channel, by cohort. No marketing channel tracking, no CAC calculation, no CAC vs. LTV dashboard. | HIGH |
-| **LTV (Lifetime Value) per user** | Not mentioned in any document. No model for projecting how much revenue a rider or driver generates over their relationship with BidRide. Without LTV, CAC optimization is impossible. | HIGH |
+| **LTV (Lifetime Value) per user** | Not mentioned in any document. No model for projecting how much revenue a rider or driver generates over their relationship with BidiRide. Without LTV, CAC optimization is impossible. | HIGH |
 | **Driver retention cohort analysis** | A-04 shows driver status (Active/Suspended/Banned). But no chart shows: of drivers who joined in month X, what % are still active in month X+3? This is the key leading indicator for marketplace health. | HIGH |
 | **Rider retention cohort analysis** | Same gap as driver retention. The financial model depends on repeat riders. No cohort retention screen exists. | HIGH |
 | **Founder Command Center screen** | Document 08 (Founder Command Center UI) is planned. But the founder-specific data requirements — beyond what's in the admin dashboard — have not been scoped. What does the founder see that a Platform Admin does not? No spec exists yet. This entire document needs creation. | MEDIUM |
@@ -257,7 +257,7 @@
 | G-12 | Driver Safety | Driver panic/discreet mode | HIGH | Add to 06-driver-app-ui.md |
 | G-13 | Rider Safety | Family safety tracking — orphaned feature | HIGH | Design in 05 addendum |
 | G-14 | Rider Safety | Shareable live trip link — public page undefined | HIGH | Define before MVP |
-| G-15 | Rider Safety | Driver "BidRide Verified" badge | HIGH | Add to 06 + RS-009a |
+| G-15 | Rider Safety | Driver "BidiRide Verified" badge | HIGH | Add to 06 + RS-009a |
 | G-16 | Fraud | GPS spoofing detection — no specification | HIGH | Add to PRD |
 | G-17 | Fraud | Referral fraud rules — none defined | HIGH | Add to PRD rewards workflow |
 | G-18 | Fraud | Payment fraud / chargeback workflow | HIGH | Add to PRD + admin UI |
@@ -332,7 +332,7 @@ These gaps directly affect what screens must be designed in the driver app:
 Before 06-driver-app-ui.md can begin, the founder must decide:
 
 ### Decision 1 — Video Recording
-**Question:** Should BidRide offer optional in-vehicle video recording (driver-facing camera or cabin camera)?
+**Question:** Should BidiRide offer optional in-vehicle video recording (driver-facing camera or cabin camera)?
 
 **Options:**
 - A: Include video recording (driver-only camera, records trip, stored 72 hours, accessible on safety dispute)
@@ -344,7 +344,7 @@ Before 06-driver-app-ui.md can begin, the founder must decide:
 ---
 
 ### Decision 2 — EWR PANYNJ Compliance Approach
-**Question:** The Port Authority charges per-trip fees and requires TNC permits for EWR operations. How does BidRide handle the PANYNJ fee?
+**Question:** The Port Authority charges per-trip fees and requires TNC permits for EWR operations. How does BidiRide handle the PANYNJ fee?
 
 **Options:**
 - A: Build into fare (PANYNJ fee is part of AI fare calculation, transparent to rider)
@@ -362,11 +362,11 @@ Before 06-driver-app-ui.md can begin, the founder must decide:
 
 Drivers see one of four trust labels on the ride request screen (D-18):
 - **Verified Rider** — standard verified account
-- **Verified Business Rider** — enrolled in BidRide Business
+- **Verified Business Rider** — enrolled in BidiRide Business
 - **Frequent Rider** — established ride history on platform
 - **New Rider** — first or early rides on platform
 
-**Rationale:** Numerical risk scores create discrimination concerns and legal exposure. A driver who sees a "high risk" flag may decline based on criteria that correlate with protected class characteristics. BidRide handles elevated-risk riders at the platform level (elevated verification, account holds) before they reach the matching queue. The driver's decision frame is trust and familiarity — not a score.
+**Rationale:** Numerical risk scores create discrimination concerns and legal exposure. A driver who sees a "high risk" flag may decline based on criteria that correlate with protected class characteristics. BidiRide handles elevated-risk riders at the platform level (elevated verification, account holds) before they reach the matching queue. The driver's decision frame is trust and familiarity — not a score.
 
 **Implementation:** Design in 06-driver-app-ui.md (D-18 ride request screen). Label logic is computed server-side from account history. Drivers never see the underlying score. The `riders.risk_score` field remains internal to the fraud and safety systems only.
 
@@ -378,7 +378,7 @@ Drivers see one of four trust labels on the ride request screen (D-18):
 **Options:**
 - A: Yes — drivers get up to 5 trusted contacts, notified on SOS activation
 - B: Partial — drivers can set an emergency contact (1 person) notified on SOS only
-- C: No — BidRide Safety Admin is the driver's emergency response; personal contacts are separate
+- C: No — BidiRide Safety Admin is the driver's emergency response; personal contacts are separate
 
 **Implication:** Affects database schema (add trusted contacts for driver user type), driver safety center design in 06, and SMS notification volume.
 
@@ -429,5 +429,5 @@ To be explicit: the following areas are well-built and do not need re-work:
 
 ---
 
-*BidRide Gap Analysis — Confidential*
+*BidiRide Gap Analysis — Confidential*
 *Delaware LLC — All rights reserved*

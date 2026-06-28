@@ -1,8 +1,8 @@
-# BidRide — Founder Review Package
-## Preferred Driver Network · BidRide Connect · Driver Following
+# BidiRide — Founder Review Package
+## Preferred Driver Network · BidiRide Connect · Driver Following
 ## Driver Subscription Plans · Driver Business Center · Corporate Preferred Driver Program
 
-**Prepared for:** Marq Brown, Founder — BidRide LLC
+**Prepared for:** Marq Brown, Founder — BidiRide LLC
 **Date:** 2026-06-07
 **Status:** Awaiting Founder Approval
 **Source documents:** Feature Architecture Addendum Parts 1–4 (`product/` directory)
@@ -11,7 +11,7 @@
 
 ## 1. Executive Summary
 
-Six interconnected features transform BidRide from a pure price-matching marketplace into a **trusted-network platform** — where repeat relationships between riders and drivers create retention, loyalty, and a SaaS revenue layer on top of trip commissions.
+Six interconnected features transform BidiRide from a pure price-matching marketplace into a **trusted-network platform** — where repeat relationships between riders and drivers create retention, loyalty, and a SaaS revenue layer on top of trip commissions.
 
 The business case is strong: at the base-case projection, these features add **$331K in annualized recurring revenue by month 12** without replacing trip-based income. The corporate program alone — targeting Newark-area businesses that rely on EWR — represents a **direct B2B sales motion** that neither Uber nor Lyft has built specifically for the EWR corridor.
 
@@ -53,7 +53,7 @@ The architectural cost is bounded: two new microservices, seven new database tab
 | Feature | Ship in MVP | Reasoning |
 |---------|------------|-----------|
 | Preferred Driver Network | **Yes — full** | Core retention driver; low complexity; no legal risk |
-| BidRide Connect | **Yes — core** | Direct bookings + mutual opt-in; high differentiator |
+| BidiRide Connect | **Yes — core** | Direct bookings + mutual opt-in; high differentiator |
 | Driver Following | **Yes — core** | Lightweight; notification engagement; no legal risk |
 | Driver Subscription Plans | **Yes — all 3 tiers** | Revenue starts Day 1; drives Business Center adoption |
 | Driver Business Center | **Yes — Earnings + Performance** | Tax and airport analytics slide to Phase 2 |
@@ -187,9 +187,9 @@ Pro/Elite drivers pay lower fees (15%/10% vs. 20%). At base case month 12, fee r
 
 ### Why EWR Is the Perfect Entry Market
 
-| Factor | BidRide Advantage |
+| Factor | BidiRide Advantage |
 |--------|-----------------|
-| EWR is the #1 airport for NJ/NY corporate travel | BidRide built EWR operations first; corporate clients see local expertise |
+| EWR is the #1 airport for NJ/NY corporate travel | BidiRide built EWR operations first; corporate clients see local expertise |
 | Corporate travelers have fixed routes (EWR↔Midtown, EWR↔Newark CBD) | Preferred driver network covers these routes reliably |
 | Expense reporting is a major friction point | Net-30 invoicing with PDF removes personal card use |
 | Corporate clients want driver consistency | Roster system provides it; Uber/Lyft cannot |
@@ -221,7 +221,7 @@ No dedicated sales team required at launch. Corporate accounts acquired through:
 |--------------------|-----------|------|-----------|
 | Preferred Driver Network | 2 | Low | Pure CRUD + existing Redis dispatch patterns |
 | Driver Following | 1 | Low | Simple follow table + notification fan-out |
-| BidRide Connect (core) | 2 | Low | Status machine simpler than trip state machine |
+| BidiRide Connect (core) | 2 | Low | Status machine simpler than trip state machine |
 | Connect Calendar | 3 | Medium | Availability grid UI + calendar logic |
 | Subscription Plans (Stripe) | 3 | Medium | Stripe Subscriptions well-documented; webhook reliability |
 | Matching Engine (4 layers) | 4 | High | Race conditions in exclusive window; needs careful Redis NX design |
@@ -244,7 +244,7 @@ No dedicated sales team required at launch. Corporate accounts acquired through:
 
 ### vs. Uber
 
-| Dimension | Uber | BidRide |
+| Dimension | Uber | BidiRide |
 |-----------|------|---------|
 | Preferred driver | None | Yes — exclusive dispatch window |
 | Driver following | None | Yes — with online notification |
@@ -257,7 +257,7 @@ No dedicated sales team required at launch. Corporate accounts acquired through:
 
 ### vs. Lyft
 
-| Dimension | Lyft | BidRide |
+| Dimension | Lyft | BidiRide |
 |-----------|------|---------|
 | Preferred driver | "Favorite Drivers" — notification only, no dispatch priority | Yes — exclusive 45s dispatch window |
 | Driver following | None | Yes |
@@ -294,7 +294,7 @@ Corporate clients expect roster drivers to be available. At launch with 50–100
 ```
 Week 1–3   relationship-service + Preferred Driver Network + Following
 Week 2–4   Driver Subscription Plans (payment-service extension)
-Week 3–6   BidRide Connect (core — no calendar)
+Week 3–6   BidiRide Connect (core — no calendar)
 Week 4–6   Driver Business Center (Earnings + Performance screens)
 Week 5–7   Matching engine 4-layer dispatch
 Week 6–8   All mobile screens (rider + driver)

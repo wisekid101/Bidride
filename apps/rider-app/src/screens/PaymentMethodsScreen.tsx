@@ -119,7 +119,7 @@ export function PaymentMethodsScreen() {
       const { error: initError } = await initPaymentSheet({
         customerId,
         setupIntentClientSecret: clientSecret,
-        merchantDisplayName: 'BidRide',
+        merchantDisplayName: 'BidiRide',
         allowsDelayedPaymentMethods: false,
       });
 

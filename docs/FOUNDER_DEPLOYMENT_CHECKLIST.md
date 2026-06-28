@@ -1,6 +1,6 @@
-# BidRide — Founder Deployment Checklist
+# BidiRide — Founder Deployment Checklist
 
-This checklist walks you through deploying BidRide to AWS from scratch.
+This checklist walks you through deploying BidiRide to AWS from scratch.
 You do not need to be an engineer to follow it — every step is explicit.
 
 If anything goes wrong, stop and call your engineer. Do NOT continue past a failed step.
@@ -17,7 +17,7 @@ You need these accounts and access ready. Check them off before continuing.
 - [ ] Twilio account with a phone number purchased
 - [ ] Firebase project created (for push notifications)
 - [ ] Checkr account (for driver background checks)
-- [ ] Domain registered: bidride.com (or your domain)
+- [ ] Domain registered: bidiride.com (or your domain)
 
 **On your computer:**
 - [ ] AWS CLI installed — type `aws --version` in Terminal. Should show version 2.x
@@ -77,13 +77,13 @@ Note: No DynamoDB table is needed. Terraform uses an S3-native lock file instead
 
 ### Step 1.3 — Create an SSL Certificate
 
-Run this (replace `api.bidride.com` with your actual domain if different):
+Run this (replace `api.bidiride.com` with your actual domain if different):
 
 ```bash
 aws acm request-certificate \
-  --domain-name api.bidride.com \
+  --domain-name api.bidiride.com \
   --validation-method DNS \
-  --subject-alternative-names "*.bidride.com" \
+  --subject-alternative-names "*.bidiride.com" \
   --region us-east-1
 ```
 
@@ -136,7 +136,7 @@ Fill in these values:
 | `db_password` | A strong password (32+ characters, save to 1Password) | Make one up |
 | `founder_email` | `brownmarq184@gmail.com` | Your email |
 | `acm_certificate_arn` | The ARN from Step 1.3 | From Step 1.3 |
-| `domain_name` | `api.bidride.com` | Your API domain |
+| `domain_name` | `api.bidiride.com` | Your API domain |
 | `db_instance_class` | `db.t4g.medium` | Use this for internal alpha (saves money) |
 | `cache_node_type` | `cache.t4g.micro` | Use this for internal alpha (saves money) |
 | `google_maps_api_key` | Your Google Maps key | Google Cloud Console |
@@ -209,7 +209,7 @@ Go to your domain registrar (GoDaddy, Namecheap, etc.) and add a CNAME record:
 
 Wait 5-15 minutes, then test:
 ```
-curl -I https://api.bidride.com/
+curl -I https://api.bidiride.com/
 ```
 
 Should show `HTTP/2 404` (that's correct — services aren't running yet).
@@ -411,7 +411,7 @@ DATABASE_URL="postgresql://bidride_admin:YOUR_PASSWORD@YOUR_RDS_ENDPOINT:5432/bi
   pnpm db:seed
 ```
 
-- [ ] Admin account created (marq@bidride.com)
+- [ ] Admin account created (marq@bidiride.com)
 
 ---
 
@@ -451,17 +451,17 @@ All services should show "Running: 1" within 15 minutes.
 Run the health check script:
 
 ```bash
-BIDRIDE_API_URL=https://api.bidride.com bash infrastructure/scripts/smoke-test.sh
+BIDRIDE_API_URL=https://api.bidiride.com bash infrastructure/scripts/smoke-test.sh
 ```
 
 All 11 checks should show ✓ (ai-service is skipped — it's internal).
 
 Then test the admin portal:
 ```
-https://admin.bidride.com
+https://admin.bidiride.com
 ```
 
-Log in with marq@bidride.com and the password set during seeding.
+Log in with marq@bidiride.com and the password set during seeding.
 
 - [ ] Health checks pass
 - [ ] Admin portal loads and login works
@@ -481,10 +481,10 @@ Log in with marq@bidride.com and the password set during seeding.
 
 ## You're Live 🎉
 
-BidRide is running on AWS. For day-to-day operations, see `docs/OPERATIONS_RUNBOOK.md`.
+BidiRide is running on AWS. For day-to-day operations, see `docs/OPERATIONS_RUNBOOK.md`.
 
 **Bookmark these:**
-- Admin Portal: https://admin.bidride.com
+- Admin Portal: https://admin.bidiride.com
 - AWS Console: https://console.aws.amazon.com
 - Stripe Dashboard: https://dashboard.stripe.com
 - CloudWatch Alarms: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#alarmsV2

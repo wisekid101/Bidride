@@ -50,7 +50,7 @@ export function ProfileSetupScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Welcome to BidRide</Text>
+        <Text style={styles.title}>Welcome to BidiRide</Text>
         <Text style={styles.subtitle}>Tell us your name so drivers can greet you.</Text>
 
         <Text style={styles.label}>First name</Text>

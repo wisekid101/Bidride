@@ -1,4 +1,4 @@
-# BidRide — Design System v1.0
+# BidiRide — Design System v1.0
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 03 of 10
@@ -6,7 +6,7 @@
 **Date:** June 5, 2026
 **Reference:** /foundation/01-founder-discovery-report-v1.md
 
-> This document defines the complete visual foundation for BidRide.
+> This document defines the complete visual foundation for BidiRide.
 > All subsequent UI documents reference this system.
 > No design work begins until this document is approved.
 
@@ -30,7 +30,7 @@
 
 ## 1. Brand Philosophy
 
-BidRide's visual identity communicates four things simultaneously:
+BidiRide's visual identity communicates four things simultaneously:
 
 | Value | Visual Expression |
 |---|---|
@@ -230,7 +230,7 @@ JetBrains Mono, 'Courier New', Courier, monospace
 ```
 ╔══════════════════════════════════════════╗
 ║                                          ║
-║  BidRide                                 ║
+║  BidiRide                                 ║
 ║  type-display / 40px / ExtraBold         ║
 ║                                          ║
 ║  Your Ride                               ║
@@ -245,7 +245,7 @@ JetBrains Mono, 'Courier New', Courier, monospace
 ║  8.2 miles · Est. 19 min                 ║
 ║  type-body / 15px / Regular              ║
 ║                                          ║
-║  Fare protected by BidRide AI            ║
+║  Fare protected by BidiRide AI            ║
 ║  type-caption / 11px / text-teal         ║
 ╚══════════════════════════════════════════╝
 ```
@@ -256,7 +256,7 @@ JetBrains Mono, 'Courier New', Courier, monospace
 
 ### 4.1 Base Unit
 
-All spacing in BidRide is based on a **4px base unit**. Every margin, padding, and gap value is a multiple of 4.
+All spacing in BidiRide is based on a **4px base unit**. Every margin, padding, and gap value is a multiple of 4.
 
 ### 4.2 Spacing Scale
 
@@ -307,7 +307,7 @@ All spacing in BidRide is based on a **4px base unit**. Every margin, padding, a
 
 ## 5. Elevation and Shadows
 
-BidRide uses elevation to communicate hierarchy on dark backgrounds. Shadows on dark surfaces are expressed as lighter background colors rather than drop shadows (drop shadows are invisible on dark backgrounds).
+BidiRide uses elevation to communicate hierarchy on dark backgrounds. Shadows on dark surfaces are expressed as lighter background colors rather than drop shadows (drop shadows are invisible on dark backgrounds).
 
 ### 5.1 Elevation Levels
 
@@ -487,7 +487,7 @@ Used for destructive actions. Never use for SOS — SOS has its own component.
 ║  type-caption / text-secondary           ║
 ║                                          ║
 ║  ┌──────────────────────────────────┐    ║
-║  │ marq@bidride.com              [×]│    ║
+║  │ marq@bidiride.com              [×]│    ║
 ║  └──────────────────────────────────┘    ║
 ║  bg: #0F2D52  radius: radius-sm          ║
 ║  height: 52px  padding: 16px             ║
@@ -792,14 +792,14 @@ Brief auto-dismissing feedback (3 seconds default):
 ╔══════════════════════════════════════════╗
 ║                                          ║
 ║  ┌──────────────────────────────────┐    ║
-║  │  BidRide AI recommends           │    ║
+║  │  BidiRide AI recommends           │    ║
 ║  │                                  │    ║
 ║  │  $14.80                          │    ║
 ║  │  type-mono-l / text-primary      │    ║
 ║  │                                  │    ║
 ║  │  8.2 mi  ·  19 min  ·  ETA 4min  │    ║
 ║  │                                  │    ║
-║  │  ◈ Fare protected by BidRide AI  │    ║
+║  │  ◈ Fare protected by BidiRide AI  │    ║
 ║  │    (text-teal, type-caption)     │    ║
 ║  └──────────────────────────────────┘    ║
 ║  bg: elevation-surface (white)           ║
@@ -967,5 +967,5 @@ Complete token reference for engineering handoff:
 
 ---
 
-*BidRide Design System — Confidential*
+*BidiRide Design System — Confidential*
 *Delaware LLC — All rights reserved*

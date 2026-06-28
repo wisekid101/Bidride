@@ -1,4 +1,4 @@
-# BidRide — Implementation Roadmap
+# BidiRide — Implementation Roadmap
 ## Part 1 of 3: Roadmap · Milestones · Dependencies · Definition of Done
 
 **Status:** FOUNDER APPROVED — 2026-06-07
@@ -58,7 +58,7 @@ Phase 1 — Foundation + Core UX        Weeks 1–12   (Sprints 1–6)
 
 Phase 2 — Relationship Layer           Weeks 13–22  (Sprints 7–11)
   ├── Driver Following                 Weeks 13–16
-  ├── BidRide Connect                  Weeks 15–20
+  ├── BidiRide Connect                  Weeks 15–20
   └── Driver Business Center           Weeks 18–22
 
 Phase 3 — Enterprise + Revenue         Weeks 23–32  (Sprints 12–16)
@@ -115,7 +115,7 @@ Staging validation + production launch Weeks 33–34
 
 ### 4.3 Bid Marketplace (Weeks 3–6)
 
-BidRide's core differentiator: AI-bounded fare with rider transparency.
+BidiRide's core differentiator: AI-bounded fare with rider transparency.
 
 | Feature | Description | Test Requirement |
 |---------|-------------|-----------------|
@@ -200,7 +200,7 @@ Requires `relationship-service` (new — port 3012) and matching engine Layer 3.
 | Follower count API | Security test: count only, no rider identities in response |
 | Follower analytics (count only — MVP) | Unit: count accurate |
 
-### 5.2 BidRide Connect (Weeks 15–20)
+### 5.2 BidiRide Connect (Weeks 15–20)
 
 | Feature | Test Requirement |
 |---------|-----------------|
@@ -278,7 +278,7 @@ Driver App (screens) ───────────────────�
                                                             │
 relationship-service ────── Preferred Driver ──────────── Phase 1
                        ───── Driver Following ────────── Phase 2
-                       ───── BidRide Connect ─────────── Phase 2
+                       ───── BidiRide Connect ─────────── Phase 2
                                                             │
 Driver Business Center ── relationship-service data ─── Phase 2
                                                             │

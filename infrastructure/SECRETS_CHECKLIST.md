@@ -1,4 +1,4 @@
-# BidRide — Secrets Manager Population Checklist
+# BidiRide — Secrets Manager Population Checklist
 
 All secrets live at path: `bidride/{environment}/{secret-name}`
 For internal alpha use `environment = production`.
@@ -52,14 +52,14 @@ aws secretsmanager put-secret-value \
 ### `stripe-webhook-secret`
 - **Format:** `whsec_...`
 - **Get value:** Stripe Dashboard → Developers → Webhooks → Select endpoint → Signing secret
-- **Note:** Create webhook endpoint pointing to `https://api.bidride.com/payments/webhook`
+- **Note:** Create webhook endpoint pointing to `https://api.bidiride.com/payments/webhook`
 - [ ] Webhook endpoint created in Stripe
 - [ ] Populated
 
 ### `stripe-platform-account-id`
 - **Format:** `acct_...`
 - **Get value:** Stripe Dashboard → Settings → Account details → Account ID
-- **Note:** This is the platform (BidRide) Stripe Connect account, not a connected driver account.
+- **Note:** This is the platform (BidiRide) Stripe Connect account, not a connected driver account.
 - [ ] Populated
 
 ---
@@ -124,7 +124,7 @@ aws secretsmanager put-secret-value \
 ### `checkr-webhook-secret`
 - **Format:** Hex string provided by Checkr
 - **Get value:** Checkr Dashboard → Webhooks → Create endpoint → Secret
-- **Note:** Create webhook pointing to `https://api.bidride.com/drivers/checkr/webhook`
+- **Note:** Create webhook pointing to `https://api.bidiride.com/drivers/checkr/webhook`
 - [ ] Webhook endpoint registered in Checkr
 - [ ] Populated
 

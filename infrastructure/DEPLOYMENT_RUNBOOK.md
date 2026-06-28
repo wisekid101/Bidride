@@ -1,6 +1,6 @@
-# BidRide — Deployment Runbook
+# BidiRide — Deployment Runbook
 
-Technical reference for engineers deploying BidRide to AWS.
+Technical reference for engineers deploying BidiRide to AWS.
 See `docs/FOUNDER_DEPLOYMENT_CHECKLIST.md` for the founder-facing simplified version.
 
 ---
@@ -64,11 +64,11 @@ aws s3api put-bucket-encryption \
 ## Phase 2 — ACM Certificate (ONE TIME ONLY)
 
 ```bash
-# Request wildcard cert for api.bidride.com and *.bidride.com
+# Request wildcard cert for api.bidiride.com and *.bidiride.com
 aws acm request-certificate \
-  --domain-name api.bidride.com \
+  --domain-name api.bidiride.com \
   --validation-method DNS \
-  --subject-alternative-names "*.bidride.com" \
+  --subject-alternative-names "*.bidiride.com" \
   --region us-east-1
 
 # Get the CNAME validation records to add at your registrar
@@ -135,11 +135,11 @@ rm /tmp/bidride-tf-outputs.json  # don't leave outputs on disk
 terraform output alb_dns_name
 
 # Add a CNAME record in your DNS registrar:
-#   api.bidride.com → <alb_dns_name>
+#   api.bidiride.com → <alb_dns_name>
 # Propagation: 5-15 minutes
 
 # Verify
-curl -I https://api.bidride.com/
+curl -I https://api.bidiride.com/
 # Expected: 404 (ALB default response — services not up yet)
 ```
 
@@ -283,11 +283,11 @@ done
 
 ```bash
 # Run smoke test (health checks only)
-BIDRIDE_API_URL=https://api.bidride.com bash infrastructure/scripts/smoke-test.sh
+BIDRIDE_API_URL=https://api.bidiride.com bash infrastructure/scripts/smoke-test.sh
 
 # Run full post-deploy verification
-BIDRIDE_API_URL=https://api.bidride.com \
-BIDRIDE_ADMIN_EMAIL=marq@bidride.com \
+BIDRIDE_API_URL=https://api.bidiride.com \
+BIDRIDE_ADMIN_EMAIL=marq@bidiride.com \
 BIDRIDE_ADMIN_PASS=your-admin-password \
 bash infrastructure/scripts/post-deploy-verify.sh
 ```
@@ -507,10 +507,10 @@ aws s3 rm s3://bidride-terraform-state/production/terraform.tfstate.tflock \
 
 ```bash
 # Verify HTTPS is terminating at ALB
-curl -vI https://api.bidride.com/ 2>&1 | grep -E "SSL|certificate|HTTP"
+curl -vI https://api.bidiride.com/ 2>&1 | grep -E "SSL|certificate|HTTP"
 
 # Check certificate expiry
-echo | openssl s_client -connect api.bidride.com:443 2>/dev/null | \
+echo | openssl s_client -connect api.bidiride.com:443 2>/dev/null | \
   openssl x509 -noout -dates
 
 # Verify ALB listener rules
@@ -520,6 +520,6 @@ aws elbv2 describe-rules \
   --output table
 
 # Trace a request path (e.g., /trips/* → trip-service)
-curl -sv https://api.bidride.com/trips/non-existent \
+curl -sv https://api.bidiride.com/trips/non-existent \
   -H "Authorization: Bearer test" 2>&1 | grep -E "< HTTP|location"
 ```

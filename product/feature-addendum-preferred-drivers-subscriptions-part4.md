@@ -301,7 +301,7 @@ Step 1 — Application
   Corporate contact fills web form (corporate-service public endpoint):
   Company name · billing email · estimated monthly trips · contact name
 
-Step 2 — BidRide Review
+Step 2 — BidiRide Review
   Placed in Pending queue → Founder reviews (§21.1)
   Timeline: 1–3 business days
 
@@ -341,7 +341,7 @@ Corporate Portal → Roster tab
 1st of month → payment-service cron job runs
   │
   ├── Queries: all trips WHERE corporateId = X AND month = prior month
-  ├── Sums: total fare, platform fee, net to BidRide
+  ├── Sums: total fare, platform fee, net to BidiRide
   ├── Generates: PDF invoice (itemized by employee, trip date, zone, amount)
   ├── Charges: Stripe invoice created, due in invoiceDueDays
   │
@@ -363,7 +363,7 @@ Corporate Portal → Roster tab
 ### 23.1 EWR → Manhattan Corporate Trip (Full Journey)
 
 ```
-[Employee] opens BidRide at EWR arrivals
+[Employee] opens BidiRide at EWR arrivals
       ↓
 Corporate banner shown: "Trip billed to Acme Corp"
       ↓
@@ -453,7 +453,7 @@ Trip complete: Maria sees "Book James again" CTA on receipt.
 
 ## 25. Founder Approval Decision Page
 
-**Document:** Feature Architecture Addendum — Preferred Driver Network, BidRide Connect, Driver Following, Driver Subscription Plans, Driver Business Center, Corporate Preferred Driver Program
+**Document:** Feature Architecture Addendum — Preferred Driver Network, BidiRide Connect, Driver Following, Driver Subscription Plans, Driver Business Center, Corporate Preferred Driver Program
 
 **Parts:** 4 of 4 complete
 **Total pages:** ~1,100 lines across 4 files
@@ -484,13 +484,13 @@ Trip complete: Maria sees "Book James again" CTA on receipt.
 ┌─────────────────────────────────────────────────────────┐
 │                  FOUNDER APPROVAL                       │
 │                                                         │
-│  I, Marq Brown, Founder of BidRide LLC, have reviewed  │
+│  I, Marq Brown, Founder of BidiRide LLC, have reviewed  │
 │  the Feature Architecture Addendum (Parts 1–4) and     │
 │  approve proceeding to implementation planning for      │
 │  the features and scope specified herein.              │
 │                                                         │
 │  Approved features (circle all that apply):            │
-│    Preferred Driver Network    BidRide Connect          │
+│    Preferred Driver Network    BidiRide Connect          │
 │    Driver Following            Subscription Plans       │
 │    Driver Business Center      Corporate Program        │
 │                                                         │

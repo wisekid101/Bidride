@@ -100,7 +100,7 @@ export function SosScreen() {
         <>
           <Text style={styles.title}>Emergency SOS</Text>
           <Text style={styles.subtitle}>
-            This will alert BidRide safety team and your trusted contacts.
+            This will alert BidiRide safety team and your trusted contacts.
             A 5-second countdown gives you time to cancel.
           </Text>
 
@@ -138,7 +138,7 @@ export function SosScreen() {
           <View style={styles.activePulse} />
           <Text style={styles.activeTitle}>SOS Active</Text>
           <Text style={styles.activeSubtitle}>
-            BidRide safety team has been alerted.{'\n'}
+            BidiRide safety team has been alerted.{'\n'}
             Your trusted contacts are being notified.{'\n'}
             Audio recording has started.
           </Text>

@@ -1,4 +1,4 @@
-# BidRide Roadmap
+# BidiRide Roadmap
 
 > **Status: DRAFT**
 

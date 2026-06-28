@@ -1,4 +1,4 @@
-# BidRide — Technical Architecture v1.0 · Part 5: Deployment Architecture
+# BidiRide — Technical Architecture v1.0 · Part 5: Deployment Architecture
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 08-E · Part 5 of 5
@@ -12,8 +12,8 @@
 │                        AWS (us-east-1)                      │
 │                                                             │
 │  ┌─── Route 53 ───────────────────────────────────────┐    │
-│  │   api.bidride.com → ALB                            │    │
-│  │   admin.bidride.com → ALB (admin-only security grp)│    │
+│  │   api.bidiride.com → ALB                            │    │
+│  │   admin.bidiride.com → ALB (admin-only security grp)│    │
 │  └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │  ┌─── CloudFront ──────────────────────────────────────┐    │
@@ -119,8 +119,8 @@ Dead-letter queues (DLQ) enabled on all queues. DLQ messages trigger CloudWatch 
 | Environment | Purpose | Domain | Database |
 |---|---|---|---|
 | `development` | Local dev + PR previews | localhost / ngrok | Local PostgreSQL |
-| `staging` | QA + integration testing | staging-api.bidride.com | RDS (smaller instance) |
-| `production` | Live platform | api.bidride.com | RDS Multi-AZ |
+| `staging` | QA + integration testing | staging-api.bidiride.com | RDS (smaller instance) |
+| `production` | Live platform | api.bidiride.com | RDS Multi-AZ |
 
 ### Environment Variables (managed via AWS Secrets Manager)
 
@@ -147,7 +147,7 @@ AWS_REGION              → Environment variable (non-secret)
 ### GitHub Actions — Main Workflow
 
 ```yaml
-name: BidRide CI/CD
+name: BidiRide CI/CD
 
 on:
   push:
@@ -308,4 +308,4 @@ Shared database user for Pricing/Trust Services has **no UPDATE/DELETE on audit_
 
 ---
 
-*BidRide Technical Architecture — Part 5 of 5 — Confidential · Delaware LLC*
+*BidiRide Technical Architecture — Part 5 of 5 — Confidential · Delaware LLC*

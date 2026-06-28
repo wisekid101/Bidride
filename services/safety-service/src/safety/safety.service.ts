@@ -540,7 +540,7 @@ export class SafetyService {
     const riderName = [
       (trip.rider as any).user?.firstName,
       (trip.rider as any).user?.lastName,
-    ].filter(Boolean).join(' ') || 'BidRide Rider';
+    ].filter(Boolean).join(' ') || 'BidiRide Rider';
 
     const NOTIFICATION_URL = process.env.NOTIFICATION_SERVICE_URL ?? 'http://localhost:3008';
 

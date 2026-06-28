@@ -62,7 +62,7 @@ export default function EarningsFloorPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Earnings Floor</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Platform guarantee that drivers always earn a minimum per trip. BidRide absorbs any
+          Platform guarantee that drivers always earn a minimum per trip. BidiRide absorbs any
           shortfall.
         </p>
       </div>
@@ -113,7 +113,7 @@ export default function EarningsFloorPage() {
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
           <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
           <p>
-            Changes to this formula require a signed JWT from the Founder. Contact marq@bidride.com
+            Changes to this formula require a signed JWT from the Founder. Contact marq@bidiride.com
             to request a formula change.
           </p>
         </div>

@@ -1,5 +1,5 @@
 # Feature Architecture Addendum — Part 1 of 4
-## Preferred Driver Network, BidRide Connect, Driver Following,
+## Preferred Driver Network, BidiRide Connect, Driver Following,
 ## Driver Subscription Plans, Driver Business Center, Corporate Preferred Driver Program
 
 **Status:** Draft — Pending Founder Approval  
@@ -22,12 +22,12 @@
 
 ## 1. Executive Summary
 
-Six interconnected features form a **relationship layer** on top of BidRide's existing trip marketplace. Together they shift BidRide from a pure price-matching platform toward a trusted-network platform — where repeat relationships between riders and drivers create stickiness, loyalty, and premium revenue streams.
+Six interconnected features form a **relationship layer** on top of BidiRide's existing trip marketplace. Together they shift BidiRide from a pure price-matching platform toward a trusted-network platform — where repeat relationships between riders and drivers create stickiness, loyalty, and premium revenue streams.
 
 | Feature | Core Value | Revenue Impact |
 |---------|-----------|----------------|
 | Preferred Driver Network | Rider retains trusted drivers; driver earns repeat business | Retention; reduced churn |
-| BidRide Connect | Formal rider↔driver professional relationship | Premium matching; Connect subscription |
+| BidiRide Connect | Formal rider↔driver professional relationship | Premium matching; Connect subscription |
 | Driver Following | Rider discovers and tracks drivers they like | Notification engagement; Pro tier gating |
 | Driver Subscription Plans | Driver pays for platform benefits (reduced fee, priority) | Direct SaaS revenue from drivers |
 | Driver Business Center | Analytics, tax tools, fleet management for drivers | Pro/Elite subscription value driver |
@@ -51,7 +51,7 @@ A rider can mark up to **10 drivers** as "preferred." When the rider requests a 
 
 **Key constraint:** Preferred status is one-directional. The rider preferres the driver; the driver does not explicitly opt in. However, a driver may **block** a specific rider (existing safety feature), which also removes them from that rider's preferred list.
 
-### 2.2 BidRide Connect
+### 2.2 BidiRide Connect
 
 Connect is a **mutual, opt-in professional relationship** between a rider and driver, established after ≥1 completed trip together.
 
@@ -148,7 +148,7 @@ All six features share relationship state (preferred, connected, following, corp
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        BidRide Platform                             │
+│                        BidiRide Platform                             │
 │                                                                     │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐  │
 │  │  Rider App   │    │  Driver App  │    │    Admin Portal      │  │

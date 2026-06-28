@@ -3,7 +3,7 @@
 > **Status: DRAFT — Requires validation and legal review**
 
 ## Overview
-BidRide uses a dual-mode pricing model: standard fare (instant) and bid-based negotiation (optional).
+BidiRide uses a dual-mode pricing model: standard fare (instant) and bid-based negotiation (optional).
 
 ## Standard Fare (Mode 1)
 - Calculated using base fare + per-mile rate + per-minute rate + demand multiplier

@@ -3,7 +3,7 @@
 > **Status: PLACEHOLDER — To be developed**
 
 ## Purpose
-BidRide will use data and machine learning to continuously improve the marketplace for both riders and drivers.
+BidiRide will use data and machine learning to continuously improve the marketplace for both riders and drivers.
 
 ## Potential Applications
 

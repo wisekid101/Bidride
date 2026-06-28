@@ -1,15 +1,15 @@
-# BidRide — Final Readiness Report
+# BidiRide — Final Readiness Report
 
 **Date:** 2026-06-05  
 **Prepared by:** Claude Code (automated E2E validation session)  
 **Founder:** Marq Brown  
-**Company:** BidRide LLC (Delaware)  
+**Company:** BidiRide LLC (Delaware)  
 
 ---
 
 ## Executive Summary
 
-BidRide's complete backend is **production-ready**. All 11 microservices start cleanly, the full trip lifecycle executes correctly end-to-end, driver earnings floor logic is verified, admin portal is functional, and every critical business rule has been validated in code. Mobile apps (rider + driver) have running Expo Metro bundlers confirmed; live UI requires an Android/iOS emulator not present on this machine.
+BidiRide's complete backend is **production-ready**. All 11 microservices start cleanly, the full trip lifecycle executes correctly end-to-end, driver earnings floor logic is verified, admin portal is functional, and every critical business rule has been validated in code. Mobile apps (rider + driver) have running Expo Metro bundlers confirmed; live UI requires an Android/iOS emulator not present on this machine.
 
 ---
 
@@ -254,7 +254,7 @@ C:\bidride-dev\evidence\
 
 ## Conclusion
 
-**BidRide backend is launch-ready pending real third-party credentials.**
+**BidiRide backend is launch-ready pending real third-party credentials.**
 
 The core platform — trip lifecycle, earnings floor, driver economics, airport queue, trust system, fraud controls, safety (SOS/panic), admin portal — all work correctly and are validated end-to-end. The full trip from EWR → One Penn Plaza executed at $20.54, paid the driver $16.43 (79.99%), verified the floor was met, and landed correctly in the admin dashboard.
 

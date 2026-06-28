@@ -1,4 +1,4 @@
-# BidRide — Operations Runbook
+# BidiRide — Operations Runbook
 
 Day-to-day operations reference for Markie and the ops team.
 
@@ -43,19 +43,19 @@ Run every morning before 9 AM EST:
   Alarms → bidride-redis-cpu-production
 
 □ Review any new fraud alerts (admin portal → Fraud)
-  https://admin.bidride.com/fraud
+  https://admin.bidiride.com/fraud
 
 □ Review SOS/safety incidents from prior 24h (admin portal → Safety)
-  https://admin.bidride.com/safety
+  https://admin.bidiride.com/safety
 
 □ Check payout batch status (admin portal → Finance)
-  https://admin.bidride.com/finance
+  https://admin.bidiride.com/finance
 
 □ Check pending driver approvals (admin portal → Drivers)
-  https://admin.bidride.com/drivers
+  https://admin.bidiride.com/drivers
 
 □ Review open support tickets (admin portal → Support)
-  https://admin.bidride.com/support
+  https://admin.bidiride.com/support
 ```
 
 ---
@@ -66,11 +66,11 @@ Run every morning before 9 AM EST:
 
 ```bash
 # From any machine with internet access
-BIDRIDE_API_URL=https://api.bidride.com bash infrastructure/scripts/smoke-test.sh
+BIDRIDE_API_URL=https://api.bidiride.com bash infrastructure/scripts/smoke-test.sh
 
 # For detailed functional check
-BIDRIDE_API_URL=https://api.bidride.com \
-BIDRIDE_ADMIN_EMAIL=marq@bidride.com \
+BIDRIDE_API_URL=https://api.bidiride.com \
+BIDRIDE_ADMIN_EMAIL=marq@bidiride.com \
 BIDRIDE_ADMIN_PASS=your-password \
 bash infrastructure/scripts/post-deploy-verify.sh
 ```
@@ -400,7 +400,7 @@ done
 
 ### Symptom: Stripe webhook not receiving events
 
-- Verify webhook endpoint is reachable: `curl -I https://api.bidride.com/payments/webhook`
+- Verify webhook endpoint is reachable: `curl -I https://api.bidiride.com/payments/webhook`
 - Check Stripe Dashboard → Developers → Webhooks → Recent deliveries
 - If events backed up: Stripe will retry for 72 hours
 

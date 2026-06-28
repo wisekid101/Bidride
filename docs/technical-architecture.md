@@ -1,4 +1,4 @@
-# BidRide Technical Architecture
+# BidiRide Technical Architecture
 
 > **Status: DRAFT — Awaiting founder approval before development begins**
 > **Last updated: 2026-06-24**
@@ -30,7 +30,7 @@
 6. **Compliance-first** — architecture must support legal audit, data deletion, and reporting from day one
 
 ### Architecture Style
-BidRide uses a **modular monolith backend** at launch, structured to split into microservices later.
+BidiRide uses a **modular monolith backend** at launch, structured to split into microservices later.
 
 **Why not microservices from day one?**
 - Microservices add operational complexity (service discovery, distributed tracing, inter-service auth)
@@ -98,7 +98,7 @@ BidRide uses a **modular monolith backend** at launch, structured to split into 
 | Swift + Kotlin (native) | Best performance, full platform access | Two codebases, 2x development cost, 2x bugs |
 | Flutter | Fast, consistent UI | Dart is a smaller talent pool; less mature payments/maps ecosystem |
 
-**Verdict:** React Native. BidRide is a forms + maps + real-time app — React Native handles all three well. Performance difference vs. native is negligible for this use case.
+**Verdict:** React Native. BidiRide is a forms + maps + real-time app — React Native handles all three well. Performance difference vs. native is negligible for this use case.
 
 **Framework within React Native:** Expo (managed workflow) for MVP; eject to bare workflow when needed for advanced native features.
 
@@ -154,7 +154,7 @@ Home
 
 Booking Flow
   ├── Destination selected → Fare estimate shown
-  ├── Ride options (BidRide Standard | Submit a Bid)
+  ├── Ride options (BidiRide Standard | Submit a Bid)
   │   ├── Standard: Confirm → Matching → En Route → Ride → Complete
   │   └── Bid:
   │       ├── Enter bid amount (with min/max guidance)
@@ -279,7 +279,7 @@ Settings
 
 ## 5. Backend Services
 
-BidRide's backend is a NestJS monolith organized into discrete modules. Each module owns its domain and does not reach into another module's database tables directly.
+BidiRide's backend is a NestJS monolith organized into discrete modules. Each module owns its domain and does not reach into another module's database tables directly.
 
 ### Module Map
 
@@ -314,7 +314,7 @@ Rider requests ride
   → payments service creates hold on rider card
   → ride completes
   → payments service captures payment
-  → split: driver earnings + BidRide commission
+  → split: driver earnings + BidiRide commission
 ```
 
 **Bid Flow:**
@@ -345,7 +345,7 @@ BullMQ job scheduled when bid is created (TTL: configurable, default 3 min)
 
 ## 6. Real-Time Layer
 
-Real-time is the heart of the BidRide experience. Location, bid status, and ride status cannot be delayed.
+Real-time is the heart of the BidiRide experience. Location, bid status, and ride status cannot be delayed.
 
 ### Technology: Socket.io (WebSockets)
 
@@ -480,7 +480,7 @@ Driver location updates every 3–5 seconds while online. This must be efficient
 - Helmet.js: security headers on all API responses
 
 ### Payment Security
-- PCI DSS: BidRide never sees raw card numbers — Stripe handles all card data
+- PCI DSS: BidiRide never sees raw card numbers — Stripe handles all card data
 - Stripe webhooks: verified by signature before processing
 - Payout fraud: verify driver bank account via Stripe micro-deposit or instant verification before first payout
 

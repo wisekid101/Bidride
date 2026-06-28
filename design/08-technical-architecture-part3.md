@@ -1,4 +1,4 @@
-# BidRide — Technical Architecture v1.0 · Part 3: API Architecture
+# BidiRide — Technical Architecture v1.0 · Part 3: API Architecture
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 08-C · Part 3 of 5
@@ -55,7 +55,7 @@ Driver-only additional step:
 
 ## REST API Catalog
 
-Base URL: `https://api.bidride.com/v1`
+Base URL: `https://api.bidiride.com/v1`
 
 ### Auth Service — /auth
 
@@ -219,7 +219,7 @@ Base URL: `https://api.bidride.com/v1`
 
 ## WebSocket Events
 
-Connection: `wss://api.bidride.com/ws?token={access_token}`
+Connection: `wss://api.bidiride.com/ws?token={access_token}`
 
 ### Events: Server → Client (Driver)
 
@@ -310,4 +310,4 @@ Connection: `wss://api.bidride.com/ws?token={access_token}`
 
 ---
 
-*BidRide Technical Architecture — Part 3 of 5 — Confidential · Delaware LLC*
+*BidiRide Technical Architecture — Part 3 of 5 — Confidential · Delaware LLC*

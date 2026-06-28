@@ -1,4 +1,4 @@
-# BidRide — Admin Command Center v1.0 · Part 2
+# BidiRide — Admin Command Center v1.0 · Part 2
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 07-B · Part 2 of 3
@@ -128,7 +128,7 @@
 - Driver not informed during active trip — notified at trip completion
 
 **Driver notification template (temporary):**
-"Your BidRide driver account has been temporarily suspended for [X] days due to [reason category]. If you believe this is in error, contact driver-support@bidride.com. Your account will automatically reactivate on [date]."
+"Your BidiRide driver account has been temporarily suspended for [X] days due to [reason category]. If you believe this is in error, contact driver-support@bidiride.com. Your account will automatically reactivate on [date]."
 
 **Appeal flow:** Driver can submit one appeal per suspension via support ticket. Appeals assigned to Operations Admin manager (not the suspending admin). Founder has final appeal authority.
 
@@ -331,4 +331,4 @@ POST /admin/safety/incidents/:id/request-911
 
 ---
 
-*BidRide Admin Command Center — Part 2 of 3 — Confidential · Delaware LLC*
+*BidiRide Admin Command Center — Part 2 of 3 — Confidential · Delaware LLC*

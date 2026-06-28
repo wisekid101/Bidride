@@ -3,7 +3,7 @@
 **Founder:** Markie Brown
 
 ## Background
-Entrepreneur, operator, and salesperson. Currently Sales Supervisor at Lowe's. Previously Sales Supervisor at Home Depot. Career focused on generating revenue and understanding customer behavior — for other companies. BidRide is the vehicle to build something of his own.
+Entrepreneur, operator, and salesperson. Currently Sales Supervisor at Lowe's. Previously Sales Supervisor at Home Depot. Career focused on generating revenue and understanding customer behavior — for other companies. BidiRide is the vehicle to build something of his own.
 
 ## Vision
 To build meaningful companies that create value, solve real problems, generate wealth, and leave a legacy.
@@ -16,7 +16,7 @@ To build meaningful companies that create value, solve real problems, generate w
 - Leadership and persistence
 - Systems-level thinking
 
-## What BidRide Means
+## What BidiRide Means
 Not a side project. Not a prototype. A real company — the one he has wanted to build for years.
 
 ---

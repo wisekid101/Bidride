@@ -1,5 +1,5 @@
 /**
- * BidRide End-to-End Evidence Test Suite
+ * BidiRide End-to-End Evidence Test Suite
  * Captures real screenshots of the running admin portal.
  * Mobile apps require Android/iOS emulator — Expo dev server evidence is captured separately.
  */
@@ -149,7 +149,7 @@ async function mockEarningsFloor(page: Page) {
 
 // ─── Test Suite ───────────────────────────────────────────────────────────────
 
-test.describe('BidRide Admin Portal — E2E Evidence', () => {
+test.describe('BidiRide Admin Portal — E2E Evidence', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test('01 — Admin Portal Loads (dashboard)', async ({ page }) => {
@@ -158,9 +158,9 @@ test.describe('BidRide Admin Portal — E2E Evidence', () => {
     await page.goto(`${ADMIN_URL}/dashboard`);
     await page.waitForTimeout(2500);
     await screenshot(page, '01_admin_portal_dashboard');
-    // Portal should have BidRide branding
+    // Portal should have BidiRide branding
     const title = await page.title();
-    expect(title).toContain('BidRide');
+    expect(title).toContain('BidiRide');
   });
 
   test('02 — Admin Dashboard — Live Operations', async ({ page }) => {

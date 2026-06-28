@@ -1,11 +1,11 @@
-# BidRide — Driver App UI v1.0 · Part 3: Earnings, Payouts & Airport Queue
+# BidiRide — Driver App UI v1.0 · Part 3: Earnings, Payouts & Airport Queue
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 06-C of 10 · Part 3 of 4
 **References:** 06-driver-app-ui-part1.md · 06-driver-app-ui-part2.md · 00d-safety-shield-system.md §13
 
 > Driver take-home pay leads every earnings display.
-> Gross fare is secondary. BidRide's transparency promise is non-negotiable.
+> Gross fare is secondary. BidiRide's transparency promise is non-negotiable.
 
 ---
 
@@ -119,19 +119,19 @@
 
 ### DS-030 · Earnings Floor Protection Detail
 
-**Purpose:** Explain the earnings floor guarantee in plain language. Show per-trip floor calculations and any supplements paid. Builds driver trust in BidRide's core promise.
+**Purpose:** Explain the earnings floor guarantee in plain language. Show per-trip floor calculations and any supplements paid. Builds driver trust in BidiRide's core promise.
 
 ```
 ╔══════════════════════════════════════════╗
 ║  ← Back   Earnings Floor Guarantee       ║
 ╠══════════════════════════════════════════╣
 ║                                          ║
-║  🛡  BidRide guarantees your earnings.  ║
+║  🛡  BidiRide guarantees your earnings.  ║
 ║  type-h2 / text-primary                  ║
 ║                                          ║
 ║  Every trip has a minimum take-home.     ║
 ║  If a fare falls below that floor,       ║
-║  BidRide pays the difference.            ║
+║  BidiRide pays the difference.            ║
 ║  type-body / text-secondary              ║
 ║                                          ║
 ║  ── HOW IT'S CALCULATED ───────────     ║
@@ -336,7 +336,7 @@
 ║  Secondary → opens DS-016 form pattern   ║
 ║                                          ║
 ║  🔒  Secured by Stripe.                  ║
-║      BidRide never stores account nums.  ║
+║      BidiRide never stores account nums.  ║
 ║  text-caption / text-muted               ║
 ╚══════════════════════════════════════════╝
 ```
@@ -483,7 +483,7 @@
 ║  │  [📞 Call Rider] [💬 Message]      │  ║
 ║  │                                    │  ║
 ║  │  🛡 Safety: Your location is being │  ║
-║  │     shared with BidRide Safety.    │  ║
+║  │     shared with BidiRide Safety.    │  ║
 ║  └────────────────────────────────────┘  ║
 ║  Bottom card / bg-secondary              ║
 ╚══════════════════════════════════════════╝
@@ -558,4 +558,4 @@ GET  /driver/airport/flights?airport=EWR&window_minutes=30
 
 ---
 
-*BidRide Driver App UI — Part 3 of 4 — Confidential · Delaware LLC*
+*BidiRide Driver App UI — Part 3 of 4 — Confidential · Delaware LLC*

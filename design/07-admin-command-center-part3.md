@@ -1,4 +1,4 @@
-# BidRide — Admin Command Center v1.0 · Part 3
+# BidiRide — Admin Command Center v1.0 · Part 3
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 07-C · Part 3 of 3 · Admin Command Center COMPLETE
@@ -259,7 +259,7 @@
 | > $200 | Platform Admin | Manual + audit log entry |
 | Any safety-related | Finance Admin | Immediate, no cap — safety refunds are never delayed |
 
-**Driver impact:** Standard refunds do not affect driver earnings (BidRide absorbs the cost). Fraud-related refunds flag the associated driver account for review.
+**Driver impact:** Standard refunds do not affect driver earnings (BidiRide absorbs the cost). Fraud-related refunds flag the associated driver account for review.
 
 ---
 
@@ -380,4 +380,4 @@ GET  /admin/analytics/airport?period=
 
 ---
 
-*BidRide Admin Command Center — Part 3 of 3 — COMPLETE — Confidential · Delaware LLC*
+*BidiRide Admin Command Center — Part 3 of 3 — COMPLETE — Confidential · Delaware LLC*

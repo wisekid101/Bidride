@@ -6,7 +6,7 @@ Current rideshare platforms fail both sides of the marketplace:
 - Drivers receive a smaller percentage of fares than they deserve
 - Neither side has meaningful control or transparency
 
-## The Solution: BidRide
+## The Solution: BidiRide
 A rideshare marketplace that combines the instant-request UX of Uber/Lyft with an optional bidding layer — giving both riders and drivers more control.
 
 ## How It Works

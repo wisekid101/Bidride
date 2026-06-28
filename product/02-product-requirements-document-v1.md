@@ -1,4 +1,4 @@
-# BidRide — Product Requirements Document v1.0
+# BidiRide — Product Requirements Document v1.0
 
 **Status:** Draft — Pending Founder Approval
 **Prepared by:** Claude Code (CPO / CTO / Senior UX Architect / Senior Systems Architect)
@@ -6,7 +6,7 @@
 **Date:** June 5, 2026
 **Reference:** /foundation/01-founder-discovery-report-v1.md
 
-> This document defines the complete product blueprint for BidRide.
+> This document defines the complete product blueprint for BidiRide.
 > No code is written until this document receives founder approval.
 
 ---
@@ -36,13 +36,13 @@
 
 ### R-01 · Splash Screen
 **Purpose:** Brand entry point while app initializes.
-**Elements:** BidRide logo (Deep Navy background, Electric Teal wordmark, Gold accent), loading indicator.
+**Elements:** BidiRide logo (Deep Navy background, Electric Teal wordmark, Gold accent), loading indicator.
 **Behavior:** Auto-advances to R-02 for new users, or R-08 for authenticated returning users.
 
 ---
 
 ### R-02 · Onboarding Carousel
-**Purpose:** Communicate BidRide's core value proposition to new users before registration.
+**Purpose:** Communicate BidiRide's core value proposition to new users before registration.
 **Slides:**
 - Slide 1: "Drivers Earn More." — Driver-first economics message
 - Slide 2: "Riders Pay Less." — Transparent AI pricing message
@@ -57,7 +57,7 @@
 ### R-03 · Sign Up
 **Purpose:** Create a new rider account.
 **Fields:** Full name, email address, phone number, password, confirm password.
-**Elements:** BidRide logo, form fields, Terms of Service checkbox with link, Sign Up CTA, "Already have an account? Log In" link.
+**Elements:** BidiRide logo, form fields, Terms of Service checkbox with link, Sign Up CTA, "Already have an account? Log In" link.
 **Validation:** Email format, phone format (US), password minimum 8 characters, passwords match.
 **Behavior:** On submit → phone OTP sent → route to R-04.
 
@@ -129,7 +129,7 @@
 - Estimated trip duration
 - Ride type selector (Standard, Priority, Premium)
 - Fare breakdown toggle (expand to see distance, time, AI inputs)
-- "This fare is protected by BidRide AI" trust indicator
+- "This fare is protected by BidiRide AI" trust indicator
 - Action buttons: **Accept Fare** (primary) | **Make an Offer** (secondary) | **Cancel**
 - Promo/rewards code input (expandable)
 **Behavior:**
@@ -147,7 +147,7 @@
 - Original AI-recommended fare shown for reference
 - Slider or numeric input for rider's offer
 - Minimum offer floor (AI-enforced, shown to rider as "Minimum fare to ensure driver earnings")
-- "Your offer must respect driver earnings. BidRide protects all drivers." message
+- "Your offer must respect driver earnings. BidiRide protects all drivers." message
 - Estimated likelihood meter ("Offers near the recommended fare are accepted faster")
 - Submit Offer CTA | Back button
 **Behavior:**
@@ -158,7 +158,7 @@
 ---
 
 ### R-12 · Matching Screen
-**Purpose:** Show rider that BidRide AI is finding the best available driver.
+**Purpose:** Show rider that BidiRide AI is finding the best available driver.
 **Elements:**
 - Animated map with expanding radius from pickup point
 - "Finding your driver…" status text
@@ -356,7 +356,7 @@
   - Family Safety Tracking (linked accounts)
   - Emergency SOS (always active — informational)
   - Audio Recording option (consent toggle, with legal notice)
-- "How BidRide keeps you safe" educational content
+- "How BidiRide keeps you safe" educational content
 - Report a Safety Concern link
 **Behavior:** Hub for safety configuration.
 
@@ -424,7 +424,7 @@
 ---
 
 ### R-32 · Corporate Ride Booking
-**Purpose:** For riders enrolled in a BidRide Business account — book a ride billed to their employer.
+**Purpose:** For riders enrolled in a BidiRide Business account — book a ride billed to their employer.
 **Elements:**
 - "Book for Company" toggle on fare preview screen
 - Company account name shown
@@ -438,7 +438,7 @@
 
 ### D-01 · Splash Screen
 **Purpose:** Brand entry while app initializes.
-**Elements:** BidRide Driver logo variant, loading indicator, Deep Navy background.
+**Elements:** BidiRide Driver logo variant, loading indicator, Deep Navy background.
 **Behavior:** Routes to D-02 (new) or D-17 (returning, approved, authenticated).
 
 ---
@@ -563,7 +563,7 @@
 ### D-15 · Approval Screen
 **Purpose:** Notify driver their application is approved.
 **Elements:**
-- "You're Approved!" confirmation with BidRide branding
+- "You're Approved!" confirmation with BidiRide branding
 - Summary: vehicle approved, earnings info, payout setup prompt
 - Set Up Instant Payout CTA (bank account or debit card via Stripe)
 - Go to Driver Dashboard CTA → D-17
@@ -712,7 +712,7 @@
 - This month's earnings
 - Per-trip earnings list (tappable → D-32)
 - Average hourly earnings (today, week, month)
-- Platform fee transparency: "BidRide kept $X. You kept $Y."
+- Platform fee transparency: "BidiRide kept $X. You kept $Y."
 - Payout button → D-26
 **Behavior:** Real-time updates as trips complete.
 
@@ -725,7 +725,7 @@
 - Pending balance (in-transit or held)
 - Payout method: linked bank account (last 4) or debit card
 - "Transfer Now" CTA
-- No fee indicator ("BidRide Instant Payout is always free")
+- No fee indicator ("BidiRide Instant Payout is always free")
 - Estimated arrival: "Funds arrive within minutes"
 - Add/Change payout method link
 **Behavior:** Stripe Instant Payout triggered. Confirmation screen shown. Balance updates.
@@ -837,7 +837,7 @@
 - Emergency SOS (same as R-28, driver variant)
 - Report unsafe rider button
 - Incident history
-- "How BidRide protects drivers" content
+- "How BidiRide protects drivers" content
 - Contact safety team button
 **Behavior:** SOS accessible from in-ride screen at all times.
 
@@ -864,7 +864,7 @@
 
 ### A-01 · Admin Login
 **Purpose:** Secure authentication for admin staff.
-**Elements:** BidRide Admin logo, email field, password field, MFA prompt (TOTP), Sign In CTA.
+**Elements:** BidiRide Admin logo, email field, password field, MFA prompt (TOTP), Sign In CTA.
 **Behavior:** MFA required for all admin accounts. Failed attempts trigger lockout after 5 tries. All login events logged.
 
 ---
@@ -1074,7 +1074,7 @@
 ---
 
 ### A-16 · Corporate Accounts Management
-**Purpose:** Manage BidRide Business accounts.
+**Purpose:** Manage BidiRide Business accounts.
 **Elements:**
 - Table: company name, plan, active employees, trips this month, billing status
 - Search by company name
@@ -1085,7 +1085,7 @@
 ---
 
 ### A-17 · Corporate Account Detail
-**Purpose:** Manage a single BidRide Business account.
+**Purpose:** Manage a single BidiRide Business account.
 **Tabs:**
 - **Overview:** Company info, billing contact, account status, plan
 - **Employees:** List of enrolled employees, invite new, remove, set spending limits
@@ -1241,8 +1241,8 @@ Download App
 ### 4.3 Corporate Account Onboarding
 
 ```
-Company Admin contacts BidRide Business (email or web form)
-    → BidRide Admin creates account in A-16
+Company Admin contacts BidiRide Business (email or web form)
+    → BidiRide Admin creates account in A-16
     → Company Admin receives invitation email
     → Company Admin sets up: company name, billing method, spending rules
     → Employees invited via email
@@ -1554,18 +1554,18 @@ Rider opens R-22 (Redeem Rewards)
 
 ```
 ACCOUNT SETUP
-    Company Admin requests BidRide Business account
-    (web form or sales contact — MVP: manual setup by BidRide admin)
-        → BidRide Admin creates account in A-16
+    Company Admin requests BidiRide Business account
+    (web form or sales contact — MVP: manual setup by BidiRide admin)
+        → BidiRide Admin creates account in A-16
         → Billing method collected (corporate card or invoicing)
         → Monthly spend limit set
         → Admin invitation email sent to Company Admin
 
 EMPLOYEE ENROLLMENT
-    Company Admin logs into corporate portal (or BidRide Business tab in admin app)
+    Company Admin logs into corporate portal (or BidiRide Business tab in admin app)
         → Enters employee emails
         → Invitation emails sent to employees
-        → Employee downloads BidRide Rider App
+        → Employee downloads BidiRide Rider App
         → Standard rider onboarding (R-03 to R-08)
         → Employee linked to corporate account by invitation token
 
@@ -1713,7 +1713,7 @@ User presses SOS button (accessible on R-16 / D-21 at all times)
     ON ACTIVATION:
     → GPS coordinates captured and logged
     → All trusted contacts receive SMS:
-        "BidRide Safety Alert: [Name] has activated emergency assistance.
+        "BidiRide Safety Alert: [Name] has activated emergency assistance.
          Live trip location: [link]"
     → Admin Safety Dashboard receives P0 alert with:
         - Live GPS
@@ -2245,13 +2245,13 @@ created_at      TIMESTAMP
 | Role | Description | Key Permissions |
 |---|---|---|
 | **Rider** | Standard app user | Book rides, manage profile, view history, rewards, safety features, trusted contacts |
-| **Corporate Rider** | Rider enrolled in a BidRide Business account | All Rider permissions + bill rides to company account |
+| **Corporate Rider** | Rider enrolled in a BidiRide Business account | All Rider permissions + bill rides to company account |
 | **Driver** | Approved platform driver | Go online, receive/accept rides, navigation, earnings, instant payout, driver safety tools |
-| **Corporate Admin** | Company representative managing a BidRide Business account | Manage employees, view company trips, view billing, access travel dashboard |
-| **Support Agent** | BidRide customer support staff | View rider + driver profiles, view trip history, create + resolve support tickets. Cannot: modify financial data, change account status beyond flagging |
-| **Safety Admin** | BidRide safety team | All Support Agent permissions + view + manage safety incidents, access live trip data, initiate emergency response, suspend accounts during active incidents |
-| **Finance Admin** | BidRide finance team | View financial dashboard, view payout history, issue refunds, view corporate billing. Cannot: access safety data, manage user accounts |
-| **Platform Admin** | BidRide operations management | All above permissions + approve/reject driver applications, manage driver/rider accounts, pricing control panel, corporate account management, rewards management, send platform communications |
+| **Corporate Admin** | Company representative managing a BidiRide Business account | Manage employees, view company trips, view billing, access travel dashboard |
+| **Support Agent** | BidiRide customer support staff | View rider + driver profiles, view trip history, create + resolve support tickets. Cannot: modify financial data, change account status beyond flagging |
+| **Safety Admin** | BidiRide safety team | All Support Agent permissions + view + manage safety incidents, access live trip data, initiate emergency response, suspend accounts during active incidents |
+| **Finance Admin** | BidiRide finance team | View financial dashboard, view payout history, issue refunds, view corporate billing. Cannot: access safety data, manage user accounts |
+| **Platform Admin** | BidiRide operations management | All above permissions + approve/reject driver applications, manage driver/rider accounts, pricing control panel, corporate account management, rewards management, send platform communications |
 | **Super Admin** | Founder / senior leadership only | Full system access including AI engine controls, system settings, user role management, audit log, pricing parameters. All actions require dual confirmation. |
 
 ### 15.1 Permission Enforcement
@@ -2287,11 +2287,11 @@ created_at      TIMESTAMP
 
 | Area | Phase 2 Features |
 |---|---|
-| Rider App | BidRide Rewards (points, tiers, redemption), referral program, family safety tracking, audio recording option, corporate ride booking |
+| Rider App | BidiRide Rewards (points, tiers, redemption), referral program, family safety tracking, audio recording option, corporate ride booking |
 | Driver App | Heat map with AI demand zones, AI Insights (personalized recommendations), full performance analytics, annual tax document access |
 | AI Layer | Driver Prediction Engine (positioning recommendations), Rider Prediction Engine (demand anticipation), Surge Forecasting Engine, Demand Forecasting Engine |
 | Admin Dashboard | AI Engine Monitor, Rewards management, full Fraud Detection dashboard, corporate accounts module, Communications tool |
-| Business | BidRide Business (corporate accounts, employee management, company dashboard) |
+| Business | BidiRide Business (corporate accounts, employee management, company dashboard) |
 | Safety | Emergency dispatch integration (911 API), driver pre-trip vehicle checklist |
 
 ---
@@ -2300,8 +2300,8 @@ created_at      TIMESTAMP
 
 | Area | Phase 3 Features |
 |---|---|
-| Products | BidRide XL (large vehicles, groups) |
-| Rider App | BidRide Elite benefits, ride scheduling (future pickup), multi-stop trips |
+| Products | BidiRide XL (large vehicles, groups) |
+| Rider App | BidiRide Elite benefits, ride scheduling (future pickup), multi-stop trips |
 | Driver App | Multi-vehicle support, advanced earnings analytics, driver community features |
 | AI Layer | Competitor pricing analysis engine, market expansion intelligence (which city to enter next) |
 | Platform | Multi-market admin tools, market-specific pricing parameters |
@@ -2312,25 +2312,25 @@ created_at      TIMESTAMP
 
 | Phase | Product |
 |---|---|
-| Phase 4 | BidRide Delivery — package and last-mile delivery marketplace |
-| Phase 5 | BidRide Freight — commercial freight matching |
-| Phase 5+ | BidRide AI Mobility Platform — full transportation intelligence network |
+| Phase 4 | BidiRide Delivery — package and last-mile delivery marketplace |
+| Phase 5 | BidiRide Freight — commercial freight matching |
+| Phase 5+ | BidiRide AI Mobility Platform — full transportation intelligence network |
 
 ---
 
 ## 17. Airport Queue Intelligence System
 
-> EWR (Newark Liberty International Airport) is BidRide's primary launch anchor. This system is purpose-built for airport operations and is a core competitive differentiator in the Newark market.
+> EWR (Newark Liberty International Airport) is BidiRide's primary launch anchor. This system is purpose-built for airport operations and is a core competitive differentiator in the Newark market.
 
 ### 17.1 Overview
 
-The Airport Queue Intelligence System is a dedicated AI subsystem that manages driver staging, demand prediction, and terminal routing for airport pickups. It connects live flight data with driver supply to eliminate the guesswork of airport driving — turning EWR from a chaotic pickup zone into BidRide's highest-efficiency market.
+The Airport Queue Intelligence System is a dedicated AI subsystem that manages driver staging, demand prediction, and terminal routing for airport pickups. It connects live flight data with driver supply to eliminate the guesswork of airport driving — turning EWR from a chaotic pickup zone into BidiRide's highest-efficiency market.
 
 ---
 
 ### 17.2 Driver Staging Zones (Virtual Airport Queue)
 
-**Problem:** At major airports, rideshare drivers circle the lot burning fuel and earning nothing while waiting for rides. BidRide replaces this with an intelligent virtual queue.
+**Problem:** At major airports, rideshare drivers circle the lot burning fuel and earning nothing while waiting for rides. BidiRide replaces this with an intelligent virtual queue.
 
 **How It Works:**
 ```
@@ -2514,7 +2514,7 @@ status          ENUM(waiting, assigned, completed, left)
 
 ## 18. AI Driver Earnings Protection Engine
 
-> This engine is the enforcement layer behind BidRide's core promise: drivers will never be driven below a profitable earnings floor by marketplace dynamics, rider bids, or AI pricing errors.
+> This engine is the enforcement layer behind BidiRide's core promise: drivers will never be driven below a profitable earnings floor by marketplace dynamics, rider bids, or AI pricing errors.
 
 ### 18.1 Objectives
 
@@ -2668,7 +2668,7 @@ GET  /admin/earnings/absorption-report  — platform cost from floor enforcement
 
 ## 19. Safety Command Center
 
-> The Safety Command Center is BidRide's operational nerve center for real-time safety monitoring. It is not a passive log — it is an active, always-on command environment for the safety team.
+> The Safety Command Center is BidiRide's operational nerve center for real-time safety monitoring. It is not a passive log — it is an active, always-on command environment for the safety team.
 
 ### 19.1 Overview
 
@@ -2887,11 +2887,11 @@ GET  /admin/safety/metrics             — safety KPIs (SLA compliance, resoluti
 
 ## 20. Reserved Future Platform APIs
 
-> These API contracts are defined now to ensure BidRide's architecture is built with future expansion in mind. No implementation is required in MVP. These are architectural reservations — placeholders that shape today's database schemas and service boundaries so future integration does not require breaking changes.
+> These API contracts are defined now to ensure BidiRide's architecture is built with future expansion in mind. No implementation is required in MVP. These are architectural reservations — placeholders that shape today's database schemas and service boundaries so future integration does not require breaking changes.
 
 ### 20.1 Autonomous Vehicle Support
 
-**Purpose:** Enable BidRide to dispatch and manage autonomous vehicles alongside human drivers as AV technology matures and regulatory approval is granted in New Jersey.
+**Purpose:** Enable BidiRide to dispatch and manage autonomous vehicles alongside human drivers as AV technology matures and regulatory approval is granted in New Jersey.
 
 **Reserved API Namespace:** `/v1/av/`
 
@@ -2929,7 +2929,7 @@ autonomous_vehicles:
 
 ### 20.2 Autonomous Delivery Support
 
-**Purpose:** Enable BidRide Delivery (Phase 3) to dispatch autonomous delivery robots or vehicles for last-mile package delivery.
+**Purpose:** Enable BidiRide Delivery (Phase 3) to dispatch autonomous delivery robots or vehicles for last-mile package delivery.
 
 **Reserved API Namespace:** `/v1/delivery/av/`
 
@@ -2942,13 +2942,13 @@ POST /delivery/av/units/:id/dropoff-confirm  — delivery complete
 GET  /delivery/av/coverage/:zip_code    — is AV delivery available in this zone?
 ```
 
-**Dependency:** Requires BidRide Delivery product (Phase 3) to be built before activation. API contract is reserved to avoid namespace conflicts.
+**Dependency:** Requires BidiRide Delivery product (Phase 3) to be built before activation. API contract is reserved to avoid namespace conflicts.
 
 ---
 
 ### 20.3 Autonomous Freight Support
 
-**Purpose:** Enable BidRide Freight (Phase 4) to integrate with autonomous long-haul trucking operators for freight matching and dispatch.
+**Purpose:** Enable BidiRide Freight (Phase 4) to integrate with autonomous long-haul trucking operators for freight matching and dispatch.
 
 **Reserved API Namespace:** `/v1/freight/av/`
 
@@ -2961,13 +2961,13 @@ POST /freight/av/loads/:id/delivered     — delivery confirmation + proof of de
 POST /freight/av/incidents/:id           — in-transit incident report
 ```
 
-**Dependency:** Requires BidRide Freight product (Phase 4) to be built before activation.
+**Dependency:** Requires BidiRide Freight product (Phase 4) to be built before activation.
 
 ---
 
 ### 20.4 Fleet AI Orchestration
 
-**Purpose:** When BidRide operates mixed fleets (human drivers + AV passenger vehicles + AV delivery units + AV freight trucks), the Fleet AI Orchestration layer coordinates all vehicle types through a single intelligence engine.
+**Purpose:** When BidiRide operates mixed fleets (human drivers + AV passenger vehicles + AV delivery units + AV freight trucks), the Fleet AI Orchestration layer coordinates all vehicle types through a single intelligence engine.
 
 **Reserved API Namespace:** `/v1/fleet-ai/`
 
@@ -2999,5 +2999,5 @@ No code is written until this document is approved by Marq Brown.
 
 ---
 
-*BidRide Product Requirements Document — Confidential*
+*BidiRide Product Requirements Document — Confidential*
 *Delaware LLC — All rights reserved*

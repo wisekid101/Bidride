@@ -1,4 +1,4 @@
-# BidRide — Driver App UI v1.0 · Part 2: Home, Requests & Trip Lifecycle
+# BidiRide — Driver App UI v1.0 · Part 2: Home, Requests & Trip Lifecycle
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 06-B of 10 · Part 2 of 4
@@ -108,7 +108,7 @@
 ║  ← Back         Shift Settings           ║
 ╠══════════════════════════════════════════╣
 ║  RIDE TYPES                              ║
-║  ☑  BidRide Standard  (always on)       ║
+║  ☑  BidiRide Standard  (always on)       ║
 ║  ☑  Bid Requests      (toggle)          ║
 ║  ☐  Airport Queue     (EWR only)        ║
 ║                                          ║
@@ -164,7 +164,7 @@
 
 **Components:** C-031 (Rider Badge chip — Verified/Trusted/Business/VIP label only, no score), C-001 (Accept), C-003 (Decline)
 
-**Earnings shown = driver take-home after BidRide fee. Gross fare never leads.**
+**Earnings shown = driver take-home after BidiRide fee. Gross fare never leads.**
 
 **Countdown:** Audible alert + vibration on arrival. At 0: request expires, "Request expired" toast, returns to DS-020.
 
@@ -373,7 +373,7 @@ Take-home shown so driver never has to calculate the 80% split mentally.
 ║                                          ║
 ║  ── TRIP EARNINGS ──────────────────     ║
 ║  Gross Fare          $18.50             ║
-║  BidRide Fee (20%)  − $3.70             ║
+║  BidiRide Fee (20%)  − $3.70             ║
 ║                      ──────────         ║
 ║  YOUR EARNINGS        $14.80            ║
 ║  text-gold / JetBrains Mono / type-h2   ║
@@ -405,7 +405,7 @@ Take-home shown so driver never has to calculate the 80% split mentally.
   │  ⚡ Earnings Floor Applied       │
   │  Minimum guaranteed:  $12.00    │
   │  Trip earned:         $10.40    │
-  │  BidRide supplement:  +$1.60   │
+  │  BidiRide supplement:  +$1.60   │
   │  Total paid to you:   $12.00   │
   │  text-gold / JetBrains Mono     │
   └──────────────────────────────────┘
@@ -507,4 +507,4 @@ POST /driver/trips/:trip_id/no-show      { waited_seconds }
 
 ---
 
-*BidRide Driver App UI — Part 2 of 4 — Confidential · Delaware LLC*
+*BidiRide Driver App UI — Part 2 of 4 — Confidential · Delaware LLC*

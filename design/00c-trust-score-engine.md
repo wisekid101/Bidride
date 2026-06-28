@@ -1,10 +1,10 @@
-# BidRide — Trust Score Engine v1.0
+# BidiRide — Trust Score Engine v1.0
 
 **Status:** Draft — Pending Founder Approval
 **Document:** Supplement to PRD v1.1 + Gap Analysis v1.0
 **Prepared by:** Claude Code (AI Systems Architect)
 **Date:** June 5, 2026
-**Founder Requirement:** Implement and expand BidRide Trust Score Engine
+**Founder Requirement:** Implement and expand BidiRide Trust Score Engine
 
 > The Trust Score Engine is an internal AI system that continuously evaluates
 > every user on the platform. Scores are never shown publicly.
@@ -580,10 +580,10 @@ Badges are assigned to both riders and drivers. They appear in different context
 ---
 
 #### BUSINESS
-**Meaning:** This rider is verified through a corporate BidRide Business account.
+**Meaning:** This rider is verified through a corporate BidiRide Business account.
 
 **Requirements (ALL must be true):**
-- Active enrollment in a BidRide Business corporate account
+- Active enrollment in a BidiRide Business corporate account
 - Corporate account status: Active (not past-due or suspended)
 - Rider's own account: no active suspension
 
@@ -592,7 +592,7 @@ Badges are assigned to both riders and drivers. They appear in different context
 ---
 
 #### VIP
-**Meaning:** This rider is among BidRide's most valued and consistently positive users.
+**Meaning:** This rider is among BidiRide's most valued and consistently positive users.
 
 **Requirements (ALL must be true):**
 - All Trusted requirements: ✓
@@ -615,7 +615,7 @@ Badges are assigned to both riders and drivers. They appear in different context
 ---
 
 #### VERIFIED
-**Meaning:** This driver has passed BidRide's full verification pipeline.
+**Meaning:** This driver has passed BidiRide's full verification pipeline.
 
 **Requirements (ALL must be true):**
 - Identity verified (government ID + biometric match)
@@ -649,12 +649,12 @@ Badges are assigned to both riders and drivers. They appear in different context
 ---
 
 #### BUSINESS
-**Meaning:** Reserved for future use — BidRide fleet operator accounts and enterprise driver partnerships. Not assigned to individual drivers in Phase 1.
+**Meaning:** Reserved for future use — BidiRide fleet operator accounts and enterprise driver partnerships. Not assigned to individual drivers in Phase 1.
 
 ---
 
 #### VIP
-**Meaning:** This driver is among BidRide's most elite — exceptional service, proven over time.
+**Meaning:** This driver is among BidiRide's most elite — exceptional service, proven over time.
 
 **Requirements (ALL must be true):**
 - All Trusted requirements: ✓
@@ -725,7 +725,7 @@ Exception: If a rider is Business + VIP, show Business — corporate context tak
 ║  └────────────────────────┘                                      ║
 ║  bg: rgba(0, 212, 198, 0.15)                                     ║
 ║  border: 1px #00D4C6                                             ║
-║  icon: BidRide diamond / text-teal                               ║
+║  icon: BidiRide diamond / text-teal                               ║
 ║  text: "Trusted" / type-label-s / text-teal                     ║
 ║                                                                  ║
 ║  BUSINESS badge:                                                 ║
@@ -788,16 +788,16 @@ Exception: If a rider is Business + VIP, show Business — corporate context tak
 Each badge is tappable. Tap opens a brief explainer modal:
 
 **Verified:**
-> "This user's identity and payment have been confirmed by BidRide."
+> "This user's identity and payment have been confirmed by BidiRide."
 
 **Trusted:**
-> "This user has a proven track record of completing rides and positive interactions on BidRide."
+> "This user has a proven track record of completing rides and positive interactions on BidiRide."
 
 **Business:**
-> "This rider books through a verified BidRide Business corporate account."
+> "This rider books through a verified BidiRide Business corporate account."
 
 **VIP:**
-> "This user is among BidRide's most valued members, with an exceptional history on the platform."
+> "This user is among BidiRide's most valued members, with an exceptional history on the platform."
 
 No score, no criteria, no history is revealed in these tooltips.
 
@@ -1077,7 +1077,7 @@ GET  /admin/trust/badge-distribution
 
 ## 15. Integration Map
 
-How the Trust Score Engine connects to every other BidRide system:
+How the Trust Score Engine connects to every other BidiRide system:
 
 | System | Integration |
 |---|---|
@@ -1120,7 +1120,7 @@ This document resolves or advances the following gaps from the Gap Analysis (00-
 - Internal AI risk scores never shown publicly ✓
 - Numerical scores never surfaced to drivers ✓
 - Four visible badges only: Verified · Trusted · Business · VIP ✓
-- Badge design uses BidRide design tokens — no new colors introduced ✓
+- Badge design uses BidiRide design tokens — no new colors introduced ✓
 - Pricing engine is explicitly NOT integrated with trust score ✓
 
 **Pending founder decisions (3 remain from gap analysis):**
@@ -1130,5 +1130,5 @@ This document resolves or advances the following gaps from the Gap Analysis (00-
 
 ---
 
-*BidRide Trust Score Engine — Confidential*
+*BidiRide Trust Score Engine — Confidential*
 *Delaware LLC — All rights reserved*

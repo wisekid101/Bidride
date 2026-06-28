@@ -95,7 +95,7 @@ export function DriverAuthScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.inner}>
-        <Text style={styles.logo}>BidRide</Text>
+        <Text style={styles.logo}>BidiRide</Text>
         <Text style={styles.subtitle}>Driver App</Text>
         <Text style={styles.tagline}>Earn more. Drive smarter.</Text>
 

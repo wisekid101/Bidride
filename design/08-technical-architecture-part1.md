@@ -1,4 +1,4 @@
-# BidRide — Technical Architecture v1.0 · Part 1: System Architecture
+# BidiRide — Technical Architecture v1.0 · Part 1: System Architecture
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 08-A · Part 1 of 5
@@ -128,7 +128,7 @@ Client (Rider/Driver App)
 
 ### Real-Time (WebSocket)
 ```
-Client connects: wss://api.bidride.com/ws
+Client connects: wss://api.bidiride.com/ws
   → Authenticates with JWT on connect
   → Subscribes to channels:
       driver:{driver_id}   — incoming requests, dispatch, trip state
@@ -216,4 +216,4 @@ Airport Service  → FlightAware API (flight status) — 30s polling, cached in 
 
 ---
 
-*BidRide Technical Architecture — Part 1 of 5 — Confidential · Delaware LLC*
+*BidiRide Technical Architecture — Part 1 of 5 — Confidential · Delaware LLC*

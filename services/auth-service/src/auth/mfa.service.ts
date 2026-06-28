@@ -3,7 +3,7 @@ import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service';
 
-const APP_NAME = 'BidRide';
+const APP_NAME = 'BidiRide';
 
 @Injectable()
 export class MfaService {

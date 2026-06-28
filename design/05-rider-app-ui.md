@@ -1,4 +1,4 @@
-# BidRide — Rider App UI v1.0
+# BidiRide — Rider App UI v1.0
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 05 of 10
@@ -51,7 +51,7 @@
 ║                                          ║
 ║                                          ║
 ║                                          ║
-║              BidRide                     ║
+║              BidiRide                     ║
 ║         type-display / text-teal         ║
 ║                                          ║
 ║        ◐  (loading spinner, sm)          ║
@@ -78,7 +78,7 @@
 
 ### RS-002 · Onboarding Carousel
 
-**Purpose:** Communicate BidRide's four core promises to a new user before asking for any information.
+**Purpose:** Communicate BidiRide's four core promises to a new user before asking for any information.
 
 ```
 ╔══════════════════════════════════════════╗
@@ -94,7 +94,7 @@
 ║       Drivers Earn More.                 ║
 ║       type-h1 / text-primary             ║
 ║                                          ║
-║  BidRide AI keeps fares fair so          ║
+║  BidiRide AI keeps fares fair so          ║
 ║  drivers take home more of every ride.   ║
 ║  type-body / text-secondary / centered   ║
 ║                                          ║
@@ -131,7 +131,7 @@
 
 ### RS-003 · Sign Up Screen
 
-**Purpose:** Create a new BidRide rider account.
+**Purpose:** Create a new BidiRide rider account.
 
 ```
 ╔══════════════════════════════════════════╗
@@ -140,7 +140,7 @@
 ║  ←  Create Account                       ║
 ╠══════════════════════════════════════════╣
 ║                                          ║
-║  Join BidRide                            ║
+║  Join BidiRide                            ║
 ║  type-h1 / text-primary                  ║
 ║  Riders pay less. Drivers earn more.     ║
 ║  type-body-s / text-secondary            ║
@@ -278,7 +278,7 @@
 ║                                          ║
 ║  ───────────────────────────────         ║
 ║                                          ║
-║  [ Continue to BidRide ]                 ║
+║  [ Continue to BidiRide ]                 ║
 ║  Secondary button                        ║
 ║  (email verification not required now)   ║
 ╚══════════════════════════════════════════╝
@@ -370,7 +370,7 @@
 ╚══════════════════════════════════════════╝
 ```
 
-**Components:** Stripe payment element (rendered via Stripe SDK — no card data touches BidRide servers)
+**Components:** Stripe payment element (rendered via Stripe SDK — no card data touches BidiRide servers)
 **Navigation:** Add Card success or Apple/Google Pay → RS-005 (Home Screen, onboarding complete)
 **Add Later:** User can enter app but cannot book until payment added. Home screen shows persistent banner.
 
@@ -488,7 +488,7 @@
 ║  ⚠  Action required                      ║
 ║  text-warning / type-h3                  ║
 ║                                          ║
-║  To continue using BidRide, please       ║
+║  To continue using BidiRide, please       ║
 ║  verify your identity. This takes        ║
 ║  about 2 minutes.                        ║
 ║  type-body / text-secondary              ║
@@ -537,7 +537,7 @@
 ╔══════════════════════════════════════════╗
 ║  9:41                           ███ ███  ║
 ╠══════════════════════════════════════════╣
-║  BidRide            [⭐ 2,840] [🔔] [👤]║
+║  BidiRide            [⭐ 2,840] [🔔] [👤]║
 ║  Transparent header over map             ║
 ╠══════════════════════════════════════════╣
 ║                                          ║
@@ -741,7 +741,7 @@
 ║  C-022 Ride Type Selector                ║
 ║                                          ║
 ║  ┌──────────────────────────────────┐    ║
-║  │  ◈ BidRide AI Fare               │    ║
+║  │  ◈ BidiRide AI Fare               │    ║
 ║  │  ─────────────────────────────── │    ║
 ║  │             $14.80               │    ║
 ║  │    type-mono-l / text-primary    │    ║
@@ -931,7 +931,7 @@
 
 ### RS-009 · Driver Matching / Finding Screen
 
-**Purpose:** Inform rider that BidRide is finding their driver. Active loading state.
+**Purpose:** Inform rider that BidiRide is finding their driver. Active loading state.
 
 ```
 ╔══════════════════════════════════════════╗
@@ -1051,7 +1051,7 @@
 ║  └──────────────────────────────────┘    ║
 ║  Driver info bottom card                 ║
 ║                                          ║
-║  🛡  Trip being monitored by BidRide AI  ║
+║  🛡  Trip being monitored by BidiRide AI  ║
 ║  C-050 Rider Safety Banner               ║
 ║                                          ║
 ║  [🔴 SOS]  ← always visible             ║
@@ -1133,7 +1133,7 @@
 ║  │  [ Share Trip ]                  │    ║
 ║  └──────────────────────────────────┘    ║
 ║                                          ║
-║  🛡  Trip being monitored by BidRide AI  ║
+║  🛡  Trip being monitored by BidiRide AI  ║
 ║  C-050 Rider Safety Banner (dismissible) ║
 ║                                          ║
 ║  [🔴 SOS]  ← always visible, bottom-right║
@@ -1291,7 +1291,7 @@
 ║                                          ║
 ║   ✓ Marcus notified                      ║
 ║   ✓ Sarah notified                       ║
-║   ✓ BidRide safety team alerted          ║
+║   ✓ BidiRide safety team alerted          ║
 ║   type-body / text-primary               ║
 ║                                          ║
 ║   [ Call 911 ]                           ║
@@ -1306,7 +1306,7 @@
 **Critical Design Rules:**
 - The 5-second cancel window prevents accidental SOS
 - "Cancel — I'm okay" is large and accessible (no small X button)
-- "Call 911" is always present on the active SOS screen — BidRide does not replace emergency services
+- "Call 911" is always present on the active SOS screen — BidiRide does not replace emergency services
 - Screen stays on and bright (prevent auto-lock during SOS)
 - No navigation away from active SOS screen without explicit user action
 
@@ -1351,7 +1351,7 @@
 ```
 
 **Components:** C-042 (Driver Trip Summary Card — rider-facing variant), C-052 (Rewards badge update)
-**Design Rule:** "Driver earned: $X" is always shown on trip complete screen. This is BidRide's transparency promise — riders see what their driver made.
+**Design Rule:** "Driver earned: $X" is always shown on trip complete screen. This is BidiRide's transparency promise — riders see what their driver made.
 **Navigation:** Rate → RS-015 (Rating and Tips) · Skip → RS-005 (Home) with deferred rating prompt after next ride
 
 ---
@@ -1423,7 +1423,7 @@
 ╔══════════════════════════════════════════╗
 ║  9:41                           ███ ███  ║
 ╠══════════════════════════════════════════╣
-║  ←  BidRide Rewards                      ║
+║  ←  BidiRide Rewards                      ║
 ╠══════════════════════════════════════════╣
 ║                                          ║
 ║  ┌──────────────────────────────────┐    ║
@@ -1462,7 +1462,7 @@
 
 **Components:** C-052 (Rewards Badge), C-057 (Referral Rewards Card), C-009 (Progress Bar)
 **Tabs:** Overview · History · Refer Friends
-**Empty State (no points yet):** "Take your first BidRide to start earning points! Every ride earns points toward free rides."
+**Empty State (no points yet):** "Take your first BidiRide to start earning points! Every ride earns points toward free rides."
 
 ---
 
@@ -1519,7 +1519,7 @@
 ║                                          ║
 ║  C-056 Ride Savings Tracker              ║
 ║  ┌──────────────────────────────────┐    ║
-║  │  Your BidRide Savings: $84.20    │    ║
+║  │  Your BidiRide Savings: $84.20    │    ║
 ║  │  vs. estimated market fares      │    ║
 ║  │  type-mono / text-teal           │    ║
 ║  └──────────────────────────────────┘    ║
@@ -1883,5 +1883,5 @@ RS-015 Rating Screen (1–2 star rating submitted)
 
 ---
 
-*BidRide Rider App UI — Confidential*
+*BidiRide Rider App UI — Confidential*
 *Delaware LLC — All rights reserved*

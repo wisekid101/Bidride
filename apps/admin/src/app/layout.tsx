@@ -8,8 +8,8 @@ import { AdminNav } from './admin-nav';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-  title: 'BidRide Admin',
-  description: 'BidRide Command Center',
+  title: 'BidiRide Admin',
+  description: 'BidiRide Command Center',
   robots: 'noindex, nofollow',
 };
 

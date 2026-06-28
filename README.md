@@ -1,12 +1,12 @@
-# BidRide
+# BidiRide
 
 A rideshare marketplace that gives riders and drivers more control.
 
 ---
 
-## What Is BidRide?
+## What Is BidiRide?
 
-BidRide combines the instant-request experience of Uber and Lyft with an optional bidding layer — letting riders save money and drivers earn more, without removing the convenience either side expects.
+BidiRide combines the instant-request experience of Uber and Lyft with an optional bidding layer — letting riders save money and drivers earn more, without removing the convenience either side expects.
 
 **Riders** can accept the standard fare (instant match) or submit a lower bid. **Drivers** can accept, reject, or counter. The result is a transparent marketplace where both sides have a voice in the price.
 
@@ -73,7 +73,7 @@ bidride/
 
 | Document | Description |
 |----------|-------------|
-| [Product Vision](docs/product-vision.md) | What BidRide is and how it works |
+| [Product Vision](docs/product-vision.md) | What BidiRide is and how it works |
 | [Legal & Safety Requirements](docs/legal-safety-requirements.md) | NJ TNC law, EWR, insurance, driver onboarding, compliance |
 | [Technical Architecture](docs/technical-architecture.md) | Tech stack, system design, infrastructure |
 | [Database Architecture](docs/database-architecture.md) | PostgreSQL schema, Redis design |

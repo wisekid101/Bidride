@@ -1,4 +1,4 @@
-# BidRide Database Architecture
+# BidiRide Database Architecture
 
 > **Status: DRAFT — Awaiting founder approval before development begins**
 > **Last updated: 2026-06-24**
@@ -403,7 +403,7 @@ CREATE TABLE payments (
   surge_amount_cents      INTEGER NOT NULL DEFAULT 0,
   airport_fee_cents       INTEGER NOT NULL DEFAULT 0,
   tip_cents               INTEGER NOT NULL DEFAULT 0,
-  platform_fee_cents      INTEGER NOT NULL,        -- BidRide's take
+  platform_fee_cents      INTEGER NOT NULL,        -- BidiRide's take
   driver_payout_cents     INTEGER NOT NULL,        -- Driver's earnings
   
   -- Status
@@ -586,7 +586,7 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
 ## 7. Geospatial Tables
 
 ### `service_zones`
-Defines geographic boundaries where BidRide operates (Newark city limits, EWR zone, etc.).
+Defines geographic boundaries where BidiRide operates (Newark city limits, EWR zone, etc.).
 
 ```sql
 CREATE TABLE service_zones (

@@ -1,4 +1,4 @@
-# BidRide Gap Analysis Report
+# BidiRide Gap Analysis Report
 
 > **Date:** 2026-06-24
 > **Audited Against:** legal-safety-requirements.md, technical-architecture.md, database-architecture.md, api-architecture.md
@@ -11,7 +11,7 @@
 
 The existing codebase is substantially more built than expected. It contains 11 NestJS microservices, a full Prisma schema (35+ models), React Native mobile apps, a Next.js admin portal, Terraform infrastructure, and a complete CI/CD pipeline. The overall architecture is more advanced than the modular monolith recommended in the architecture doc — and that's not a problem. It's a head start.
 
-**The single most critical gap: BidRide's core differentiator — the bid flow — has a complete database schema but zero API endpoints.** The codebase, without bid endpoints, is a well-built Uber clone. The bid flow is what makes it BidRide.
+**The single most critical gap: BidiRide's core differentiator — the bid flow — has a complete database schema but zero API endpoints.** The codebase, without bid endpoints, is a well-built Uber clone. The bid flow is what makes it BidiRide.
 
 **Estimated overall completion: ~68%**
 
@@ -33,7 +33,7 @@ The existing codebase is substantially more built than expected. It contains 11 
 - Night ride detection (10pm–5am) with automatic safety check-in
 - Airport trip auto-detection from address string
 
-### Earnings Floor (BidRide's Driver Protection Feature)
+### Earnings Floor (BidiRide's Driver Protection Feature)
 - Implemented exactly per CLAUDE.md formula: `(distance_miles × $1.10) + (duration_min × $0.22) + $2.50`
 - Formula is configurable via `PlatformConfig` (only Founder can change it)
 - Platform absorbs supplement — driver always earns at least the floor
@@ -113,7 +113,7 @@ The existing codebase is substantially more built than expected. It contains 11 
 - **What exists:** `Bid` model in Prisma schema with all needed fields (`riderOffer`, `counterOffer`, `counterRound`, `status`, `expiresAt`)
 - **What's missing:** No bid controller. No bid endpoints. No bid expiration job. No bid state machine.
 - **Evidence:** Trip service comment says `"bid resolves separately"` — but no bid resolution service exists
-- **Impact:** CRITICAL — This is BidRide's entire differentiator
+- **Impact:** CRITICAL — This is BidiRide's entire differentiator
 
 ### Driver Location & Dispatch
 - **What exists:** `DispatchService` publishes ride requests to Redis `dispatch:requests` channel. WebSocket gateway subscribes to Redis and fans out to connected drivers.
@@ -146,7 +146,7 @@ The existing codebase is substantially more built than expected. It contains 11 
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
-| **Bid API endpoints** (submit, accept, decline, counter, cancel, expire) | CRITICAL | BidRide's core differentiator. Schema ready. Zero API. |
+| **Bid API endpoints** (submit, accept, decline, counter, cancel, expire) | CRITICAL | BidiRide's core differentiator. Schema ready. Zero API. |
 | **Bid expiration job** (BullMQ/cron — expire pending bids after TTL) | CRITICAL | Without this, bids never expire |
 | **Driver location update endpoint** (`POST /driver/location`) | HIGH | Drivers can't broadcast position |
 | **Real-time rider location tracking** (WebSocket → rider screen) | HIGH | Rider can't see driver moving |
@@ -212,7 +212,7 @@ The existing codebase is substantially more built than expected. It contains 11 
 ### 🔴 CRITICAL — WebSocket CORS Allows Any Origin
 - **File:** `services/auth-service/src/websocket/websocket.gateway.ts:18`
 - **Code:** `cors: { origin: '*', credentials: true }`
-- **Risk:** Any website can connect to the BidRide WebSocket server. Combined with JWT auth this is medium risk, but `credentials: true` with `origin: '*'` is explicitly disallowed by the CORS spec in browsers — this will cause failures in production and is a misconfiguration.
+- **Risk:** Any website can connect to the BidiRide WebSocket server. Combined with JWT auth this is medium risk, but `credentials: true` with `origin: '*'` is explicitly disallowed by the CORS spec in browsers — this will cause failures in production and is a misconfiguration.
 - **Fix:** Set to `origin: process.env.ALLOWED_ORIGINS?.split(',')` (same pattern as REST services)
 
 ### 🔴 HIGH — SSN Transmitted Without Confirmed Encryption
@@ -222,7 +222,7 @@ The existing codebase is substantially more built than expected. It contains 11 
 - **Fix:** Encrypt SSN before writing to DB using a KMS-managed key. Or: pass SSN directly to Checkr (never store it at all — preferred approach).
 
 ### 🔴 HIGH — No Stripe Webhook Signature Verification
-- **Risk:** Without verifying `Stripe-Signature` header on incoming webhooks, any attacker can POST fake payment success events to BidRide's payment handler.
+- **Risk:** Without verifying `Stripe-Signature` header on incoming webhooks, any attacker can POST fake payment success events to BidiRide's payment handler.
 - **Fix:** Implement `POST /webhooks/stripe` with `stripe.webhooks.constructEvent(body, sig, secret)` before processing any webhook event.
 
 ### 🟡 MEDIUM — MFA Not Enforced on Admin Login
@@ -236,7 +236,7 @@ The existing codebase is substantially more built than expected. It contains 11 
 
 ### 🟢 LOW — Hardcoded Placeholder Email on User Creation
 - **File:** `services/auth-service/src/auth/auth.service.ts:41`
-- **Code:** `email: \`${phone.replace(/\D/g, '')}@placeholder.bidride.com\``
+- **Code:** `email: \`${phone.replace(/\D/g, '')}@placeholder.bidiride.com\``
 - **Risk:** Low — but these placeholder emails could trigger email deliverability issues and should be replaced with `null` (email field is already nullable).
 
 ---
@@ -244,12 +244,12 @@ The existing codebase is substantially more built than expected. It contains 11 
 ## F. LEGAL / COMPLIANCE GAPS
 
 ### 🔴 CRITICAL — No NJ TNC Compliance Module
-- NJ law requires BidRide to maintain records of all rides and make them available to NJMVC on request
+- NJ law requires BidiRide to maintain records of all rides and make them available to NJMVC on request
 - No reporting endpoint, no compliance export, no NJMVC registration tracking in the codebase
 - **Required before launch:** Admin portal must include a compliance reporting section that can export ride records in NJMVC-required format
 
 ### 🔴 HIGH — Port Authority EWR Fee Tracking & Remittance
-- EWR charges per-trip fees that BidRide must collect and remit to the Port Authority
+- EWR charges per-trip fees that BidiRide must collect and remit to the Port Authority
 - `isAirportTrip` is tracked, but no dedicated EWR fee ledger or Port Authority remittance report exists
 - **Required before EWR launch:** Add EWR fee line item to payment flow, build remittance report for Port Authority
 
@@ -265,7 +265,7 @@ The existing codebase is substantially more built than expected. It contains 11 
 ### 🟡 MEDIUM — W-9 / 1099-K Workflow Missing
 - Drivers earning over $5,000/year require IRS Form 1099-K
 - No W-9 collection step in driver onboarding
-- Stripe Connect handles some of this, but BidRide must confirm W-9 is collected before first payout
+- Stripe Connect handles some of this, but BidiRide must confirm W-9 is collected before first payout
 - **Required before first driver payout**
 
 ### 🟡 MEDIUM — Data Deletion Endpoint Missing
@@ -332,8 +332,8 @@ The existing codebase is substantially more built than expected. It contains 11 
 
 Based on the audit, the recommended sequence is:
 
-### Priority 1 — Bid Flow (BidRide's Core Differentiator)
-The bid flow has a complete database schema but zero API layer. This is the highest priority because without it, BidRide has no competitive differentiation from Uber/Lyft.
+### Priority 1 — Bid Flow (BidiRide's Core Differentiator)
+The bid flow has a complete database schema but zero API layer. This is the highest priority because without it, BidiRide has no competitive differentiation from Uber/Lyft.
 
 Build in this order:
 1. `POST /trips` — bid variant (already partially handled in `CreateTripDto`)
@@ -367,5 +367,5 @@ Build:
 
 ---
 
-*This report was produced by auditing the full GitHub codebase against the BidRide architecture and legal research documents. All findings require founder review before development actions are taken.*
+*This report was produced by auditing the full GitHub codebase against the BidiRide architecture and legal research documents. All findings require founder review before development actions are taken.*
 *Produced: 2026-06-24*

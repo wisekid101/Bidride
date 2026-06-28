@@ -1,4 +1,4 @@
-# BidRide — AWS Cloud Internal Alpha Deployment Checklist
+# BidiRide — AWS Cloud Internal Alpha Deployment Checklist
 
 Run each section in order. Check off items as you complete them.
 Do NOT share this file publicly — it references secret names.
@@ -59,9 +59,9 @@ Your API domain must have a valid ACM certificate before the ALB HTTPS listener 
 ```bash
 # Request certificate (DNS validation recommended)
 aws acm request-certificate \
-  --domain-name api.bidride.com \
+  --domain-name api.bidiride.com \
   --validation-method DNS \
-  --subject-alternative-names "*.bidride.com" \
+  --subject-alternative-names "*.bidiride.com" \
   --region us-east-1
 ```
 
@@ -112,14 +112,14 @@ terraform apply bidride.tfplan
 Expected outputs after apply:
 - `rds_endpoint` — RDS writer endpoint
 - `redis_endpoint` — ElastiCache primary endpoint
-- `alb_dns_name` — ALB DNS name (add CNAME in Route53/registrar → api.bidride.com)
+- `alb_dns_name` — ALB DNS name (add CNAME in Route53/registrar → api.bidiride.com)
 - `ecs_cluster_name`
 - `documents_bucket`, `recordings_bucket`
 
 - [ ] `terraform apply` — successful, 0 errors
 - [ ] Copy outputs to a secure note
-- [ ] Add `alb_dns_name` as CNAME for `api.bidride.com` in Route53
-- [ ] Verify HTTPS: `curl -I https://api.bidride.com/` → 404 (ALB default response — services not up yet)
+- [ ] Add `alb_dns_name` as CNAME for `api.bidiride.com` in Route53
+- [ ] Verify HTTPS: `curl -I https://api.bidiride.com/` → 404 (ALB default response — services not up yet)
 
 ---
 
@@ -218,7 +218,7 @@ Run the smoke test script:
 
 ```bash
 # Set your ALB DNS or custom domain
-export BIDRIDE_API_URL="https://api.bidride.com"
+export BIDRIDE_API_URL="https://api.bidiride.com"
 bash infrastructure/scripts/smoke-test.sh
 ```
 
@@ -239,9 +239,9 @@ bash infrastructure/scripts/post-deploy-verify.sh
 ## Phase 10 — Internal Alpha Go-Live
 
 - [ ] Share API URL with alpha testers
-- [ ] Confirm admin portal accessible at `https://admin.bidride.com` (or via port-forward)
+- [ ] Confirm admin portal accessible at `https://admin.bidiride.com` (or via port-forward)
 - [ ] Set `INTERNAL_SERVICE_KEY` in all calling services and ai-service
-- [ ] Rotate initial seed admin password (marq@bidride.com → new password)
+- [ ] Rotate initial seed admin password (marq@bidiride.com → new password)
 - [ ] CloudWatch alarms have SNS topic with on-call email/PagerDuty
 - [ ] Monitor ECS service CPU/memory for first 30 minutes
 

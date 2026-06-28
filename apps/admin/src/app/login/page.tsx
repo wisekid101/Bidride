@@ -50,7 +50,7 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-teal-400/10 border border-teal-400/30 mb-4">
             <Lock className="w-6 h-6 text-teal-400" />
           </div>
-          <h1 className="text-2xl font-bold text-white">BidRide Admin</h1>
+          <h1 className="text-2xl font-bold text-white">BidiRide Admin</h1>
           <p className="text-sm text-muted-foreground mt-1">Authorized personnel only</p>
         </div>
 

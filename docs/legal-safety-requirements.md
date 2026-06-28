@@ -1,4 +1,4 @@
-# BidRide Legal, Safety & Compliance Requirements
+# BidiRide Legal, Safety & Compliance Requirements
 
 > **Status: RESEARCH DRAFT — Must be reviewed and verified by licensed NJ attorney before any launch activity**
 > **Last updated: 2026-06-24**
@@ -29,14 +29,14 @@ New Jersey regulates Transportation Network Companies under the **Transportation
 The primary regulatory authority is the **New Jersey Motor Vehicle Commission (NJMVC)**.
 
 ### TNC Registration
-- BidRide must register as a TNC with the NJMVC **before operating**
+- BidiRide must register as a TNC with the NJMVC **before operating**
 - Annual registration renewal required
 - Registration fee: set by NJMVC (verify current amount — historically in the range of $10,000–$30,000/year)
-- BidRide must designate a registered agent in New Jersey
+- BidiRide must designate a registered agent in New Jersey
 - Must maintain a principal place of business or registered office in NJ or appoint a NJ agent
 
 ### What Qualifies as a TNC Under NJ Law
-A TNC is a company that uses a digital network (app or platform) to connect riders to drivers using personal vehicles for prearranged rides. BidRide clearly meets this definition.
+A TNC is a company that uses a digital network (app or platform) to connect riders to drivers using personal vehicles for prearranged rides. BidiRide clearly meets this definition.
 
 ### Recordkeeping Requirements
 - Maintain records of all rides for a minimum period (verify with NJMVC — typically 1–2 years)
@@ -49,7 +49,7 @@ NJ law requires TNCs to maintain a zero-tolerance policy for:
 - Drug use while using the platform
 - Alcohol use while using the platform
 - Drivers must be made aware of this policy in writing
-- BidRide must provide riders a mechanism to report violations
+- BidiRide must provide riders a mechanism to report violations
 - Drivers must be immediately suspended upon credible report, pending investigation
 
 ### Accessibility Requirements
@@ -67,7 +67,7 @@ NJ law requires TNCs to maintain a zero-tolerance policy for:
 - NJ law requires TNCs to provide riders with **fare estimates before booking**
 - Must clearly disclose any surge or demand-based pricing before the rider confirms
 - Receipts must be provided after each trip (electronic is acceptable)
-- **For BidRide specifically:** The bid flow must still comply — riders must see the estimate before submitting a bid, and the final agreed fare must be disclosed before the ride begins
+- **For BidiRide specifically:** The bid flow must still comply — riders must see the estimate before submitting a bid, and the final agreed fare must be disclosed before the ride begins
 
 ### Key Action Items
 - [ ] Engage NJ transportation attorney to confirm current registration requirements
@@ -82,7 +82,7 @@ NJ law requires TNCs to maintain a zero-tolerance policy for:
 
 ### City of Newark
 Newark does not currently impose a separate municipal rideshare permit beyond NJ state law, but:
-- BidRide must comply with all Newark municipal codes regarding commercial vehicle operations
+- BidiRide must comply with all Newark municipal codes regarding commercial vehicle operations
 - Staging and pickup in certain downtown zones may require coordination with Newark's Department of Engineering
 - Monitor for any Newark-specific TNC ordinance updates — municipalities have been expanding local oversight
 
@@ -98,7 +98,7 @@ EWR is owned and operated by the **Port Authority of New York and New Jersey (PA
 - Renewal is typically annual
 
 #### Commercial Ground Transportation Agreement
-- BidRide will likely need to execute a **Commercial Ground Transportation Agreement** with the Port Authority
+- BidiRide will likely need to execute a **Commercial Ground Transportation Agreement** with the Port Authority
 - This agreement governs: access rights, fee structure, operational requirements, insurance minimums (which exceed standard NJ minimums)
 - Negotiated directly with PANYNJ — engage early, as approval timelines can be lengthy (3–6 months or more)
 
@@ -106,7 +106,7 @@ EWR is owned and operated by the **Port Authority of New York and New Jersey (PA
 - The Port Authority charges a **per-trip fee** for each TNC pickup at EWR
 - Fee amount: verify current rate with PANYNJ (has historically been in the $4–$6 per trip range, subject to change)
 - Fee collection is typically handled by the TNC and remitted to the Port Authority
-- BidRide must build this fee into its pricing model for EWR rides
+- BidiRide must build this fee into its pricing model for EWR rides
 
 #### Operational Requirements at EWR
 - TNCs must use **designated pickup zones only** — no curbside pickup at terminals
@@ -133,17 +133,17 @@ EWR is owned and operated by the **Port Authority of New York and New Jersey (PA
 ## 3. Insurance Requirements
 
 ### Overview
-NJ law defines insurance requirements by **ride period**. BidRide (as the TNC) has platform-level insurance obligations separate from what drivers carry personally.
+NJ law defines insurance requirements by **ride period**. BidiRide (as the TNC) has platform-level insurance obligations separate from what drivers carry personally.
 
 ### The Three Periods
 
 #### Period 0 — App Off
 - Driver's **personal auto insurance** applies
-- BidRide has no platform insurance obligation
-- However: BidRide should disclose in driver agreement that personal auto may not cover commercial activity
+- BidiRide has no platform insurance obligation
+- However: BidiRide should disclose in driver agreement that personal auto may not cover commercial activity
 
 #### Period 1 — App On, No Ride Accepted
-Driver is logged into the BidRide app and available, but no ride has been matched.
+Driver is logged into the BidiRide app and available, but no ride has been matched.
 
 **NJ Minimum Requirements (verify current law):**
 - $50,000 per person for bodily injury
@@ -151,7 +151,7 @@ Driver is logged into the BidRide app and available, but no ride has been matche
 - $25,000 for property damage
 - Uninsured/underinsured motorist coverage (verify required minimums)
 
-**BidRide obligation:** Maintain contingent coverage that activates if the driver's personal policy does not cover Period 1 losses.
+**BidiRide obligation:** Maintain contingent coverage that activates if the driver's personal policy does not cover Period 1 losses.
 
 #### Period 2 — Ride Accepted, Driver En Route to Rider
 Driver has accepted a ride (or accepted a bid) and is traveling to pick up the rider.
@@ -161,7 +161,7 @@ Driver has accepted a ride (or accepted a bid) and is traveling to pick up the r
 - Uninsured/underinsured motorist coverage
 - Contingent comprehensive and collision (if driver carries it on personal policy)
 
-**BidRide obligation:** Maintain primary coverage of at least $1.5M from the moment a ride is accepted.
+**BidiRide obligation:** Maintain primary coverage of at least $1.5M from the moment a ride is accepted.
 
 #### Period 3 — Rider in Vehicle
 Rider is in the vehicle through drop-off.
@@ -170,10 +170,10 @@ Rider is in the vehicle through drop-off.
 - Same as Period 2: $1,500,000 combined single limit
 - All coverages from Period 2 continue
 
-**BidRide obligation:** Primary coverage must remain active through drop-off and payment completion.
+**BidiRide obligation:** Primary coverage must remain active through drop-off and payment completion.
 
 ### Insurance Procurement Strategy
-BidRide has two main options:
+BidiRide has two main options:
 
 **Option A: Admitted TNC Insurance Policy**
 - Purchase a TNC-specific commercial policy from an admitted carrier in NJ
@@ -187,8 +187,8 @@ BidRide has two main options:
 - Requires careful policy coordination to avoid gaps
 
 ### Additional Insurance Considerations
-- **Cargo/Delivery:** Not applicable for rideshare (but document this if BidRide ever considers delivery features)
-- **Cyber Liability:** Required — BidRide will hold sensitive rider and driver data
+- **Cargo/Delivery:** Not applicable for rideshare (but document this if BidiRide ever considers delivery features)
+- **Cyber Liability:** Required — BidiRide will hold sensitive rider and driver data
 - **Directors & Officers (D&O):** Recommended once investment is raised
 - **Employment Practices Liability (EPLI):** Consult attorney on independent contractor classification risk
 - **EWR Supplement:** Port Authority will require additional coverage and named insured status
@@ -205,7 +205,7 @@ BidRide has two main options:
 ## 4. Driver Onboarding Requirements
 
 ### NJ Statutory Driver Requirements
-Under the NJ TNC Act, all drivers on the BidRide platform must meet the following before their first ride:
+Under the NJ TNC Act, all drivers on the BidiRide platform must meet the following before their first ride:
 
 #### Age
 - Minimum age: **21 years old** (NJ TNC law — verify; some TNCs enforce 18+ but NJ law has historically required 21 for TNC)
@@ -214,10 +214,10 @@ Under the NJ TNC Act, all drivers on the BidRide platform must meet the followin
 #### Driver's License
 - Must have a valid driver's license (NJ or from any US state)
 - Must not have a suspended or revoked license
-- License must be verified and validated by BidRide before activation
+- License must be verified and validated by BidiRide before activation
 
 #### Background Check (Mandatory)
-BidRide must conduct a criminal background check on all prospective drivers. NJ law specifies:
+BidiRide must conduct a criminal background check on all prospective drivers. NJ law specifies:
 
 **Disqualifying Offenses (lifetime ban):**
 - Violent crimes (murder, rape, robbery, assault)
@@ -248,13 +248,13 @@ BidRide must conduct a criminal background check on all prospective drivers. NJ 
 #### Vehicle Requirements
 - Maximum vehicle age: verify NJ TNC law (typically 10–12 years)
 - Minimum 4 doors
-- Must pass a **vehicle inspection** (BidRide must define inspection process — can use NJ state inspection or a third-party service)
+- Must pass a **vehicle inspection** (BidiRide must define inspection process — can use NJ state inspection or a third-party service)
 - Vehicle must be registered in driver's name or an immediate family member
 - Valid NJ registration and up-to-date stickers
 
 #### Insurance Verification
 - Driver must maintain valid personal auto insurance
-- BidRide must verify insurance at onboarding and periodically thereafter
+- BidiRide must verify insurance at onboarding and periodically thereafter
 - Document must show coverage limits and policy number
 
 #### Profile and Identity Verification
@@ -262,11 +262,11 @@ BidRide must conduct a criminal background check on all prospective drivers. NJ 
 - Real-time selfie verification at each login session (recommended)
 - Phone number verification (SMS/OTP)
 
-### BidRide Driver Onboarding Flow (Recommended)
+### BidiRide Driver Onboarding Flow (Recommended)
 1. Driver downloads app and creates account
 2. Submits: name, DOB, SSN (last 4 or full for background check), license number, vehicle info
-3. BidRide initiates background check (Checkr API)
-4. BidRide pulls MVR
+3. BidiRide initiates background check (Checkr API)
+4. BidiRide pulls MVR
 5. Driver uploads: license photo, vehicle registration, personal insurance card, vehicle photos (4 sides + interior)
 6. Vehicle inspection scheduled/completed
 7. Background check clears
@@ -303,7 +303,7 @@ BidRide must conduct a criminal background check on all prospective drivers. NJ 
 #### Emergency SOS Button
 - Must be accessible with one tap from the active ride screen
 - Should connect directly to 911 (device-native call)
-- Should simultaneously alert BidRide's safety team with: rider name, driver name, vehicle info, real-time GPS location
+- Should simultaneously alert BidiRide's safety team with: rider name, driver name, vehicle info, real-time GPS location
 - Consider integration with ADT or RapidSOS for enhanced emergency dispatch
 
 #### Real-Time Trip Sharing
@@ -341,7 +341,7 @@ BidRide must conduct a criminal background check on all prospective drivers. NJ 
 
 ### Child Safety
 - No unaccompanied minors (under 18) without explicit policy — recommend prohibiting at launch
-- Car seats: BidRide is not responsible for providing car seats — clearly disclosed in Terms of Service
+- Car seats: BidiRide is not responsible for providing car seats — clearly disclosed in Terms of Service
 - Document this limitation explicitly
 
 ### Key Action Items
@@ -357,13 +357,13 @@ BidRide must conduct a criminal background check on all prospective drivers. NJ 
 ## 6. Payment & Escrow Compliance
 
 ### Payment Processing
-BidRide will handle payments between riders and drivers. This creates regulatory and compliance obligations.
+BidiRide will handle payments between riders and drivers. This creates regulatory and compliance obligations.
 
 #### Recommended Payment Processor: Stripe Connect
 - **Stripe Connect** is the industry standard for marketplace payments
-- Supports split payments: BidRide takes commission, driver receives earnings
+- Supports split payments: BidiRide takes commission, driver receives earnings
 - Handles KYC (Know Your Customer) for driver payouts automatically
-- PCI DSS compliant — significantly reduces BidRide's PCI scope
+- PCI DSS compliant — significantly reduces BidiRide's PCI scope
 - Supports instant payouts, weekly payouts, and bank transfers
 - Used by Lyft and other gig platforms
 
@@ -375,19 +375,19 @@ BidRide will handle payments between riders and drivers. This creates regulatory
 **Recommendation: Start with Stripe Connect.**
 
 ### PCI DSS Compliance
-- BidRide must never store raw card numbers — Stripe handles this (card data stored in Stripe's vault)
-- BidRide stores only Stripe payment method tokens
+- BidiRide must never store raw card numbers — Stripe handles this (card data stored in Stripe's vault)
+- BidiRide stores only Stripe payment method tokens
 - Annual PCI SAQ (Self-Assessment Questionnaire) required — with Stripe, SAQ-A applies (lowest scope)
 - Do not build custom card entry forms — use Stripe Elements or Stripe SDK to maintain PCI scope
 
 ### Money Transmission
-- The question of whether BidRide needs a **money transmitter license** in NJ is critical
+- The question of whether BidiRide needs a **money transmitter license** in NJ is critical
 - NJ Department of Banking and Insurance (DOBI) regulates money transmitters under N.J.S.A. 17:15C
-- Using Stripe Connect as the payment intermediary may mean Stripe holds the money transmitter license (not BidRide)
+- Using Stripe Connect as the payment intermediary may mean Stripe holds the money transmitter license (not BidiRide)
 - **This must be confirmed with a payments attorney before launch** — operating as an unlicensed money transmitter carries severe penalties
 
 ### Escrow / Bid Holds
-For the bid flow, BidRide may need to place a hold on the rider's payment method when a bid is submitted:
+For the bid flow, BidiRide may need to place a hold on the rider's payment method when a bid is submitted:
 - Payment hold (authorization, not capture) placed when bid is submitted
 - Hold captured if bid is accepted by driver
 - Hold released if bid is rejected/expires
@@ -397,13 +397,13 @@ For the bid flow, BidRide may need to place a hold on the rider's payment method
 ### Driver Payouts
 - Stripe Connect handles driver payouts directly to bank account
 - Drivers must complete Stripe's KYC (identity verification, bank account verification)
-- IRS Form 1099-K: BidRide must issue 1099-K to drivers who earn over $5,000/year (verify current IRS threshold — it has been changing)
-- BidRide must collect W-9 from all US-based drivers at onboarding
+- IRS Form 1099-K: BidiRide must issue 1099-K to drivers who earn over $5,000/year (verify current IRS threshold — it has been changing)
+- BidiRide must collect W-9 from all US-based drivers at onboarding
 
 ### Fraud Prevention
 - Stripe Radar for fraud detection (built into Stripe — use it)
 - Define chargeback response procedure
-- Refund policy: under what circumstances does BidRide refund a rider? (Driver no-show, safety incident, wrong destination, etc.)
+- Refund policy: under what circumstances does BidiRide refund a rider? (Driver no-show, safety incident, wrong destination, etc.)
 
 ### Key Action Items
 - [ ] Confirm with payments attorney whether NJ money transmitter license is required
@@ -421,13 +421,13 @@ For the bid flow, BidRide may need to place a hold on the rider's payment method
 - **New Jersey Privacy Act** — NJ has enacted comprehensive consumer privacy legislation; confirm current implementation status and effective date
 - **Federal laws:** FCRA (driver background checks), COPPA (if any minors use platform — recommend age gating), ECPA (communications)
 - **PCI DSS:** Payment data (covered in Section 6)
-- **CCPA awareness:** If BidRide eventually serves California residents, CCPA/CPRA applies
+- **CCPA awareness:** If BidiRide eventually serves California residents, CCPA/CPRA applies
 
-### Data BidRide Will Collect
+### Data BidiRide Will Collect
 
 #### Rider Data
 - Name, email, phone number
-- Payment method (tokenized via Stripe — card number never stored by BidRide)
+- Payment method (tokenized via Stripe — card number never stored by BidiRide)
 - Trip history (pickup/drop-off locations, fares, timestamps)
 - Ratings given and received
 - In-app messages
@@ -441,11 +441,11 @@ For the bid flow, BidRide may need to place a hold on the rider's payment method
 - Vehicle registration
 - Background check results
 - MVR records
-- Bank account info (via Stripe — stored by Stripe, not BidRide)
+- Bank account info (via Stripe — stored by Stripe, not BidiRide)
 - Earnings history
 
 ### Privacy Policy Requirements
-BidRide must publish a Privacy Policy that discloses:
+BidiRide must publish a Privacy Policy that discloses:
 - What data is collected
 - Why it is collected (legal basis)
 - Who it is shared with (Stripe, Checkr, mapping provider, etc.)
@@ -501,7 +501,7 @@ Must cover:
 - Cancellation policy (what fees apply, when)
 - Rating system and consequences
 - Prohibited conduct (harassment, damage to vehicle, fraud)
-- BidRide's role as a technology platform (not a transportation company — independent contractor model)
+- BidiRide's role as a technology platform (not a transportation company — independent contractor model)
 - Limitation of liability
 - Dispute resolution / arbitration clause (consider mandatory arbitration with NJ carve-outs)
 - Governing law: New Jersey
@@ -562,11 +562,11 @@ The bidding mechanism creates unique Terms of Service complexity:
 #### RISK 01 — Driver Independent Contractor Misclassification
 | | |
 |---|---|
-| **Risk** | New Jersey may reclassify BidRide drivers as employees rather than independent contractors |
+| **Risk** | New Jersey may reclassify BidiRide drivers as employees rather than independent contractors |
 | **Severity** | CRITICAL |
 | **Probability** | HIGH — NJ has an aggressive ABC test for worker classification |
 | **Impact** | Exposure to: back wages, benefits, payroll taxes, unemployment insurance, workers' comp, penalties |
-| **Context** | NJ's "ABC test" (N.J.S.A. 43:21-19) presumes workers are employees unless the company proves all three prongs: (A) worker is free from direction/control; (B) work is outside the company's usual business; (C) worker is customarily engaged in an independent trade. Prong B is the hardest for rideshare — driving IS BidRide's business. |
+| **Context** | NJ's "ABC test" (N.J.S.A. 43:21-19) presumes workers are employees unless the company proves all three prongs: (A) worker is free from direction/control; (B) work is outside the company's usual business; (C) worker is customarily engaged in an independent trade. Prong B is the hardest for rideshare — driving IS BidiRide's business. |
 | **Mitigation** | (1) Engage NJ employment attorney immediately. (2) Review how Uber/Lyft have structured NJ compliance. (3) Consider whether a cooperative/equity model for drivers changes the analysis. (4) Do not treat drivers as employees in any operational way. (5) Do not set schedules, require minimums, or dictate routes. |
 | **Status** | OPEN — Must be resolved before driver agreements are signed |
 
@@ -578,7 +578,7 @@ The bidding mechanism creates unique Terms of Service complexity:
 | **Probability** | MEDIUM — this is a novel scenario not addressed by current NJ law (written when Uber/Lyft's instant-accept model was standard) |
 | **Impact** | If an accident occurs during bid negotiation, coverage may be disputed by insurer |
 | **Mitigation** | (1) Engage TNC insurance attorney to define the bid negotiation period. (2) Consider treating "bid submitted" as Period 1 (app on, no match). (3) Confirm with insurer in writing before launch. (4) Define in Terms of Service when "ride accepted" legally occurs. |
-| **Status** | OPEN — Novel risk unique to BidRide |
+| **Status** | OPEN — Novel risk unique to BidiRide |
 
 #### RISK 03 — Port Authority Permit Delay
 | | |
@@ -586,24 +586,24 @@ The bidding mechanism creates unique Terms of Service complexity:
 | **Risk** | Port Authority permit for EWR takes 3–6+ months and may be denied |
 | **Severity** | HIGH |
 | **Probability** | MEDIUM-HIGH — Port Authority moves slowly and has historically favored established TNCs |
-| **Impact** | BidRide cannot operate at EWR without permit — airport rides are a primary differentiator |
+| **Impact** | BidiRide cannot operate at EWR without permit — airport rides are a primary differentiator |
 | **Mitigation** | (1) Begin Port Authority application process before any other launch activity. (2) Launch Newark city operations first (no airport permit needed) while airport permit is pending. (3) Engage a NJ government relations attorney or lobbyist familiar with PANYNJ. |
 | **Status** | OPEN — Start immediately |
 
 #### RISK 04 — Price-Fixing / Antitrust Risk in Bid Floor
 | | |
 |---|---|
-| **Risk** | If BidRide sets a bid floor that coordinates with other TNCs or that drivers collectively rely on, it could raise antitrust concerns |
+| **Risk** | If BidiRide sets a bid floor that coordinates with other TNCs or that drivers collectively rely on, it could raise antitrust concerns |
 | **Severity** | MEDIUM |
-| **Probability** | LOW — bid floor set unilaterally by BidRide is standard platform pricing policy |
+| **Probability** | LOW — bid floor set unilaterally by BidiRide is standard platform pricing policy |
 | **Impact** | DOJ/FTC investigation, private antitrust suits |
-| **Mitigation** | (1) Bid floor is BidRide's unilateral business decision — document rationale. (2) Do not coordinate with Uber/Lyft on any pricing. (3) Consult antitrust attorney on bid floor design. |
+| **Mitigation** | (1) Bid floor is BidiRide's unilateral business decision — document rationale. (2) Do not coordinate with Uber/Lyft on any pricing. (3) Consult antitrust attorney on bid floor design. |
 | **Status** | MONITOR |
 
 #### RISK 05 — Safety Incident and Platform Liability
 | | |
 |---|---|
-| **Risk** | A rider or third party is injured during a BidRide trip and brings a negligence claim against BidRide |
+| **Risk** | A rider or third party is injured during a BidiRide trip and brings a negligence claim against BidiRide |
 | **Severity** | CRITICAL |
 | **Probability** | MEDIUM — incidents happen on all rideshare platforms |
 | **Impact** | Civil liability, reputational damage, potential regulatory action |
@@ -613,7 +613,7 @@ The bidding mechanism creates unique Terms of Service complexity:
 #### RISK 06 — Underfunding / Runway Risk
 | | |
 |---|---|
-| **Risk** | BidRide runs out of capital before reaching sufficient driver/rider density to sustain the marketplace |
+| **Risk** | BidiRide runs out of capital before reaching sufficient driver/rider density to sustain the marketplace |
 | **Severity** | CRITICAL |
 | **Probability** | HIGH — rideshare marketplaces require significant driver acquisition spend before profitability |
 | **Impact** | Platform shutdown; reputational damage to founder |
@@ -623,7 +623,7 @@ The bidding mechanism creates unique Terms of Service complexity:
 #### RISK 07 — Data Breach
 | | |
 |---|---|
-| **Risk** | BidRide's database is breached, exposing rider/driver personal data including location history, SSNs, payment info |
+| **Risk** | BidiRide's database is breached, exposing rider/driver personal data including location history, SSNs, payment info |
 | **Severity** | HIGH |
 | **Probability** | LOW-MEDIUM (if security is implemented correctly) |
 | **Impact** | NJ breach notification law obligations, potential DOBI action, civil suits, reputational damage |
@@ -636,7 +636,7 @@ The bidding mechanism creates unique Terms of Service complexity:
 
 ### Market Overview
 
-Both Uber and Lyft operate in New Jersey and at EWR. They are the incumbents. BidRide is entering a duopoly market — which means BidRide's differentiation must be sharp, and the cost of switching for both riders and drivers must be low.
+Both Uber and Lyft operate in New Jersey and at EWR. They are the incumbents. BidiRide is entering a duopoly market — which means BidiRide's differentiation must be sharp, and the cost of switching for both riders and drivers must be low.
 
 ### Uber
 
@@ -678,10 +678,10 @@ Both Uber and Lyft operate in New Jersey and at EWR. They are the incumbents. Bi
 - Fewer international brand associations
 - Financially less stable than Uber (historical losses and narrower margin)
 
-### BidRide Competitive Positioning
+### BidiRide Competitive Positioning
 
 #### Primary Differentiators
-| Factor | Uber | Lyft | BidRide |
+| Factor | Uber | Lyft | BidiRide |
 |--------|------|------|---------|
 | Rider pricing | Fixed / surge | Fixed / surge | Fixed OR bid (rider choice) |
 | Driver commission | ~25–28% platform take | ~25–30% platform take | Lower take — exact TBD |
@@ -708,16 +708,16 @@ Both Uber and Lyft operate in New Jersey and at EWR. They are the incumbents. Bi
 4. **Positioning:** "The rideshare that pays drivers more and charges riders less — because you both deserve it"
 
 #### Price War Risk
-- Uber and Lyft could respond to BidRide's entry by reducing prices in Newark/EWR
+- Uber and Lyft could respond to BidiRide's entry by reducing prices in Newark/EWR
 - Incumbents have done this in other markets to squeeze out new entrants
-- BidRide's defense: driver loyalty — if drivers earn more on BidRide, they prioritize BidRide rides
-- BidRide must build driver supply before Uber/Lyft respond
+- BidiRide's defense: driver loyalty — if drivers earn more on BidiRide, they prioritize BidiRide rides
+- BidiRide must build driver supply before Uber/Lyft respond
 
 ### Key Questions to Validate
 - [ ] What is the actual driver earnings experience on Uber/Lyft in Newark? (Survey 20 drivers)
 - [ ] What are the most common rider complaints about Uber/Lyft in Newark/EWR? (Survey 50 riders)
-- [ ] What would it take for a driver to switch their primary platform to BidRide?
-- [ ] What bid discount would motivate a rider to use BidRide over Uber's instant match?
+- [ ] What would it take for a driver to switch their primary platform to BidiRide?
+- [ ] What bid discount would motivate a rider to use BidiRide over Uber's instant match?
 
 ---
 

@@ -1,10 +1,10 @@
-# BidRide — Safety Shield System v1.0
+# BidiRide — Safety Shield System v1.0
 
 **Status:** Draft — Pending Founder Approval
 **Document:** Supplement to PRD v1.1 + Gap Analysis v1.0
 **Prepared by:** Claude Code (AI Systems Architect / Safety Systems Engineer)
 **Date:** June 5, 2026
-**Founder Requirement:** Complete technical specification for BidRide Safety Shield System
+**Founder Requirement:** Complete technical specification for BidiRide Safety Shield System
 
 > Safety decisions override growth decisions.
 > Every feature in this document is non-negotiable.
@@ -44,7 +44,7 @@
 These principles govern every decision in this document and cannot be overridden:
 
 1. **Safety overrides growth.** Any feature that improves safety is implemented regardless of cost or friction added to the booking flow.
-2. **Proactive, not reactive.** BidRide Safety Shield monitors every trip in real time — it does not wait for a report.
+2. **Proactive, not reactive.** BidiRide Safety Shield monitors every trip in real time — it does not wait for a report.
 3. **Both parties are protected.** Riders and drivers receive identical safety protections. Safety is not one-sided.
 4. **Speed is survival.** SOS response SLAs are measured in seconds, not minutes. Every escalation path has a hard time limit.
 5. **Transparency without exposure.** Users know they are protected. They never see how the system scores risk internally.
@@ -211,7 +211,7 @@ SOS can be activated from multiple entry points:
 ║                                                                  ║
 ║  ✓  Marcus notified        (trusted contact)                    ║
 ║  ✓  Sarah notified         (trusted contact)                    ║
-║  ✓  BidRide safety team alerted                                 ║
+║  ✓  BidiRide safety team alerted                                 ║
 ║  ✓  Your location is being shared                               ║
 ║  type-body / text-primary / list                                ║
 ║                                                                  ║
@@ -219,9 +219,9 @@ SOS can be activated from multiple entry points:
 ║  │         📞  Call 911                   │                     ║
 ║  └────────────────────────────────────────┘                     ║
 ║  Danger button — opens phone dialer with 911 pre-filled         ║
-║  BidRide never intercepts or replaces 911 contact               ║
+║  BidiRide never intercepts or replaces 911 contact               ║
 ║                                                                  ║
-║  Stay calm. A BidRide safety agent has been assigned.           ║
+║  Stay calm. A BidiRide safety agent has been assigned.           ║
 ║  type-body / text-secondary                                      ║
 ║                                                                  ║
 ║  Audio recording has started for your safety.                   ║
@@ -236,7 +236,7 @@ Identical 3-state flow with driver-specific context:
 - State 2: same countdown, same cancel button
 - State 3 shows:
   - Trusted contacts notified (driver's contacts)
-  - BidRide safety team alerted
+  - BidiRide safety team alerted
   - Rider has been notified "Your driver needs assistance"
   - Call 911 button
   - "Pull over safely if possible. Help is coming."
@@ -251,8 +251,8 @@ User activates SOS (or auto-escalation after countdown)
     ├── T+0s: safety_incidents record created (type: sos_rider or sos_driver)
     ├── T+0s: Audio recording begins (encrypted, stored to secure bucket)
     ├── T+0s: All trusted contacts receive SMS:
-    │         "🔴 BidRide Safety Alert: [Name] has activated emergency help.
-    │          Live location: https://safe.bidride.com/t/[token]
+    │         "🔴 BidiRide Safety Alert: [Name] has activated emergency help.
+    │          Live location: https://safe.bidiride.com/t/[token]
     │          This link updates in real time."
     ├── T+0s: Safety Admin dashboard receives P0 alert:
     │         - Audio ping on all online admin screens
@@ -301,7 +301,7 @@ Trigger: Hold both Volume Up + Volume Down for 3 seconds
 Fallback: If the app is backgrounded and does not intercept:
     → iOS: Native Emergency SOS (hold side button) — always available
     → Android: Emergency SOS (hold power button) — always available
-    → BidRide cannot disable native emergency functions
+    → BidiRide cannot disable native emergency functions
 ```
 
 ---
@@ -314,15 +314,15 @@ Every active trip generates a live location link. The link is:
 - Created at trip match (RS-009a / D-19 state)
 - Token-based — does not expose trip ID or user identity
 - Updated every 5 seconds with new GPS coordinates
-- Accessible without login — emergency contacts do not need a BidRide account
+- Accessible without login — emergency contacts do not need a BidiRide account
 - Automatically expires when the trip reaches a terminal state (completed, cancelled, or SOS resolved)
 
 ### 5.2 Trip Link Token Format
 
 ```
-URL:     https://safe.bidride.com/t/{token}
+URL:     https://safe.bidiride.com/t/{token}
 Token:   32-character cryptographically random string
-Example: https://safe.bidride.com/t/f7x2k9mq3r8p1nv6yw4j5ct0bhe
+Example: https://safe.bidiride.com/t/f7x2k9mq3r8p1nv6yw4j5ct0bhe
 
 Token properties:
   - UUID v4 base, re-encoded to URL-safe characters
@@ -335,10 +335,10 @@ Token properties:
 
 ```
 ╔══════════════════════════════════════════════════════════════════╗
-║  safe.bidride.com/t/{token}                                      ║
+║  safe.bidiride.com/t/{token}                                      ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║                                                                  ║
-║  BidRide  🛡  Trip Safety View                                   ║
+║  BidiRide  🛡  Trip Safety View                                   ║
 ║                                                                  ║
 ║  ╔════════════════════════════════════════════╗                  ║
 ║  ║                                            ║                  ║
@@ -348,7 +348,7 @@ Token properties:
 ║  ║                                            ║                  ║
 ║  ╚════════════════════════════════════════════╝                  ║
 ║                                                                  ║
-║  James R. is on a BidRide                                        ║
+║  James R. is on a BidiRide                                        ║
 ║  (First name + last initial only — privacy)                      ║
 ║                                                                  ║
 ║  Est. arrival: 14 min                                            ║
@@ -360,9 +360,9 @@ Token properties:
 ║                                                                  ║
 ║  ─────────────────────────────                                   ║
 ║  Concerned? Call them directly or dial 911.                      ║
-║  BidRide safety: 1-800-BID-SAFE                                  ║
+║  BidiRide safety: 1-800-BID-SAFE                                  ║
 ║                                                                  ║
-║  Powered by BidRide Safety Shield                                ║
+║  Powered by BidiRide Safety Shield                                ║
 ╚══════════════════════════════════════════════════════════════════╝
 ```
 
@@ -433,34 +433,34 @@ Driver emergency contacts are a new addition (resolving Gap G-02).
 
 **Trip start (if auto-share enabled):**
 ```
-BidRide 🛡: [Name] just started a ride.
-Live location: https://safe.bidride.com/t/[token]
+BidiRide 🛡: [Name] just started a ride.
+Live location: https://safe.bidiride.com/t/[token]
 Reply STOP to opt out of future notifications.
 ```
 
 **SOS activated:**
 ```
-🔴 BidRide SAFETY ALERT: [Name] has activated emergency help.
-Live location (updating in real time): https://safe.bidride.com/t/[token]
+🔴 BidiRide SAFETY ALERT: [Name] has activated emergency help.
+Live location (updating in real time): https://safe.bidiride.com/t/[token]
 If you cannot reach them, call 911.
-BidRide Safety: 1-800-BID-SAFE
+BidiRide Safety: 1-800-BID-SAFE
 ```
 
 **Trip ended safely:**
 ```
-BidRide ✓: [Name] has arrived at their destination safely.
+BidiRide ✓: [Name] has arrived at their destination safely.
 The live location link is no longer active.
 ```
 
 **SOS resolved (user confirmed safe):**
 ```
-BidRide ✓: Update — [Name] has confirmed they are safe.
+BidiRide ✓: Update — [Name] has confirmed they are safe.
 Thank you for being there for them.
 ```
 
 ### 6.5 Contact Opt-Out
 
-Emergency contacts can reply STOP to opt out of BidRide trip notifications. The user is notified when a contact opts out, so they can update their contacts list. Opted-out contacts are retained in the list but flagged as opted-out — they will still receive SOS messages (safety override).
+Emergency contacts can reply STOP to opt out of BidiRide trip notifications. The user is notified when a contact opts out, so they can update their contacts list. Opted-out contacts are retained in the list but flagged as opted-out — they will still receive SOS messages (safety override).
 
 ---
 
@@ -468,7 +468,7 @@ Emergency contacts can reply STOP to opt out of BidRide trip notifications. The 
 
 ### 7.1 Recording Policy
 
-**Audio recording in BidRide Safety Shield activates only when SOS is triggered.**
+**Audio recording in BidiRide Safety Shield activates only when SOS is triggered.**
 
 This is a deliberate policy decision:
 
@@ -485,7 +485,7 @@ This is a deliberate policy decision:
 - Users are also shown a notification on the SOS Active screen ("Audio recording has started for your safety")
 
 **State law note for expansion:**
-All-party consent states (e.g., California, Florida, Pennsylvania) require all parties to consent. As BidRide expands, the legal team must determine whether SOS-triggered recording under emergency doctrine satisfies consent requirements in each state. This is a Phase 3 legal review item.
+All-party consent states (e.g., California, Florida, Pennsylvania) require all parties to consent. As BidiRide expands, the legal team must determine whether SOS-triggered recording under emergency doctrine satisfies consent requirements in each state. This is a Phase 3 legal review item.
 
 ### 7.2 Recording Activation
 
@@ -512,7 +512,7 @@ Storage:
     → AWS S3 bucket (dedicated safety-recordings bucket)
     → Bucket is private — no public access
     → Server-side encryption: AES-256 (SSE-S3)
-    → Separate from all other BidRide data buckets
+    → Separate from all other BidiRide data buckets
 
 Retention:
     → Incident open: recording retained until incident closed + 90 days
@@ -555,7 +555,7 @@ See Database Schema Section 16.4 (`safety_recordings`).
 
 Driver Panic Mode is a discreet emergency escalation for situations where:
 - The driver feels unsafe but cannot visibly press SOS (rider is present and may react)
-- The driver wants to alert BidRide without alarming the rider
+- The driver wants to alert BidiRide without alarming the rider
 - The driver needs a silent check: "Is someone watching this trip right now?"
 
 ### 8.2 Activation Method
@@ -592,7 +592,7 @@ Driver activates Panic Mode
     │         - SLA timer: 3 minutes to first admin action
     ├── T+0s: Driver trusted contacts receive discreet SMS:
     │         (Only if driver has trusted contacts configured)
-    │         "BidRide check-in: [Name] is on a trip and wanted you to know.
+    │         "BidiRide check-in: [Name] is on a trip and wanted you to know.
     │          Live location: [link]"
     │         (No "panic" or "emergency" language — rider may see the notification)
     ├── T+30s: Admin sends discreet in-app message to DRIVER only:
@@ -670,7 +670,7 @@ Rider activates Panic Mode
     │         - "Rider has signaled distress — approach with caution"
     │         - SLA: 3 minutes
     ├── T+30s: Admin sends discreet in-app notification to RIDER only:
-    │         "Quick BidRide check: Is everything going well?
+    │         "Quick BidiRide check: Is everything going well?
     │          Tap ✓ for Yes or ✗ for No"
     │         (Looks like a standard ride update notification)
     ├── Rider responds:
@@ -730,7 +730,7 @@ Trip completes (driver taps End Trip)
                              If no response in 10 more minutes → admin soft alert
                 [Night ride] → Admin soft alert immediately (no second notification)
                              + Trusted contacts receive:
-                               "BidRide check-in: [Name]'s ride ended. We're checking in."
+                               "BidiRide check-in: [Name]'s ride ended. We're checking in."
 ```
 
 ### 10.3 Check-In Flow — Driver (Post-Trip at Night)
@@ -844,7 +844,7 @@ Resolves Gap G-03 from gap analysis. This screen appears on the rider's device d
 ║  [Bottom sheet — appears over in-ride map]                      ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║                                                                  ║
-║  🛡  BidRide Safety Check                                        ║
+║  🛡  BidiRide Safety Check                                        ║
 ║  type-h3 / text-primary                                          ║
 ║                                                                  ║
 ║  We noticed something unexpected on your route.                 ║
@@ -892,7 +892,7 @@ When the trip state moves to SOFT_ALERT or MODERATE_ALERT due to a route deviati
 ║  [Persistent chip — top of in-ride map]                         ║
 ║  ┌──────────────────────────────────────┐                       ║
 ║  │  ◈  Your route has changed.          │                       ║
-║  │     BidRide is monitoring your trip. │                       ║
+║  │     BidiRide is monitoring your trip. │                       ║
 ║  └──────────────────────────────────────┘                       ║
 ║  bg: #00272A (info-bg)  border-left: 3px teal                   ║
 ║  Dismissible (×) — dismissing does not cancel monitoring        ║
@@ -907,7 +907,7 @@ When the trip state moves to SOFT_ALERT or MODERATE_ALERT due to a route deviati
 ║  🛡  Route Check                                                 ║
 ║                                                                  ║
 ║  Your route has changed significantly.                          ║
-║  A BidRide safety agent has been notified.                      ║
+║  A BidiRide safety agent has been notified.                      ║
 ║                                                                  ║
 ║  [ ✓ Everything is fine — I know about this ]                   ║
 ║  [ 🔴 I need help ]  → SOS                                       ║
@@ -985,7 +985,7 @@ These rules apply to any trip where the pickup or destination is within the EWR 
 ║  │  🛡  Airport Safety Reminder                              │  ║
 ║  │  • Only pick up from designated TNC zones                │  ║
 ║  │  • Confirm rider name before they enter the vehicle      │  ║
-║  │  • Your location is being shared with BidRide Safety     │  ║
+║  │  • Your location is being shared with BidiRide Safety     │  ║
 ║  └──────────────────────────────────────────────────────────┘  ║
 ╚══════════════════════════════════════════════════════════════════╝
 ```
@@ -1075,7 +1075,7 @@ SOS activated
     → T+30s: If no acknowledgment: on-call Safety Lead paged (SMS + push)
     → T+90s: SLA breach — Incident flagged for post-incident review
     → T+120s: If still no response: automated escalation to Platform Admin
-    → T+180s: If still no response: BidRide emergency hotline triggered
+    → T+180s: If still no response: BidiRide emergency hotline triggered
 ```
 
 ### 15.3 Admin Actions Available by State
@@ -1509,7 +1509,7 @@ Each SOS card now includes:
 | G-12 · Driver panic mode | ✓ RESOLVED | Section 8 — complete discreet activation, sequence, and admin response |
 | G-13 · Family safety tracking | △ PARTIALLY | Trusted contacts covers the primary use case. Dedicated family account linking (shared live view between family members) deferred to Phase 2 — requires multi-account linking architecture not yet defined |
 | G-14 · Shareable live trip link | ✓ RESOLVED | Section 5 — token format, viewer page wireframe, privacy rules, expiry logic all defined |
-| G-15 · Driver "BidRide Verified" badge | ✓ RESOLVED | Addressed in Trust Score Engine (00c) — Verified badge for drivers covers this |
+| G-15 · Driver "BidiRide Verified" badge | ✓ RESOLVED | Addressed in Trust Score Engine (00c) — Verified badge for drivers covers this |
 
 **Remaining open gaps:** G-05 (EWR PANYNJ compliance — separate spec needed), G-06 (insurance periods — defined here for UI but legal spec outstanding), G-09 partial, G-16–G-21, G-22–G-30.
 
@@ -1541,5 +1541,5 @@ Each SOS card now includes:
 
 ---
 
-*BidRide Safety Shield System — Confidential*
+*BidiRide Safety Shield System — Confidential*
 *Delaware LLC — All rights reserved*

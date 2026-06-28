@@ -1,4 +1,4 @@
-# BidRide — Driver App UI v1.0 · Part 1: Onboarding
+# BidiRide — Driver App UI v1.0 · Part 1: Onboarding
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 06-A of 10 (Driver App — Part 1 of 4)
@@ -88,7 +88,7 @@ All driver screens apply these rules. No exceptions.
 ║                                          ║
 ║                                          ║
 ║                                          ║
-║              BidRide                     ║
+║              BidiRide                     ║
 ║         type-display / text-teal         ║
 ║                                          ║
 ║            for Drivers                   ║
@@ -121,7 +121,7 @@ All driver screens apply these rules. No exceptions.
 
 ### DS-002 · Driver Value Prop Carousel
 
-**Purpose:** Communicate BidRide's four driver-specific promises before asking for any information. Sets expectations for earnings, flexibility, safety, and AI support.
+**Purpose:** Communicate BidiRide's four driver-specific promises before asking for any information. Sets expectations for earnings, flexibility, safety, and AI support.
 
 ```
 ╔══════════════════════════════════════════╗
@@ -142,7 +142,7 @@ All driver screens apply these rules. No exceptions.
 ║       You Keep More.                     ║
 ║       type-h1 / text-primary             ║
 ║                                          ║
-║  BidRide AI guarantees you take home     ║
+║  BidiRide AI guarantees you take home     ║
 ║  70–80% of every fare. Always.           ║
 ║  type-body / text-secondary / centered   ║
 ║                                          ║
@@ -163,7 +163,7 @@ All driver screens apply these rules. No exceptions.
 
 | Slide | Headline | Subtext | Illustration concept |
 |---|---|---|---|
-| 1 | You Keep More. | BidRide AI guarantees 70–80% of every fare. Always. | Driver + gold earnings card |
+| 1 | You Keep More. | BidiRide AI guarantees 70–80% of every fare. Always. | Driver + gold earnings card |
 | 2 | Drive on Your Schedule. | Go online when you want. Go offline when you don't. Zero penalties. | Driver with phone toggle |
 | 3 | Safety on Every Ride. | SOS, live monitoring, trusted contacts — we watch every trip. | Shield icon, safety features |
 | 4 | AI That Works for You. | Surge predictions, airport queues, demand heatmaps — built for drivers. | Phone with demand heatmap |
@@ -182,7 +182,7 @@ All driver screens apply these rules. No exceptions.
 ║  9:41                           ███ ███  ║
 ╠══════════════════════════════════════════╣
 ║                                          ║
-║          BidRide for Drivers             ║
+║          BidiRide for Drivers             ║
 ║          type-h2 / text-primary          ║
 ║                                          ║
 ║  ┌──────────────────┬──────────────────┐ ║
@@ -213,7 +213,7 @@ All driver screens apply these rules. No exceptions.
 ║  [ Continue ]  Primary button            ║
 ║                                          ║
 ║  Already approved?  Drive in NJ?         ║
-║  Apply online at bidride.com/drive       ║
+║  Apply online at bidiride.com/drive       ║
 ║  text-caption / text-muted               ║
 ╚══════════════════════════════════════════╝
 ```
@@ -331,7 +331,7 @@ All driver screens apply these rules. No exceptions.
 
 **Auto-submit:** As soon as the 6th digit is entered, form auto-submits. No manual "Confirm" button needed.
 
-**SMS content:** "Your BidRide driver verification code is: 847291. Expires in 5 minutes. Do not share this code."
+**SMS content:** "Your BidiRide driver verification code is: 847291. Expires in 5 minutes. Do not share this code."
 
 ---
 
@@ -378,7 +378,7 @@ All driver screens apply these rules. No exceptions.
 **Behavior:**
 - "I'll verify later" → advances to DS-006 (Personal Info) with a persistent yellow banner: "Verify your email to continue document submission"
 - Email verified in background (driver clicked link in another app) → banner clears automatically, deep link returns driver to correct step
-- Email deep link format: `bidride.com/driver/verify-email?token=xxxxx`
+- Email deep link format: `bidiride.com/driver/verify-email?token=xxxxx`
 
 ---
 
@@ -438,13 +438,13 @@ All driver screens apply these rules. No exceptions.
 | Field | Rule |
 |---|---|
 | First / Last Name | Letters, hyphens, apostrophes only. Must match license (validated later). |
-| Date of Birth | Must be ≥ 21 years old (NJ TNC minimum). If under 21: show "BidRide drivers must be at least 21 years old in New Jersey." |
+| Date of Birth | Must be ≥ 21 years old (NJ TNC minimum). If under 21: show "BidiRide drivers must be at least 21 years old in New Jersey." |
 | Address | Valid US address, ZIP validated against USPS |
 | State | Pre-selected to NJ for Newark launch; other states shown but flagged as "Coming soon — not yet available" |
 
 **Edge Cases:**
-- Under-21 applicant: cannot proceed — shown a polite rejection message and a "Notify me when BidRide launches in my area" email capture
-- Address entered outside NJ: shown "BidRide is currently live in Newark, NJ. We'll notify you when we expand to [state]."
+- Under-21 applicant: cannot proceed — shown a polite rejection message and a "Notify me when BidiRide launches in my area" email capture
+- Address entered outside NJ: shown "BidiRide is currently live in Newark, NJ. We'll notify you when we expand to [state]."
 
 ---
 
@@ -523,7 +523,7 @@ All driver screens apply these rules. No exceptions.
 
 ### DS-008 · License AI Review State
 
-**Purpose:** Show the driver that BidRide's AI is reviewing their license. Confirm the extracted data before proceeding.
+**Purpose:** Show the driver that BidiRide's AI is reviewing their license. Confirm the extracted data before proceeding.
 
 ```
 ╔══════════════════════════════════════════╗
@@ -609,7 +609,7 @@ All driver screens apply these rules. No exceptions.
 ║       Background Check                   ║
 ║       type-h2 / text-primary             ║
 ║                                          ║
-║  BidRide partners with [Checkr] to run   ║
+║  BidiRide partners with [Checkr] to run   ║
 ║  a standard background check. This is   ║
 ║  required for all drivers.               ║
 ║  type-body / text-secondary              ║
@@ -634,7 +634,7 @@ All driver screens apply these rules. No exceptions.
 ║  bg-secondary / text-secondary           ║
 ║                                          ║
 ║  ☐  I consent to a background check     ║
-║     and authorize BidRide and Checkr    ║
+║     and authorize BidiRide and Checkr    ║
 ║     to access my records.               ║
 ║                                          ║
 ║  [ Read Full Disclosure ]               ║
@@ -666,7 +666,7 @@ All driver screens apply these rules. No exceptions.
 | Clear | Auto-advance to document review queue — admin approves |
 | Consider (MVR issues) | Admin manual review required — driver notified it may take longer |
 | Adverse action | Admin reviews, driver notified with adverse action letter per FCRA |
-| Dispute | Driver may dispute with Checkr — BidRide holds application |
+| Dispute | Driver may dispute with Checkr — BidiRide holds application |
 
 ---
 
@@ -709,7 +709,7 @@ All driver screens apply these rules. No exceptions.
 ║  │  TNC. Some policies require a    │    ║
 ║  │  rideshare endorsement.          │    ║
 ║  │                                  │    ║
-║  │  BidRide provides coverage       │    ║
+║  │  BidiRide provides coverage       │    ║
 ║  │  during Period 2 & 3.            │    ║
 ║  │  [ Learn more ]  text-teal link  │    ║
 ║  └──────────────────────────────────┘    ║
@@ -730,8 +730,8 @@ All driver screens apply these rules. No exceptions.
 | Period | When | Coverage Provider |
 |---|---|---|
 | Period 1 | App on, no ride accepted | Driver's personal insurance |
-| Period 2 | Ride accepted → pickup | BidRide commercial policy |
-| Period 3 | Passenger in vehicle | BidRide commercial policy |
+| Period 2 | Ride accepted → pickup | BidiRide commercial policy |
+| Period 3 | Passenger in vehicle | BidiRide commercial policy |
 | Off | App off | Driver's personal insurance |
 
 **AI Insurance Extraction:** AI reads the uploaded document and extracts:
@@ -798,7 +798,7 @@ All driver screens apply these rules. No exceptions.
 **After registration upload — vehicle details are extracted and shown for confirmation (same pattern as DS-008).**
 
 **Ineligible vehicles:**
-- 2-door vehicles → "BidRide requires a 4-door vehicle for passenger safety"
+- 2-door vehicles → "BidiRide requires a 4-door vehicle for passenger safety"
 - Commercial vehicles, trucks → "This vehicle type is not eligible"
 - Model year before 2008 → "Your vehicle must be 2008 or newer"
 - Salvage title → "Vehicles with salvage titles are not eligible"
@@ -843,9 +843,9 @@ All driver screens apply these rules. No exceptions.
 ║  └────────────────────────────────────┘  ║
 ║                                          ║
 ║  Ride Types This Vehicle Qualifies For:  ║
-║  ✓ BidRide Standard                     ║
-║  ✗ BidRide Priority (need 2019+)        ║
-║  ✗ BidRide Premium (separate approval)  ║
+║  ✓ BidiRide Standard                     ║
+║  ✗ BidiRide Priority (need 2019+)        ║
+║  ✗ BidiRide Premium (separate approval)  ║
 ║  text-caption / green / muted            ║
 ║                                          ║
 ║  [ Confirm & Continue ]                  ║
@@ -1170,7 +1170,7 @@ All driver screens apply these rules. No exceptions.
 **Components:** C-019 (Form Input), C-021 (Radio Group), C-001 (Primary Button)
 
 **Stripe integration:**
-- BidRide never stores raw bank account numbers — passed directly to Stripe via Stripe.js tokenization
+- BidiRide never stores raw bank account numbers — passed directly to Stripe via Stripe.js tokenization
 - Stripe performs micro-deposit verification: two small deposits (< $1.00) within 1–2 business days
 - Driver must verify by entering the exact deposit amounts before first payout is released
 
@@ -1250,7 +1250,7 @@ All driver screens apply these rules. No exceptions.
 | Declined | ✗ Red | Application rejected — reason provided |
 
 **"Action required" flow:**
-- Push notification + email: "Action required on your BidRide application"
+- Push notification + email: "Action required on your BidiRide application"
 - Driver opens app → DS-017 shows the specific issue with a CTA to resolve it
 - Example: "Your insurance document was unclear — please re-upload a clearer photo"
 - Driver corrects → admin re-reviews
@@ -1273,7 +1273,7 @@ All driver screens apply these rules. No exceptions.
 ║         🎉                               ║
 ║         (celebration animation)          ║
 ║                                          ║
-║       Welcome to BidRide!               ║
+║       Welcome to BidiRide!               ║
 ║       type-display / text-teal           ║
 ║                                          ║
 ║  You're approved. Time to earn.          ║
@@ -1294,7 +1294,7 @@ All driver screens apply these rules. No exceptions.
 ║                                          ║
 ║  Vehicle: 2021 Toyota Camry · Silver     ║
 ║  Plate: NJA-1234                         ║
-║  Eligible: BidRide Standard              ║
+║  Eligible: BidiRide Standard              ║
 ║  text-body / text-secondary              ║
 ║                                          ║
 ║  ──────────────────────────────────      ║
@@ -1533,5 +1533,5 @@ GET  /driver/application/status
 
 ---
 
-*BidRide Driver App UI — Part 1 of 4 — Confidential*
+*BidiRide Driver App UI — Part 1 of 4 — Confidential*
 *Delaware LLC — All rights reserved*

@@ -1,4 +1,4 @@
-// BidRide Design System — Rider App
+// BidiRide Design System — Rider App
 export const Colors = {
   background: '#0A2342',     // Deep Navy — primary background
   surface: '#0F2D55',        // Slightly lighter surface

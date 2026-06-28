@@ -119,7 +119,7 @@ export default function DocumentUploadScreen({ navigation }: Props) {
         <Text style={styles.step}>Step 2 of 6</Text>
         <Text style={styles.title}>Upload Documents</Text>
         <Text style={styles.subtitle}>
-          All documents are securely stored and encrypted. They are only reviewed by BidRide staff.
+          All documents are securely stored and encrypted. They are only reviewed by BidiRide staff.
         </Text>
       </View>
 

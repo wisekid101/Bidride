@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to BidRide are documented in this file.  
+All notable changes to BidiRide are documented in this file.  
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)  
 Versioning: [Semantic Versioning](https://semver.org/)
 
@@ -86,7 +86,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [0.0.0] — Project Inception
 
-- BidRide AI-powered rideshare marketplace founded
+- BidiRide AI-powered rideshare marketplace founded
 - Delaware LLC registered
 - Launch market: Newark, NJ (EWR airport focus)
 - Driver-first economics: 70–80% take-home target

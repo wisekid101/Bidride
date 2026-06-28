@@ -86,7 +86,7 @@ export default function BankAccountScreen({ navigation }: Props) {
         <View style={styles.securityNote}>
           <Shield size={16} color={Colors.textTertiary} />
           <Text style={styles.securityText}>
-            Your banking information is processed directly by Stripe and is never stored on BidRide
+            Your banking information is processed directly by Stripe and is never stored on BidiRide
             servers.
           </Text>
         </View>

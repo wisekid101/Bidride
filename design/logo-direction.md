@@ -5,7 +5,7 @@
 ## Direction Questions
 - Should the logo incorporate motion, a vehicle, or something abstract?
 - Word mark only, icon only, or combination?
-- What does "BidRide" communicate visually — the bid, the ride, or both?
+- What does "BidiRide" communicate visually — the bid, the ride, or both?
 
 ## Notes
 - Logo must work at small sizes (app icon: 1024x1024px down to 29x29px)

@@ -114,11 +114,11 @@ NJ ABC Test requires all three:
 - Driver must opt-in to each roster — they are not assigned.
 - Driver can decline any corporate trip without penalty.
 - Corporate client sets a preferred pool, not a guaranteed assignment.
-- Platform (BidRide) remains the contracting party — corporate client is a customer of BidRide, not employer of drivers.
+- Platform (BidiRide) remains the contracting party — corporate client is a customer of BidiRide, not employer of drivers.
 
 ### 14.3 FCRA Compliance
 
-No new background check triggers are introduced by these features. Existing FCRA adverse action letter flow (notification-service) is unchanged. Corporate roster addition does not trigger a new background check — driver is already approved by BidRide.
+No new background check triggers are introduced by these features. Existing FCRA adverse action letter flow (notification-service) is unchanged. Corporate roster addition does not trigger a new background check — driver is already approved by BidiRide.
 
 ### 14.4 NJ Consumer Fraud Act
 
@@ -196,18 +196,18 @@ These are **Phase 2** deliverables — MVP launches with PDF only.
 
 ### 16.2 Data Processing Agreement (DPA)
 
-Corporate accounts processing employee trip data requires a signed DPA (GDPR Article 28 / CCPA §1798.100). BidRide is the data processor; the corporate client is the data controller for employee records.
+Corporate accounts processing employee trip data requires a signed DPA (GDPR Article 28 / CCPA §1798.100). BidiRide is the data processor; the corporate client is the data controller for employee records.
 
 DPA must specify:
 - What trip data corporate admin can access (zone-level, not GPS trace)
-- Retention period (BidRide retains 7 years per FCRA; corporate export copies are client's responsibility)
+- Retention period (BidiRide retains 7 years per FCRA; corporate export copies are client's responsibility)
 - Sub-processor disclosure (Stripe, AWS, Twilio)
 
 DPA acceptance must be a required step in corporate account activation — enforced by `CorporateAccount.founderApproved` gate.
 
 ### 16.3 Minimum Monthly Commitment — Securities Note
 
-The $500/month minimum commitment with net-30 invoicing creates a receivable. If corporate accounts exceed 10 clients, BidRide may need to evaluate whether the receivables portfolio requires any additional financial reporting. **Flag for accountant review at 10 corporate accounts.**
+The $500/month minimum commitment with net-30 invoicing creates a receivable. If corporate accounts exceed 10 clients, BidiRide may need to evaluate whether the receivables portfolio requires any additional financial reporting. **Flag for accountant review at 10 corporate accounts.**
 
 ---
 
@@ -253,7 +253,7 @@ Pro and Elite drivers pay lower platform fees (15% / 10% vs. 20%). This reduces 
 
 ### 17.4 Investor Narrative
 
-Subscription model transforms BidRide from a pure transaction marketplace into a **SaaS + marketplace hybrid**:
+Subscription model transforms BidiRide from a pure transaction marketplace into a **SaaS + marketplace hybrid**:
 - Predictable MRR independent of trip volume
 - Driver NPS improvement from investment in their success (Business Center)
 - Corporate accounts provide enterprise sales motion and reference customers
@@ -270,7 +270,7 @@ Ship with core platform. Relationship features launch **after** 500 completed tr
 | Feature | MVP Scope | Excluded from MVP |
 |---------|----------|------------------|
 | Preferred Driver Network | Full — add/remove preferred, 45s exclusive window | — |
-| BidRide Connect | Request + accept + direct booking | Connect calendar (Phase 2) |
+| BidiRide Connect | Request + accept + direct booking | Connect calendar (Phase 2) |
 | Driver Following | Follow/unfollow, online notification | Follower analytics dashboard (Phase 2) |
 | Driver Subscription Plans | All 3 tiers, Stripe billing, tier badge | — |
 | Driver Business Center | Earnings detail, CSV export, performance screen | Tax summary, airport analytics, Connect calendar |
@@ -308,7 +308,7 @@ Core Platform (Live)
       │
       ├── Preferred Driver Network ──────────────────────────────┐
       │         │                                                │
-      ├── BidRide Connect ← (requires ≥1 shared trip)           │
+      ├── BidiRide Connect ← (requires ≥1 shared trip)           │
       │         │                                                │
       ├── Driver Following                                       │
       │         │                                                ▼

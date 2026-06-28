@@ -95,7 +95,7 @@ export function PhoneAuthScreen() {
     >
       <View style={styles.inner}>
         {/* Logo */}
-        <Text style={styles.logo}>BidRide</Text>
+        <Text style={styles.logo}>BidiRide</Text>
         <Text style={styles.tagline}>AI-powered rides. Fair prices. Fast.</Text>
 
         {phase === 'phone' && (

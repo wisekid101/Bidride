@@ -1,4 +1,4 @@
-# BidRide — Driver App UI v1.0 · Part 4: Safety, Profile, Rewards & Flow Diagrams
+# BidiRide — Driver App UI v1.0 · Part 4: Safety, Profile, Rewards & Flow Diagrams
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 06-D of 10 · Part 4 of 4
@@ -158,7 +158,7 @@
 ║  type-label / text-teal / uppercase      ║
 ║  ┌──────────────────────────────────┐    ║
 ║  │  ● 2021 Toyota Camry · Silver    │    ║
-║  │  NJA-1234  ·  BidRide Standard  │    ║
+║  │  NJA-1234  ·  BidiRide Standard  │    ║
 ║  │  Inspection: ✓ Valid (Jun 2027)  │    ║
 ║  │  Insurance:  ✓ Valid (Dec 2026)  │    ║
 ║  │  [ View Documents ]              │    ║
@@ -188,7 +188,7 @@
 ║  9:41  🏅 Rewards               ███      ║
 ╠══════════════════════════════════════════╣
 ║                                          ║
-║  BidRide Driver Milestones               ║
+║  BidiRide Driver Milestones               ║
 ║  type-h2 / text-primary                  ║
 ║                                          ║
 ║  YOUR PROGRESS                           ║
@@ -273,7 +273,7 @@
 ║  [ Delete Account ]    text-red link     ║
 ║  (confirmation + 30-day hold required)   ║
 ║                                          ║
-║  App version: 1.0.0 · BidRide for Drivers║
+║  App version: 1.0.0 · BidiRide for Drivers║
 ║  text-caption / text-muted               ║
 ╚══════════════════════════════════════════╝
 ```
@@ -393,7 +393,7 @@
 ║  CONTACT                                 ║
 ║  📞  1-800-BID-SAFE  (safety only)      ║
 ║  💬  In-app chat  (2 min avg response)  ║
-║  📧  driver-support@bidride.com          ║
+║  📧  driver-support@bidiride.com          ║
 ║  text-secondary / type-body              ║
 ╚══════════════════════════════════════════╝
 ```
@@ -589,4 +589,4 @@ Part 1 (DS-001–018): Onboarding · Part 2 (DS-019–028): Home, Requests, Trip
 
 ---
 
-*BidRide Driver App UI — Part 4 of 4 — COMPLETE — Confidential · Delaware LLC*
+*BidiRide Driver App UI — Part 4 of 4 — COMPLETE — Confidential · Delaware LLC*

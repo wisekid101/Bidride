@@ -87,7 +87,7 @@ export class NotificationService {
 
     await this.ses
       .sendEmail({
-        Source: `BidRide <${this.fromEmail}>`,
+        Source: `BidiRide <${this.fromEmail}>`,
         Destination: { ToAddresses: [payload.to] },
         Message: {
           Subject: { Data: payload.subject, Charset: 'UTF-8' },
@@ -132,7 +132,7 @@ export class NotificationService {
   async notifySosTrustedContact(phone: string, riderName: string, tripId: string): Promise<void> {
     await this.sendSms({
       to: phone,
-      body: `BidRide Safety Alert: ${riderName} has activated an emergency SOS during a ride. They are being assisted. Trip ID: ${tripId.slice(0, 8)}`,
+      body: `BidiRide Safety Alert: ${riderName} has activated an emergency SOS during a ride. They are being assisted. Trip ID: ${tripId.slice(0, 8)}`,
     });
   }
 
@@ -157,7 +157,7 @@ export class NotificationService {
     await this.fcm.send({
       token: pushToken,
       title: 'Earnings Floor Activated',
-      body: `BidRide added $${supplement.toFixed(2)} — your guaranteed take-home: $${totalEarnings.toFixed(2)}`,
+      body: `BidiRide added $${supplement.toFixed(2)} — your guaranteed take-home: $${totalEarnings.toFixed(2)}`,
       data: { type: 'FLOOR_SUPPLEMENT' },
     });
   }
@@ -170,7 +170,7 @@ export class NotificationService {
   ): Promise<void> {
     await this.sendEmail({
       to: email,
-      subject: `Your BidRide payout: $${amount.toFixed(2)}`,
+      subject: `Your BidiRide payout: $${amount.toFixed(2)}`,
       htmlBody: `
         <h2>Hi ${driverName},</h2>
         <p>Your weekly payout of <strong style="font-size:24px">$${amount.toFixed(2)}</strong> has been sent.</p>
@@ -189,7 +189,7 @@ export class NotificationService {
   ): Promise<void> {
     await this.sendEmail({
       to: email,
-      subject: 'Important: BidRide Driver Application — Decision Notice',
+      subject: 'Important: BidiRide Driver Application — Decision Notice',
       htmlBody: `
         <h2>Dear ${driverName},</h2>
         <p>We have reviewed your driver application and, based in whole or in part on information in a consumer report, we are unable to approve your application at this time.</p>

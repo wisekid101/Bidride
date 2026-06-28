@@ -51,7 +51,7 @@ export class OtpService {
     await this.twilio.messages.create({
       to: phone,
       from: this.config.getOrThrow('TWILIO_PHONE_NUMBER'),
-      body: `Your BidRide verification code is ${code}. Expires in 5 minutes.`,
+      body: `Your BidiRide verification code is ${code}. Expires in 5 minutes.`,
     });
   }
 

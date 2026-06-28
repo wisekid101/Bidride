@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-BidRide — AI-powered rideshare marketplace. Delaware LLC. Launch market: Newark, NJ (EWR airport focus).
+BidiRide — AI-powered rideshare marketplace. Delaware LLC. Launch market: Newark, NJ (EWR airport focus).
 
 ## Monorepo Structure
 

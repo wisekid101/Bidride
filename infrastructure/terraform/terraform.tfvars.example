@@ -1,4 +1,4 @@
-# BidRide — Terraform Variable Reference
+# BidiRide — Terraform Variable Reference
 # Copy to terraform.tfvars and fill in real values before running terraform apply.
 # terraform.tfvars must NEVER be committed to git.
 
@@ -7,7 +7,7 @@ aws_region  = "us-east-1"
 environment = "production"   # or "staging"
 
 # ─── Domain & TLS ─────────────────────────────────────────────────────────────
-domain_name = "api.bidride.com"
+domain_name = "api.bidiride.com"
 
 # If the ACM cert already exists in us-east-1, paste its ARN here.
 # Leave empty to have Terraform look it up by domain_name.

@@ -1,9 +1,9 @@
-# BidRide API Architecture
+# BidiRide API Architecture
 
 > **Status: DRAFT — Awaiting founder approval before development begins**
 > **Last updated: 2026-06-24**
 > **Style: REST + WebSocket (Socket.io)**
-> **Base URL: `https://api.bidride.com/v1`**
+> **Base URL: `https://api.bidiride.com/v1`**
 
 ---
 
@@ -174,7 +174,7 @@ Action:       POST   /v1/rides/{rideId}/cancel
   "phone": "+19735551234",
   "email": "rider@example.com",
   "full_name": "Jane Smith",
-  "profile_photo_url": "https://cdn.bidride.com/photos/...",
+  "profile_photo_url": "https://cdn.bidiride.com/photos/...",
   "average_rating": 4.85,
   "member_since": "2026-06-24"
 }
@@ -272,7 +272,7 @@ Action:       POST   /v1/rides/{rideId}/cancel
   "client_secret": "seti_xxx_secret_xxx"
 }
 ```
-*Client uses this secret with Stripe SDK to tokenize the card — card number never touches BidRide servers.*
+*Client uses this secret with Stripe SDK to tokenize the card — card number never touches BidiRide servers.*
 
 ### Trip History & Receipts
 
@@ -314,7 +314,7 @@ Action:       POST   /v1/rides/{rideId}/cancel
   "upload_fields": { ... }
 }
 ```
-*Driver uploads directly to S3 using this presigned URL — never through BidRide's server.*
+*Driver uploads directly to S3 using this presigned URL — never through BidiRide's server.*
 
 ### Driver Profile
 
@@ -365,7 +365,7 @@ Action:       POST   /v1/rides/{rideId}/cancel
 
 ## 6. Bid Flow Endpoints
 
-The bid flow is the core differentiator of BidRide. These endpoints handle the full negotiation lifecycle.
+The bid flow is the core differentiator of BidiRide. These endpoints handle the full negotiation lifecycle.
 
 ### Submit a Bid (Rider)
 
@@ -585,11 +585,11 @@ All admin endpoints require `[ADMIN]` role. Served from same API but separate ro
 
 ## 10. WebSocket Event Reference
 
-**Connection:** `wss://api.bidride.com/socket`
+**Connection:** `wss://api.bidiride.com/socket`
 
 **Authentication:** Pass JWT in connection handshake:
 ```javascript
-const socket = io('wss://api.bidride.com', {
+const socket = io('wss://api.bidiride.com', {
   auth: { token: accessToken }
 });
 ```

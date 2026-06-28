@@ -1,4 +1,4 @@
-# BidRide — Technical Architecture v1.0 · Part 4: AI Architecture
+# BidiRide — Technical Architecture v1.0 · Part 4: AI Architecture
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 08-D · Part 4 of 5
@@ -7,7 +7,7 @@
 
 ## AI System Overview
 
-BidRide operates five AI engines, each with a distinct purpose and data boundary:
+BidiRide operates five AI engines, each with a distinct purpose and data boundary:
 
 | Engine | Purpose | Hosting | Latency Target |
 |---|---|---|---|
@@ -297,4 +297,4 @@ State changes are published to Redis Pub/Sub → Admin WebSocket channel in real
 
 ---
 
-*BidRide Technical Architecture — Part 4 of 5 — Confidential · Delaware LLC*
+*BidiRide Technical Architecture — Part 4 of 5 — Confidential · Delaware LLC*

@@ -107,7 +107,7 @@ export class DispatchService {
     });
 
     void this.pushToRiderByTrip(tripId, 'Trip complete!',
-      `Your fare: $${finalFare.toFixed(2)}. Thank you for riding with BidRide.`,
+      `Your fare: $${finalFare.toFixed(2)}. Thank you for riding with BidiRide.`,
       { type: 'TRIP_COMPLETED', tripId, finalFare: String(finalFare) },
     );
 
@@ -120,7 +120,7 @@ export class DispatchService {
       });
 
       void this.pushToDriverByTrip(tripId, 'Earnings Floor Activated',
-        `BidRide added $${floorResult.supplement.toFixed(2)} — your take-home: $${floorResult.totalDriverEarnings.toFixed(2)}`,
+        `BidiRide added $${floorResult.supplement.toFixed(2)} — your take-home: $${floorResult.totalDriverEarnings.toFixed(2)}`,
         { type: 'FLOOR_SUPPLEMENT', tripId },
       );
     }

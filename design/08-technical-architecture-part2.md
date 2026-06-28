@@ -1,4 +1,4 @@
-# BidRide — Technical Architecture v1.0 · Part 2: Database Architecture
+# BidiRide — Technical Architecture v1.0 · Part 2: Database Architecture
 
 **Status:** Draft — Pending Founder Approval
 **Document:** 08-B · Part 2 of 5
@@ -414,4 +414,4 @@ Partitioning benefits: query performance on date-range analytics; faster purge o
 
 ---
 
-*BidRide Technical Architecture — Part 2 of 5 — Confidential · Delaware LLC*
+*BidiRide Technical Architecture — Part 2 of 5 — Confidential · Delaware LLC*

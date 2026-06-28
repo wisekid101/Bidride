@@ -1,4 +1,4 @@
-# BidRide — Deployment Sequence
+# BidiRide — Deployment Sequence
 ## Part 3 of 3: Environments · Feature Flags · Rollback · Launch Checklist
 
 **Status:** FOUNDER APPROVED — 2026-06-07
@@ -55,7 +55,7 @@ Step 3 — Staging deploy (auto on merge to staging)
     a. Run DB migrations (additive only)
     b. Build Docker image → push to ECR
     c. Update ECS service → wait services-stable
-    d. Smoke tests: curl staging-api.bidride.com/v1/health
+    d. Smoke tests: curl staging-api.bidiride.com/v1/health
     e. Safety smoke: SOS endpoint responds correctly
 
 Step 4 — Staging QA
@@ -101,7 +101,7 @@ Feature flags allow features to be deployed but not yet activated. Used for:
 |----------|------|---------|---------|
 | `preferred_driver_enabled` | boolean | false | Preferred Driver Network — all layers |
 | `following_enabled` | boolean | false | Driver Following feature |
-| `connect_enabled` | boolean | false | BidRide Connect request + direct booking |
+| `connect_enabled` | boolean | false | BidiRide Connect request + direct booking |
 | `business_center_enabled` | boolean | false | Business Center screens |
 | `corporate_enabled` | boolean | false | Corporate Preferred Driver Program |
 | `subscriptions_enabled` | boolean | false | Driver Subscription Plans |
@@ -146,7 +146,7 @@ If a service is misbehaving post-deploy:
 
 ### 5.2 Database Rollback (Additive Schema Only)
 
-BidRide uses additive migrations only. "Rolling back" a migration means:
+BidiRide uses additive migrations only. "Rolling back" a migration means:
 
 ```
 1. New columns: set to nullable or with default → safe to leave in place
@@ -197,7 +197,7 @@ Day 2:  Run DB migrations (all tables) in production — additive, no data yet
 Day 3:  Seed production: Founder admin account only (no demo data)
 Day 4:  Deploy all 13 services (11 existing + relationship + corporate)
 Day 5:  End-to-end smoke test on production with real Stripe test key
-Day 6:  DNS cutover: api.bidride.com, admin.bidride.com
+Day 6:  DNS cutover: api.bidiride.com, admin.bidiride.com
 Day 7:  Load test production (50 concurrent simulated trips)
 ```
 

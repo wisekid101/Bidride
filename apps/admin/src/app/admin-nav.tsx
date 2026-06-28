@@ -51,7 +51,7 @@ export function AdminNav() {
     <aside className="fixed inset-y-0 left-0 w-56 bg-card border-r border-border flex flex-col z-40">
       {/* Brand */}
       <div className="px-4 py-5 border-b border-border">
-        <span className="text-base font-bold text-teal-400">BidRide</span>
+        <span className="text-base font-bold text-teal-400">BidiRide</span>
         <span className="ml-1.5 text-xs text-muted-foreground font-medium uppercase tracking-widest">
           Admin
         </span>

@@ -19,7 +19,7 @@ export default function WelcomeScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.logoSection}>
-          <Text style={styles.logoText}>BidRide</Text>
+          <Text style={styles.logoText}>BidiRide</Text>
           <Text style={styles.tagline}>Drive. Earn. Thrive.</Text>
         </View>
 

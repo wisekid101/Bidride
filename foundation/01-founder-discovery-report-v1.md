@@ -1,4 +1,4 @@
-# BidRide — Founder Discovery Report v1.0
+# BidiRide — Founder Discovery Report v1.0
 
 **Status:** APPROVED — LOCKED
 **Approved by:** Marq Brown, Founder
@@ -11,9 +11,9 @@
 
 ## 1. Founding Story
 
-BidRide was founded on a simple observation: rideshare platforms have broken the promise they made to both drivers and riders. Drivers are underpaid. Riders are overcharged. Surge pricing is opaque. Commissions are exploitative. The platform extracts value from both sides to fund its own growth.
+BidiRide was founded on a simple observation: rideshare platforms have broken the promise they made to both drivers and riders. Drivers are underpaid. Riders are overcharged. Surge pricing is opaque. Commissions are exploitative. The platform extracts value from both sides to fund its own growth.
 
-Marq Brown founded BidRide to correct this. The core belief: a smarter marketplace — one powered by genuine AI-driven efficiency rather than artificial scarcity — can pay drivers more and charge riders less simultaneously. The company does not need to exploit either party to be profitable. It needs to be smarter than the competition.
+Marq Brown founded BidiRide to correct this. The core belief: a smarter marketplace — one powered by genuine AI-driven efficiency rather than artificial scarcity — can pay drivers more and charge riders less simultaneously. The company does not need to exploit either party to be profitable. It needs to be smarter than the competition.
 
 ---
 
@@ -21,7 +21,7 @@ Marq Brown founded BidRide to correct this. The core belief: a smarter marketpla
 
 | Field | Detail |
 |---|---|
-| Company Name | BidRide |
+| Company Name | BidiRide |
 | Legal Entity | Delaware LLC |
 | Headquarters | New Jersey |
 | Launch Market | Newark, NJ (EWR focus) |
@@ -46,11 +46,11 @@ Marq Brown founded BidRide to correct this. The core belief: a smarter marketpla
 
 ## 4. Vision
 
-BidRide's long-term vision is not to become another Uber or Lyft.
+BidiRide's long-term vision is not to become another Uber or Lyft.
 
 The vision is to become **the world's smartest transportation marketplace** — a platform where AI continuously optimizes pricing, matching, driver earnings, and rider savings simultaneously. Where drivers build real income. Where riders trust the price they see. Where the platform earns by being efficient, not by being extractive.
 
-The ultimate destination: **BidRide AI Mobility Platform** — a full transportation intelligence network spanning passengers, cargo, freight, and corporate mobility.
+The ultimate destination: **BidiRide AI Mobility Platform** — a full transportation intelligence network spanning passengers, cargo, freight, and corporate mobility.
 
 ---
 
@@ -78,7 +78,7 @@ The following areas remain under permanent founder authority. No investor, execu
 
 ---
 
-## 7. Non-Negotiables — What BidRide Will Never Do
+## 7. Non-Negotiables — What BidiRide Will Never Do
 
 - Exploit drivers
 - Hide pricing from riders
@@ -95,7 +95,7 @@ These cannot be overridden by investors, growth targets, competitive pressure, o
 
 ## 8. The Five Decision Tests
 
-Every major BidRide decision must pass all five:
+Every major BidiRide decision must pass all five:
 
 1. **Is it good for riders?**
 2. **Is it good for drivers?**
@@ -161,7 +161,7 @@ If the answer to any question is **no**, the decision is rejected.
 
 ---
 
-## 12. BidRide Rewards — Rider Loyalty Program
+## 12. BidiRide Rewards — Rider Loyalty Program
 
 **Points earned for:**
 
@@ -174,7 +174,7 @@ If the answer to any question is **no**, the decision is rejected.
 
 **Points redeemed for:** Free rides, ride discounts, premium vehicle upgrades, priority pickup access.
 
-**Status Tiers:** Silver → Gold → Platinum → BidRide Elite
+**Status Tiers:** Silver → Gold → Platinum → BidiRide Elite
 
 Each tier unlocks progressively greater benefits. Rewards are funded from platform commission revenue — never from driver earnings.
 
@@ -182,11 +182,11 @@ Each tier unlocks progressively greater benefits. Rewards are funded from platfo
 
 ## 13. Pricing Model and Marketplace Mechanics
 
-> BidRide is not primarily a bidding platform. The default experience is AI-generated fare recommendation. Bidding is an optional power feature, not the standard workflow.
+> BidiRide is not primarily a bidding platform. The default experience is AI-generated fare recommendation. Bidding is an optional power feature, not the standard workflow.
 
 **Default Ride Flow:**
 1. Rider enters pickup and destination
-2. BidRide AI generates a recommended fare
+2. BidiRide AI generates a recommended fare
 3. Rider selects: Accept / Offer lower fare / Request priority pickup / Select premium vehicle
 4. Driver selects: Accept / Decline / Counter-offer (within AI-enforced bounds)
 5. AI manages marketplace balance throughout
@@ -210,17 +210,17 @@ Each tier unlocks progressively greater benefits. Rewards are funded from platfo
 | Volume | More completed rides = more total revenue |
 | AI Efficiency Gains | Fewer empty miles, better matching, lower cancellations |
 | Priority / Premium Options | Optional rider upgrades |
-| Future: BidRide Business | Corporate account fees |
-| Future: BidRide Delivery | Delivery marketplace commission |
-| Future: BidRide Freight | Freight matching commission |
+| Future: BidiRide Business | Corporate account fees |
+| Future: BidiRide Delivery | Delivery marketplace commission |
+| Future: BidiRide Freight | Freight matching commission |
 
-BidRide will never monetize user data, artificial surge, hidden fees, or driver earnings suppression.
+BidiRide will never monetize user data, artificial surge, hidden fees, or driver earnings suppression.
 
 ---
 
 ## 15. AI Strategy
 
-> BidRide AI is not a feature. It is the operating system of the marketplace.
+> BidiRide AI is not a feature. It is the operating system of the marketplace.
 
 **AI Optimization Mandate — simultaneous optimization of:**
 - Pricing (fair to riders, protective of drivers)
@@ -259,7 +259,7 @@ More Rides
             → Higher Driver Satisfaction
                 → More Drivers Join
                     → Faster Pickups
-                        → More Riders Choose BidRide
+                        → More Riders Choose BidiRide
                             → More Rides
 ```
 
@@ -317,7 +317,7 @@ Safety is a core pillar — not a product feature. No growth target overrides a 
 | Cloud Infrastructure | AWS |
 | AI / ML Layer | Multi-engine marketplace intelligence system |
 
-**App Strategy:** Two dedicated apps (BidRide Rider / BidRide Driver) sharing a single backend. Built from day one to support millions of rides per month.
+**App Strategy:** Two dedicated apps (BidiRide Rider / BidiRide Driver) sharing a single backend. Built from day one to support millions of rides per month.
 
 ---
 
@@ -337,13 +337,13 @@ Safety is a core pillar — not a product feature. No growth target overrides a 
 
 | Phase | Product | Description |
 |---|---|---|
-| Phase 1 | BidRide | Passenger transportation (core) |
-| Phase 2 | BidRide Business | Corporate transportation and managed travel |
-| Phase 3 | BidRide Delivery | Package and last-mile delivery marketplace |
-| Phase 4 | BidRide Freight | Commercial freight matching and logistics |
-| Phase 5 | BidRide AI Mobility Platform | Full AI transportation intelligence network |
+| Phase 1 | BidiRide | Passenger transportation (core) |
+| Phase 2 | BidiRide Business | Corporate transportation and managed travel |
+| Phase 3 | BidiRide Delivery | Package and last-mile delivery marketplace |
+| Phase 4 | BidiRide Freight | Commercial freight matching and logistics |
+| Phase 5 | BidiRide AI Mobility Platform | Full AI transportation intelligence network |
 
-**BidRide Business Features:** Employee ride accounts, monthly billing, expense tracking, airport transportation, executive transportation, company travel dashboards.
+**BidiRide Business Features:** Employee ride accounts, monthly billing, expense tracking, airport transportation, executive transportation, company travel dashboards.
 
 ---
 
@@ -394,7 +394,7 @@ Must be completed before any public launch:
 
 ## 23. Competitive Position
 
-| Factor | Uber | Lyft | BidRide |
+| Factor | Uber | Lyft | BidiRide |
 |---|---|---|---|
 | Driver Payout | ~70–75% | ~70–75% | 70–80% (AI-enforced floor) |
 | Pricing Model | Centralized, opaque | Centralized, opaque | AI marketplace, transparent |
@@ -405,7 +405,7 @@ Must be completed before any public launch:
 | Safety | Reactive | Reactive | Proactive AI + live monitoring |
 | AI Role | Operations support | Operations support | Core marketplace OS |
 
-**BidRide's Moat:** AI pricing intelligence · Driver-first economics (structural) · Transparent marketplace · Instant payouts (no fee) · Compounding data flywheel · Trust as identity
+**BidiRide's Moat:** AI pricing intelligence · Driver-first economics (structural) · Transparent marketplace · Instant payouts (no fee) · Compounding data flywheel · Trust as identity
 
 ---
 
