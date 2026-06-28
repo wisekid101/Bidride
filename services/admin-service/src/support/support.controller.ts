@@ -8,6 +8,7 @@ import {
   Query,
   UseGuards,
   Request,
+  Headers,
   ForbiddenException,
 } from '@nestjs/common';
 import {
@@ -18,30 +19,39 @@ import {
   TicketPriority,
 } from './support.service';
 import { AdminSessionGuard } from '../auth/admin-session.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 interface AuthRequest extends Request {
   adminUser: { id: string; role: string };
   ip: string;
 }
 
-// ─── User-facing (rider / driver) ─────────────────────────────────────────────
+// ─── User-facing (rider / driver) — requires valid user JWT ──────────────────
 
+@UseGuards(JwtAuthGuard)
 @Controller('support/tickets')
 export class UserTicketController {
   constructor(private readonly support: SupportService) {}
 
   @Post()
-  create(@Body() dto: CreateTicketDto) {
-    return this.support.createTicket(dto);
+  create(
+    @Headers('x-user-id') requesterId: string,
+    @Body() dto: CreateTicketDto,
+  ) {
+    // Override userId from JWT — prevents spoofing via request body
+    return this.support.createTicket({ ...dto, userId: requesterId });
   }
 
-  @Get('user/:userId')
-  getUserTickets(@Param('userId') userId: string) {
+  @Get('mine')
+  getUserTickets(@Headers('x-user-id') userId: string) {
     return this.support.getUserTickets(userId);
   }
 
-  @Get(':id/user/:userId')
-  getUserTicket(@Param('id') id: string, @Param('userId') userId: string) {
+  @Get(':id')
+  getUserTicket(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId: string,
+  ) {
     return this.support.getUserTicket(id, userId);
   }
 }

@@ -23,8 +23,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
-    throw Object.assign(new Error(error?.error?.message ?? 'API error'), {
-      code: error?.error?.code,
+    throw Object.assign(new Error(error?.error?.message ?? error?.message ?? 'API error'), {
+      code: error?.error?.code ?? error?.code,
       status: response.status,
     });
   }

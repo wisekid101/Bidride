@@ -88,9 +88,17 @@ export function IncomingRequestScreen({
     try {
       await api.post(`/bids/${bidId}/accept`, {});
       onAccepted();
-      navigation.navigate('NavigatingToPickup', { tripId });
+      navigation.navigate('navigating-to-pickup', {
+        tripId,
+        pickupAddress,
+        dropoffAddress,
+        driverTakeHome: driverTakeHome.toString(),
+      });
     } catch (err: any) {
-      if (err.code === 'BID_ALREADY_CLAIMED') {
+      if (err.code === 'ACCOUNT_UNDER_REVIEW') {
+        Alert.alert('Account Under Review', 'Your account is under safety review. Please contact support.');
+        onDeclined();
+      } else if (err.code === 'BID_ALREADY_CLAIMED') {
         Alert.alert('Too slow', 'Another driver accepted this bid first.');
         onDeclined();
       } else {

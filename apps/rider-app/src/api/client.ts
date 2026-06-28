@@ -28,8 +28,8 @@ async function request<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
-    throw Object.assign(new Error(error?.error?.message ?? 'API error'), {
-      code: error?.error?.code,
+    throw Object.assign(new Error(error?.error?.message ?? error?.message ?? 'API error'), {
+      code: error?.error?.code ?? error?.code,
       status: response.status,
     });
   }
@@ -64,5 +64,7 @@ export const api = {
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
+  patch: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };

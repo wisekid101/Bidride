@@ -72,7 +72,7 @@ export function PhoneAuthScreen() {
       await setTokens(result.access_token, result.refresh_token, result.user.id);
 
       if (result.user.isNew) {
-        navigation.replace('ProfileSetup');
+        navigation.replace('profile-setup');
       } else {
         navigation.replace('Home');
       }

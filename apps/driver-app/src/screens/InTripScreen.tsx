@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
+import { useDriverSocketStore } from '../store/socket.store';
 
 interface InTripProps {
   tripId: string;
@@ -51,8 +52,7 @@ export function InTripScreen({
         { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 15 },
         (pos) => {
           setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          api.post('/driver/location', { lat: pos.coords.latitude, lng: pos.coords.longitude })
-            .catch(() => {});
+          useDriverSocketStore.getState().emitLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.heading ?? undefined, tripId);
         },
       );
     })();
