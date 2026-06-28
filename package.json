@@ -13,6 +13,7 @@
     "db:migrate": "pnpm --filter @bidride/database migrate:dev",
     "db:migrate:prod": "pnpm --filter @bidride/database migrate:deploy",
     "db:seed": "pnpm --filter @bidride/database seed",
+    "db:seed:fraud": "pnpm --filter @bidride/database seed:fraud",
     "db:studio": "pnpm --filter @bidride/database studio"
   },
   "workspaces": [

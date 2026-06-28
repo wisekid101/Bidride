@@ -6,6 +6,7 @@
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "seed": "ts-node prisma/seed.ts",
+    "seed:fraud": "ts-node prisma/seed-fraud.ts",
     "studio": "prisma studio",
     "generate": "prisma generate"
   },

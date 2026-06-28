@@ -11,18 +11,20 @@
     "test": "jest --passWithNoTests"
   },
   "dependencies": {
+    "@bidride/database": "workspace:*",
     "@nestjs/common": "^10.3.0",
     "@nestjs/config": "^3.2.0",
     "@nestjs/core": "^10.3.0",
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.3.0",
+    "@nestjs/platform-socket.io": "^10.3.0",
     "@nestjs/throttler": "^5.1.2",
     "@nestjs/websockets": "^10.3.0",
-    "@nestjs/platform-socket.io": "^10.3.0",
-    "@bidride/database": "workspace:*",
+    "@types/helmet": "^4.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "helmet": "^8.2.0",
     "ioredis": "^5.3.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -40,10 +42,16 @@
     "typescript": "^5.4.0"
   },
   "jest": {
-    "moduleFileExtensions": ["js", "json", "ts"],
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
     "rootDir": "src",
     "testRegex": "(?<!integration)\\.spec\\.ts$",
-    "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
     "moduleNameMapper": {
       "^@bidride/database$": "<rootDir>/../../../packages/database/generated/client",
       "^@bidride/database/generated/client$": "<rootDir>/../../../packages/database/generated/client"
