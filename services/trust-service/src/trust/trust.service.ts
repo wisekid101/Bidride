@@ -169,7 +169,7 @@ export class TrustService {
       try {
         const res = await fetch(`${aiServiceUrl}/ai/fraud-score`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
           body: JSON.stringify({ ...inputs, ruleScore }),
           signal: AbortSignal.timeout(3000),
         });

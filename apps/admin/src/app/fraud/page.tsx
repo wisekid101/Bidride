@@ -13,16 +13,31 @@ interface FraudAlert {
   triggerReason: string;
   tripId?: string;
   createdAt: string;
-  status: 'pending' | 'reviewed' | 'cleared';
+  status: 'pending' | 'under_review' | 'cleared' | 'escalated';
   holdActive: boolean;
 }
 
 const FRAUD_THRESHOLD_LABEL = 90;
 
+const STATUS_LABELS: Record<FraudAlert['status'], string> = {
+  pending: 'Pending',
+  under_review: 'Under Review',
+  cleared: 'Cleared',
+  escalated: 'Escalated',
+};
+
+const STATUS_COLORS: Record<FraudAlert['status'], string> = {
+  pending: 'bg-yellow-900/30 text-yellow-400 border-yellow-800',
+  under_review: 'bg-blue-900/30 text-blue-400 border-blue-800',
+  cleared: 'bg-green-900/30 text-green-400 border-green-800',
+  escalated: 'bg-red-900/30 text-red-400 border-red-800',
+};
+
 export default function FraudPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'pending' | 'reviewed'>('pending');
   const [selected, setSelected] = useState<FraudAlert | null>(null);
+  const [reviewNotes, setReviewNotes] = useState('');
 
   const { data: alerts, isLoading } = useQuery<FraudAlert[]>({
     queryKey: ['fraud-alerts', activeTab],
@@ -31,6 +46,12 @@ export default function FraudPage() {
       return res.json();
     },
     refetchInterval: 30000,
+  });
+
+  const markUnderReviewMutation = useMutation({
+    mutationFn: async (alertId: string) => {
+      await fetch(`/api/admin/fraud/${alertId}/mark-under-review`, { method: 'POST' });
+    },
   });
 
   const reviewMutation = useMutation({
@@ -57,7 +78,14 @@ export default function FraudPage() {
     },
   });
 
-  const [reviewNotes, setReviewNotes] = useState('');
+  function openAlert(alert: FraudAlert) {
+    setSelected(alert);
+    setReviewNotes('');
+    // Mark as under review so other admins know it's being handled
+    if (alert.status === 'pending') {
+      markUnderReviewMutation.mutate(alert.id);
+    }
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -118,10 +146,7 @@ export default function FraudPage() {
             <div
               key={alert.id}
               className="flex items-center gap-4 px-4 py-3 hover:bg-secondary/30 cursor-pointer"
-              onClick={() => {
-                setSelected(alert);
-                setReviewNotes('');
-              }}
+              onClick={() => openAlert(alert)}
             >
               {/* Probability badge */}
               <div className="w-14 text-center">
@@ -150,6 +175,11 @@ export default function FraudPage() {
                       Hold Active
                     </span>
                   )}
+                  <span
+                    className={`text-xs px-1.5 py-0.5 rounded border ${STATUS_COLORS[alert.status]}`}
+                  >
+                    {STATUS_LABELS[alert.status]}
+                  </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{alert.triggerReason}</p>
               </div>
@@ -182,6 +212,13 @@ export default function FraudPage() {
                 <p className="text-xs text-muted-foreground">fraud probability</p>
               </div>
             </div>
+
+            {/* Under review indicator */}
+            {selected.status === 'under_review' && (
+              <div className="bg-blue-900/20 border border-blue-800 rounded-xl p-3 text-sm text-blue-400">
+                Marked under review — this alert is being assessed.
+              </div>
+            )}
 
             <div className="bg-secondary/50 rounded-xl p-4 space-y-2">
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
