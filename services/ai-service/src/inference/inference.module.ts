@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { InferenceController } from './inference.controller';
+import { InternalKeyGuard } from '../internal-key.guard';
 import { ModelRegistryService } from '../services/model-registry.service';
 import { FallbackService } from '../services/fallback.service';
 import { InferenceLogService } from '../services/inference-log.service';
@@ -19,6 +20,7 @@ import { BidPredictionModule } from '../bid-prediction/bid-prediction.module';
     ModelHealthService,
     FeatureService,
     PrismaService,
+    InternalKeyGuard,
   ],
 })
 export class InferenceModule {}

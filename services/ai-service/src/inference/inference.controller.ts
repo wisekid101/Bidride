@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Body } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { InternalKeyGuard } from '../internal-key.guard';
 import { randomUUID } from 'node:crypto';
 import { AiResponseEnvelope, ModelHealthMetrics } from '../types';
 import { ModelRegistryService } from '../services/model-registry.service';
@@ -82,6 +83,7 @@ interface DriverEarningsBody {
   driverId?: string;
 }
 
+@UseGuards(InternalKeyGuard)
 @Controller('ai')
 export class InferenceController {
   constructor(
