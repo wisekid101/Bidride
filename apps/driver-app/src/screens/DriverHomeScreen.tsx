@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Heatmap } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { useDriverStore } from '../store/driver.store';
@@ -18,7 +18,6 @@ import { IncomingRequestScreen } from './IncomingRequestScreen';
 import { api } from '../api/client';
 
 export function DriverHomeScreen() {
-  const navigation = useNavigation<any>();
   const { isOnline, todayEarnings, setOnlineStatus } = useDriverStore();
   const { incomingBid, clearIncomingBid, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
   const mapRef = useRef<MapView>(null);
@@ -29,9 +28,9 @@ export function DriverHomeScreen() {
   useEffect(() => {
     if (counterResult?.accepted) {
       clearCounterResult();
-      navigation.navigate('in-trip', {
-        tripId: counterResult.tripId,
-        driverTakeHome: (counterResult.finalFare * 0.80).toString(),
+      router.push({
+        pathname: '/in-trip',
+        params: { tripId: counterResult.tripId, driverTakeHome: (counterResult.finalFare * 0.80).toString() },
       });
     } else if (counterResult && !counterResult.accepted) {
       clearCounterResult();
@@ -125,7 +124,7 @@ export function DriverHomeScreen() {
 
         <TouchableOpacity
           style={styles.airportButton}
-          onPress={() => navigation.navigate('AirportMode')}
+          onPress={() => router.push('/airport-mode')}
         >
           <Ionicons name="airplane" size={18} color={Colors.primary} />
           <Text style={styles.airportButtonText}>EWR Queue</Text>

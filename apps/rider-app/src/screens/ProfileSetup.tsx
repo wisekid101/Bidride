@@ -11,12 +11,11 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 
 export function ProfileSetupScreen() {
-  const navigation = useNavigation<any>();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -36,12 +35,12 @@ export function ProfileSetupScreen() {
       // Profile save is best-effort — still proceed to Home
     } finally {
       setSaving(false);
-      navigation.replace('Home');
+      router.replace('/(tabs)');
     }
   };
 
   const skip = () => {
-    navigation.replace('Home');
+    router.replace('/(tabs)');
   };
 
   return (

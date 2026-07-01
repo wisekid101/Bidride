@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 
@@ -27,7 +27,6 @@ export function NavigatingToPickupScreen({
   dropoffAddress,
   driverTakeHome,
 }: NavigatingToPickupProps) {
-  const navigation = useNavigation<any>();
   const mapRef = useRef<MapView>(null);
   const [marking, setMarking] = useState(false);
 
@@ -35,22 +34,16 @@ export function NavigatingToPickupScreen({
     setMarking(true);
     try {
       await api.post(`/trips/${tripId}/arrived`, {});
-      navigation.navigate('in-trip', {
-        tripId,
-        dropoffAddress,
-        driverTakeHome: driverTakeHome.toString(),
-        riderName: 'Rider',
-        earningsFloorAmount: '0',
+      router.push({
+        pathname: '/in-trip',
+        params: { tripId, dropoffAddress, driverTakeHome: driverTakeHome.toString(), riderName: 'Rider', earningsFloorAmount: '0' },
       });
     } catch (err: any) {
       if (err.code === 'TRIP_INVALID_TRANSITION') {
         Alert.alert('Already marked', 'Trip status was already updated.');
-        navigation.navigate('in-trip', {
-          tripId,
-          dropoffAddress,
-          driverTakeHome: driverTakeHome.toString(),
-          riderName: 'Rider',
-          earningsFloorAmount: '0',
+        router.push({
+          pathname: '/in-trip',
+          params: { tripId, dropoffAddress, driverTakeHome: driverTakeHome.toString(), riderName: 'Rider', earningsFloorAmount: '0' },
         });
       } else {
         Alert.alert('Error', 'Could not mark arrived. Try again.');

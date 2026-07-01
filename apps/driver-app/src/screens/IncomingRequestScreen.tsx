@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 
@@ -48,7 +48,6 @@ export function IncomingRequestScreen({
   onDeclined,
   onCountered,
 }: RequestCardProps) {
-  const navigation = useNavigation<any>();
   const [timeLeft, setTimeLeft] = useState(ACCEPT_WINDOW_SECONDS);
   const timerWidth = useRef(new Animated.Value(1)).current;
   const [loading, setLoading] = useState(false);
@@ -88,11 +87,9 @@ export function IncomingRequestScreen({
     try {
       await api.post(`/bids/${bidId}/accept`, {});
       onAccepted();
-      navigation.navigate('navigating-to-pickup', {
-        tripId,
-        pickupAddress,
-        dropoffAddress,
-        driverTakeHome: driverTakeHome.toString(),
+      router.push({
+        pathname: '/navigating-to-pickup',
+        params: { tripId, pickupAddress, dropoffAddress, driverTakeHome: driverTakeHome.toString() },
       });
     } catch (err: any) {
       if (err.code === 'ACCOUNT_UNDER_REVIEW') {

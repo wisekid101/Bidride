@@ -10,7 +10,7 @@ import {
   Platform,
   SafeAreaView,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
@@ -50,7 +50,6 @@ function AmountDisplay({ value, size = 'large', prefix = '$' }: { value: number;
 }
 
 export function WalletScreen() {
-  const navigation = useNavigation<any>();
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [history, setHistory] = useState<TripEarning[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,7 +118,7 @@ export function WalletScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Wallet</Text>

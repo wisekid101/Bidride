@@ -7,14 +7,10 @@ import {
   SafeAreaView,
   Animated,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { router } from 'expo-router';
 import { Colors } from '../../constants/theme';
 
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-};
-
-export default function OnboardingCompleteScreen({ navigation }: Props) {
+export default function OnboardingCompleteScreen() {
   const scaleAnim = new Animated.Value(0);
   const fadeAnim = new Animated.Value(0);
 
@@ -57,7 +53,7 @@ export default function OnboardingCompleteScreen({ navigation }: Props) {
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.btn}
-          onPress={() => navigation.reset({ index: 0, routes: [{ name: 'DriverHome' }] })}
+          onPress={() => router.replace('/(tabs)')}
         >
           <Text style={styles.btnText}>Go to Dashboard</Text>
         </TouchableOpacity>

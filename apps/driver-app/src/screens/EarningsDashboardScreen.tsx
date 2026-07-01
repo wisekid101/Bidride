@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
@@ -35,7 +35,6 @@ interface TripEarning {
 }
 
 export function EarningsDashboardScreen() {
-  const navigation = useNavigation<any>();
   const [tab, setTab] = useState<Tab>('today');
 
   const { data: summary, isLoading } = useQuery<EarningsSummary>({
@@ -58,11 +57,11 @@ export function EarningsDashboardScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Earnings</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Wallet')}>
+        <TouchableOpacity onPress={() => router.push('/wallet')}>
           <Text style={styles.walletLink}>Wallet</Text>
         </TouchableOpacity>
       </View>
@@ -117,9 +116,7 @@ export function EarningsDashboardScreen() {
                   Added to {summary.floorTriggeredCount} of {summary.trips} trips ({floorRate}% of trips).
                   BidiRide guarantees your minimum earnings.
                 </Text>
-                <TouchableOpacity onPress={() => navigation.navigate('EarningsFloorDetail')}>
-                  <Text style={styles.floorLearnMore}>How the floor works →</Text>
-                </TouchableOpacity>
+                <Text style={styles.floorLearnMore}>How the floor works →</Text>
               </View>
             )}
 

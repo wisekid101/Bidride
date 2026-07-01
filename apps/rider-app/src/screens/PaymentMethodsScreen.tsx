@@ -10,7 +10,7 @@ import {
   Platform,
   SafeAreaView,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useStripe } from '@stripe/stripe-react-native';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
@@ -38,7 +38,6 @@ interface ListResponse {
 }
 
 export function PaymentMethodsScreen() {
-  const navigation = useNavigation<any>();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
@@ -197,17 +196,6 @@ export function PaymentMethodsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Payment Methods</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
       {error && (
         <View style={styles.errorBar}>
           <Text style={styles.errorText}>{error}</Text>

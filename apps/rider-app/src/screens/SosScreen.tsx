@@ -9,7 +9,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
@@ -20,7 +20,6 @@ const COUNTDOWN_SECONDS = 5;
 type SosPhase = 'confirm' | 'countdown' | 'active';
 
 export function SosScreen() {
-  const navigation = useNavigation<any>();
   const { activeTrip } = useTripStore();
   const [phase, setPhase] = useState<SosPhase>('confirm');
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
@@ -91,7 +90,7 @@ export function SosScreen() {
       await api.post(`/safety/sos/${sosId}/cancel`, {}).catch(console.error);
     }
     Vibration.cancel();
-    navigation.goBack();
+    router.back();
   };
 
   return (
@@ -110,7 +109,7 @@ export function SosScreen() {
             </TouchableOpacity>
           </Animated.View>
 
-          <TouchableOpacity style={styles.cancelLink} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.cancelLink} onPress={() => router.back()}>
             <Text style={styles.cancelLinkText}>Cancel · I'm safe</Text>
           </TouchableOpacity>
 
