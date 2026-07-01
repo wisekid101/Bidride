@@ -63,6 +63,7 @@ export class RidersService {
       profilePhotoUrl: user.profilePhotoUrl,
       badge: user.rider.currentBadge ?? 'verified',
       rewardPoints: user.rider.rewardPoints,
+      totalTrips: user.rider.totalTrips,
       savedAddresses: user.rider.savedAddresses,
       createdAt: user.createdAt,
     };

@@ -27,7 +27,7 @@ export class DriversService {
     const driver = await this.prisma.driver.findUnique({
       where: { userId },
       include: {
-        user: { select: { phone: true, email: true, profilePhotoUrl: true } },
+        user: { select: { phone: true, email: true, profilePhotoUrl: true, createdAt: true } },
         vehicles: { where: { isActive: true }, take: 1 },
       },
     });
@@ -49,6 +49,7 @@ export class DriversService {
       avgRating: driver.avgRating,
       isAvailable: driver.isAvailable,
       payoutBankVerified: driver.payoutBankVerified,
+      memberSince: driver.user.createdAt,
     };
   }
 
