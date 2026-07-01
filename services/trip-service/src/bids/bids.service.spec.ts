@@ -624,4 +624,116 @@ describe('BidsService', () => {
       );
     });
   });
+
+  // ── submitBid — response shape and winProbability ─────────────────────────
+
+  describe('submitBid — response shape and winProbability', () => {
+    const submitDto = {
+      pickupLat: 40.6895,
+      pickupLng: -74.1745,
+      dropoffLat: 40.7128,
+      dropoffLng: -74.0060,
+      pickupAddress: '3 Brewster Rd, Newark, NJ',
+      dropoffAddress: '1 World Trade Center, New York, NY',
+      bidAmount: 14.00,
+      paymentMethodId: 'pm_test',
+    };
+
+    const mockTripResult = {
+      id: 'trip-prob-1',
+      pickupLat: 40.6895, pickupLng: -74.1745,
+      dropoffLat: 40.7128, dropoffLng: -74.0060,
+      pickupAddress: '3 Brewster Rd, Newark, NJ',
+      dropoffAddress: '1 World Trade Center, New York, NY',
+      aiFare: 20.00,
+      isAirportTrip: false,
+    };
+    const mockBidResult = {
+      id: 'bid-prob-1',
+      tripId: 'trip-prob-1',
+      riderOffer: 14.00,
+      aiFare: 20.00,
+      status: BidStatus.pending as BidStatus,
+      expiresAt: new Date(Date.now() + 120_000),
+    };
+
+    function setupProbMocks(
+      prisma: ReturnType<typeof makePrisma>,
+      redis: ReturnType<typeof makeRedis>,
+      nearbyLocations: Array<{ lat: number; lng: number }>,
+      bidOverride?: number,
+    ) {
+      prisma.$transaction = jest.fn().mockImplementation(async (fn: any) =>
+        fn({
+          trip: { create: jest.fn().mockResolvedValue(mockTripResult) },
+          bid: { create: jest.fn().mockResolvedValue({ ...mockBidResult, riderOffer: bidOverride ?? 14.00 }) },
+          tripEvent: { create: jest.fn().mockResolvedValue({}) },
+        }),
+      );
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ fare: 20.00 }) } as Response)
+        .mockResolvedValue({ ok: true, json: async () => ({ paymentIntentId: 'pi_prob_hold' }) } as Response);
+
+      redis.keys = jest.fn().mockResolvedValue(
+        nearbyLocations.map((_, i) => `driver:user-prob-${i}:location`),
+      );
+      redis.zrange = jest.fn().mockResolvedValue([]);
+      let callIdx = 0;
+      const locationJson = nearbyLocations.map((loc) => JSON.stringify(loc));
+      redis.get = jest.fn().mockImplementation(() =>
+        Promise.resolve(callIdx < locationJson.length ? locationJson[callIdx++] : 'pi_prob'),
+      );
+    }
+
+    it('returns trip as { id } object — not flat tripId', async () => {
+      const { service, prisma, redis } = await buildService();
+      setupProbMocks(prisma, redis, []);
+
+      const result = await service.submitBid(mockRider.userId, submitDto);
+
+      expect(result.trip).toBeDefined();
+      expect(result.trip.id).toBe('trip-prob-1');
+      expect((result as any).tripId).toBeUndefined();
+    });
+
+    it('clamps winProbability to 0.15 when no nearby drivers', async () => {
+      const { service, prisma, redis } = await buildService();
+      setupProbMocks(prisma, redis, []); // 0 drivers → raw=0, clamped to 0.15
+
+      const result = await service.submitBid(mockRider.userId, submitDto);
+
+      expect(result.winProbability).toBe(0.15);
+    });
+
+    it('clamps winProbability to 0.95 with ≥5 drivers and near-standard bid', async () => {
+      const { service, prisma, redis } = await buildService();
+      // 5 drivers within ~0.5mi; bidAmount=18.50 → ratio=0.925, sqrt≈0.962, raw=1.0*0.962=0.962 → clamped 0.95
+      const fiveNearby = Array.from({ length: 5 }, (_, i) => ({
+        lat: 40.6895 + i * 0.0005,
+        lng: -74.1745,
+      }));
+      setupProbMocks(prisma, redis, fiveNearby, 18.50);
+
+      const result = await service.submitBid(mockRider.userId, { ...submitDto, bidAmount: 18.50 });
+
+      expect(result.winProbability).toBe(0.95);
+    });
+
+    it('winProbability is in [0.15, 0.95] and near 0.50 for 3 drivers at 70% bid ratio', async () => {
+      const { service, prisma, redis } = await buildService();
+      // 3 drivers; bidAmount=14/20=0.70 → sqrt(0.70)≈0.837; raw=(3/5)*0.837≈0.50
+      const threeNearby = [
+        { lat: 40.6900, lng: -74.1750 },
+        { lat: 40.6950, lng: -74.1800 },
+        { lat: 40.6850, lng: -74.1700 },
+      ];
+      setupProbMocks(prisma, redis, threeNearby);
+
+      const result = await service.submitBid(mockRider.userId, submitDto);
+
+      expect(result.winProbability).toBeGreaterThanOrEqual(0.15);
+      expect(result.winProbability).toBeLessThanOrEqual(0.95);
+      expect(result.winProbability).toBeCloseTo(0.50, 1);
+    });
+  });
 });

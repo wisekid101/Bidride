@@ -15,7 +15,6 @@ import { Colors, Fonts, Typography } from '../constants/theme';
 import { api } from '../api/client';
 import { useTripStore } from '../store/trip.store';
 
-// Bid increments offered to rider as quick-select shortcuts
 const BID_INCREMENTS = [-2, -1, 0, 1, 2];
 
 export default function BidRequestScreen() {
@@ -44,6 +43,7 @@ export default function BidRequestScreen() {
   const [bidAmount, setBidAmount] = useState<number>(parseFloat(aiFare ?? '0'));
   const [customInput, setCustomInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [bidResult, setBidResult] = useState<{ winProbability: number } | null>(null);
 
   const minBid = Math.max(5.0, parseFloat(aiFare ?? '0') - 3);
   const maxBid = parseFloat(aiFare ?? '0') + 5;
@@ -82,7 +82,7 @@ export default function BidRequestScreen() {
 
     setLoading(true);
     try {
-      const data = await api.post<{ trip: { id: string } }>('/bids', {
+      const data = await api.post<{ trip: { id: string }; bidId: string; winProbability: number }>('/bids', {
         pickupAddress,
         pickupLat: parseFloat(pickupLat ?? '0'),
         pickupLng: parseFloat(pickupLng ?? '0'),
@@ -108,7 +108,7 @@ export default function BidRequestScreen() {
         driverName: null,
       });
 
-      router.replace('/tracking');
+      setBidResult({ winProbability: data.winProbability });
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Please try again.');
     } finally {
@@ -152,17 +152,66 @@ export default function BidRequestScreen() {
     }
   };
 
+  // ── Bid-submitted confirmation view ──────────────────────────────────────
+  if (bidResult) {
+    const pct = Math.round(bidResult.winProbability * 100);
+    const probColor = pct >= 70 ? Colors.teal : pct >= 50 ? Colors.textPrimary : Colors.textSecondary;
+    const probHint =
+      pct >= 70
+        ? 'Strong offer — drivers are likely to accept'
+        : pct >= 50
+        ? 'Good offer — most drivers will consider this'
+        : 'Low offer — may take longer to match';
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.confirmContent}>
+          <View style={styles.confirmCheck}>
+            <Text style={styles.confirmCheckText}>✓</Text>
+          </View>
+          <Text style={styles.confirmTitle}>Bid Submitted</Text>
+          <Text style={styles.confirmAmount}>${bidAmount.toFixed(2)}</Text>
+
+          <View style={styles.probSection}>
+            <Text style={styles.probLabel}>Match Likelihood</Text>
+            <Text style={[styles.probPct, { color: probColor }]}>{pct}%</Text>
+            <View style={styles.probBarTrack}>
+              <View
+                style={[
+                  styles.probBarFill,
+                  { width: `${pct}%` as any, backgroundColor: probColor },
+                ]}
+              />
+            </View>
+            <Text style={styles.probHint}>{probHint}</Text>
+          </View>
+
+          <Text style={styles.confirmSub}>Searching for nearby drivers...</Text>
+
+          <TouchableOpacity
+            style={styles.watchBtn}
+            onPress={() => router.replace('/tracking')}
+          >
+            <Text style={styles.watchBtnText}>Watch Live</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ── Pre-submit bid selection view ─────────────────────────────────────────
   const saving = bidAmount < parseFloat(aiFare ?? '0');
   const premium = bidAmount > parseFloat(aiFare ?? '0');
 
   const standardFare = parseFloat(aiFare ?? '0');
-  const strengthData = standardFare > 0
-    ? bidAmount >= standardFare
-      ? { label: 'Strong', color: Colors.teal, hint: 'Drivers will prioritize your request' }
-      : bidAmount >= standardFare * 0.93
+  const strengthData =
+    standardFare > 0
+      ? bidAmount >= standardFare
+        ? { label: 'Strong', color: Colors.teal, hint: 'Drivers will prioritize your request' }
+        : bidAmount >= standardFare * 0.93
         ? { label: 'Good', color: Colors.textPrimary, hint: 'Competitive — most drivers will consider this' }
         : { label: 'Low', color: Colors.textSecondary, hint: 'May take longer to match' }
-    : null;
+      : null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -189,7 +238,13 @@ export default function BidRequestScreen() {
         {/* Bid display */}
         <View style={styles.bidDisplay}>
           <Text style={styles.bidLabel}>Your Bid</Text>
-          <Text style={[styles.bidAmount, saving && styles.bidAmountSaving, premium && styles.bidAmountPremium]}>
+          <Text
+            style={[
+              styles.bidAmount,
+              saving && styles.bidAmountSaving,
+              premium && styles.bidAmountPremium,
+            ]}
+          >
             ${bidAmount.toFixed(2)}
           </Text>
           {saving && (
@@ -261,11 +316,7 @@ export default function BidRequestScreen() {
       </View>
 
       <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.submitBtn}
-          onPress={submitBid}
-          disabled={loading}
-        >
+        <TouchableOpacity style={styles.submitBtn} onPress={submitBid} disabled={loading}>
           {loading ? (
             <ActivityIndicator color={Colors.background} />
           ) : (
@@ -283,6 +334,8 @@ export default function BidRequestScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+
+  // ── Pre-submit ──────────────────────────────────────────────────────────
   content: { flex: 1, paddingHorizontal: 24, paddingTop: 24, gap: 24 },
   header: {},
   title: { fontSize: 26, fontWeight: '800', color: Colors.textPrimary, marginBottom: 6 },
@@ -309,12 +362,7 @@ const styles = StyleSheet.create({
   useAiBtnText: { fontSize: 13, fontWeight: '700', color: Colors.background },
   bidDisplay: { alignItems: 'center' },
   bidLabel: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
-  bidAmount: {
-    fontSize: 56,
-    fontFamily: Fonts.mono,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
+  bidAmount: { fontSize: 56, fontFamily: Fonts.mono, fontWeight: '700', color: Colors.textPrimary },
   bidAmountSaving: { color: Colors.teal },
   bidAmountPremium: { color: Colors.gold },
   bidSavings: { fontSize: 13, color: Colors.teal, marginTop: 4 },
@@ -375,4 +423,62 @@ const styles = StyleSheet.create({
   submitBtnText: { fontSize: 17, fontWeight: '700', color: Colors.background },
   cancelBtn: { paddingVertical: 10, alignItems: 'center' },
   cancelBtnText: { fontSize: 15, color: Colors.textSecondary },
+
+  // ── Post-submit confirmation ─────────────────────────────────────────────
+  confirmContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 16,
+  },
+  confirmCheck: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Colors.teal,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  confirmCheckText: { fontSize: 36, color: Colors.background, fontWeight: '800' },
+  confirmTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary },
+  confirmAmount: {
+    fontSize: 48,
+    fontFamily: Fonts.mono,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  probSection: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 16,
+    gap: 8,
+  },
+  probLabel: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  probPct: { fontSize: 36, fontWeight: '800', fontFamily: Fonts.mono },
+  probBarTrack: {
+    height: 8,
+    backgroundColor: Colors.border,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  probBarFill: { height: 8, borderRadius: 4 },
+  probHint: { fontSize: 12, color: Colors.textSecondary, lineHeight: 17 },
+  confirmSub: { fontSize: 14, color: Colors.textSecondary },
+  watchBtn: {
+    backgroundColor: Colors.teal,
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    marginTop: 8,
+  },
+  watchBtnText: { fontSize: 17, fontWeight: '700', color: Colors.background },
 });

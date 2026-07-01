@@ -172,13 +172,19 @@ export class BidsService implements OnModuleInit {
 
     this.logger.log(`Bid ${bid.id} submitted: $${dto.bidAmount} (standard $${standardFare})`);
 
+    // Deterministic win probability: supply × bid competitiveness, clamped [0.15, 0.95]
+    const bidRatio = dto.bidAmount / standardFare;
+    const rawProbability = (nearbyDriverUserIds.length / 5) * Math.pow(bidRatio, 0.5);
+    const winProbability = parseFloat(Math.min(0.95, Math.max(0.15, rawProbability)).toFixed(2));
+
     return {
+      trip: { id: trip.id },
       bidId: bid.id,
-      tripId: trip.id,
       bidAmount: dto.bidAmount,
       standardFare,
       bidFloor,
       expiresAt,
+      winProbability,
     };
   }
 
