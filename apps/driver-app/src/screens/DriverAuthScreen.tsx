@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,7 @@ export function DriverAuthScreen() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
   const otpRef = useRef<TextInput>(null);
 
   const formatPhone = (raw: string): string => {
@@ -48,6 +49,13 @@ export function DriverAuthScreen() {
       await api.post('/auth/send-otp', { phone: e164Phone, role: 'driver' });
       setPhase('otp');
       setTimeout(() => otpRef.current?.focus(), 300);
+      setResendCountdown(30);
+      const interval = setInterval(() => {
+        setResendCountdown((c) => {
+          if (c <= 1) { clearInterval(interval); return 0; }
+          return c - 1;
+        });
+      }, 1000);
     } catch (err: any) {
       if (err.code === 'AUTH_OTP_RATE_LIMITED') {
         Alert.alert('Too many attempts', 'Please wait 10 minutes before requesting a new code.');
@@ -163,9 +171,17 @@ export function DriverAuthScreen() {
                 <Text style={styles.buttonText}>Verify</Text>
               )}
             </TouchableOpacity>
-            <TouchableOpacity style={styles.resendLink} onPress={() => { setPhase('phone'); setOtp(''); }}>
-              <Text style={styles.resendText}>Use a different number</Text>
-            </TouchableOpacity>
+            <View style={styles.resendRow}>
+              <TouchableOpacity onPress={resendCountdown > 0 ? undefined : sendOtp} disabled={resendCountdown > 0}>
+                <Text style={[styles.resendText, resendCountdown > 0 && styles.resendDisabled]}>
+                  {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend code'}
+                </Text>
+              </TouchableOpacity>
+              <Text style={styles.resendSep}> · </Text>
+              <TouchableOpacity onPress={() => { setPhase('phone'); setOtp(''); }}>
+                <Text style={styles.resendText}>Change number</Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </View>
@@ -236,6 +252,8 @@ const styles = StyleSheet.create({
   button: { backgroundColor: Colors.primary, borderRadius: Radius.lg, paddingVertical: 16, alignItems: 'center' },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: Colors.primaryText, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
-  resendLink: { alignItems: 'center', marginTop: Spacing.lg },
+  resendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: Spacing.lg, gap: 4 },
   resendText: { color: Colors.textSecondary, fontSize: Typography.size.sm },
+  resendSep: { color: Colors.textDisabled, fontSize: Typography.size.sm },
+  resendDisabled: { color: Colors.textDisabled },
 });

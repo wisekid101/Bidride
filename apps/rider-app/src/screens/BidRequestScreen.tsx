@@ -9,29 +9,20 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Zap, Info } from 'lucide-react-native';
 import { Colors, Fonts, Typography } from '../constants/theme';
-import { useAuthStore } from '../store/auth.store';
+import { api } from '../api/client';
 import { useTripStore } from '../store/trip.store';
-
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-  route: RouteProp<any>;
-};
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
 // Bid increments offered to rider as quick-select shortcuts
 const BID_INCREMENTS = [-2, -1, 0, 1, 2];
 
-export default function BidRequestScreen({ navigation, route }: Props) {
-  const { accessToken } = useAuthStore();
+export default function BidRequestScreen() {
   const { setActiveTrip } = useTripStore();
 
   const {
-    tripId,
+    paymentMethodId,
     aiFare,
     pickupAddress,
     dropoffAddress,
@@ -39,7 +30,16 @@ export default function BidRequestScreen({ navigation, route }: Props) {
     pickupLng,
     dropoffLat,
     dropoffLng,
-  } = route.params ?? {};
+  } = useLocalSearchParams<{
+    paymentMethodId?: string;
+    aiFare?: string;
+    pickupAddress?: string;
+    dropoffAddress?: string;
+    pickupLat?: string;
+    pickupLng?: string;
+    dropoffLat?: string;
+    dropoffLng?: string;
+  }>();
 
   const [bidAmount, setBidAmount] = useState<number>(parseFloat(aiFare ?? '0'));
   const [customInput, setCustomInput] = useState('');
@@ -68,39 +68,47 @@ export default function BidRequestScreen({ navigation, route }: Props) {
       return;
     }
 
+    if (!paymentMethodId) {
+      Alert.alert(
+        'Payment Method Required',
+        'Please add a payment method before submitting a bid.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Add Card', onPress: () => router.push('/payment-methods') },
+        ],
+      );
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/trips/${tripId}/bid`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ bidAmount }),
+      const data = await api.post<{ trip: { id: string } }>('/bids', {
+        pickupAddress,
+        pickupLat: parseFloat(pickupLat ?? '0'),
+        pickupLng: parseFloat(pickupLng ?? '0'),
+        dropoffAddress,
+        dropoffLat: parseFloat(dropoffLat ?? '0'),
+        dropoffLng: parseFloat(dropoffLng ?? '0'),
+        bidAmount,
+        paymentMethodId,
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message ?? 'Bid failed');
-      }
-
-      const data = await res.json();
       setActiveTrip({
-        id: tripId,
+        id: data.trip.id,
         status: 'searching',
         pickupAddress,
         dropoffAddress,
-        pickupLat,
-        pickupLng,
-        dropoffLat,
-        dropoffLng,
+        pickupLat: parseFloat(pickupLat ?? '0'),
+        pickupLng: parseFloat(pickupLng ?? '0'),
+        dropoffLat: parseFloat(dropoffLat ?? '0'),
+        dropoffLng: parseFloat(dropoffLng ?? '0'),
         finalFare: bidAmount,
-        aiFare,
+        aiFare: parseFloat(aiFare ?? '0'),
         driverLocation: null,
         driverName: null,
       });
 
-      navigation.replace('Tracking', { tripId });
+      router.replace('/tracking');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Please try again.');
     } finally {
@@ -108,32 +116,35 @@ export default function BidRequestScreen({ navigation, route }: Props) {
     }
   };
 
-  const useAiFare = async () => {
+  const handleUseAiFare = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/trips/${tripId}/accept-ai-fare`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
+      const trip = await api.post<{ id: string; aiFare: number }>('/trips', {
+        pickupAddress,
+        pickupLat: parseFloat(pickupLat ?? '0'),
+        pickupLng: parseFloat(pickupLng ?? '0'),
+        dropoffAddress,
+        dropoffLat: parseFloat(dropoffLat ?? '0'),
+        dropoffLng: parseFloat(dropoffLng ?? '0'),
+        rideType: 'standard',
       });
 
-      if (!res.ok) throw new Error('Failed to accept AI fare');
-
       setActiveTrip({
-        id: tripId,
+        id: trip.id,
         status: 'searching',
         pickupAddress,
         dropoffAddress,
-        pickupLat,
-        pickupLng,
-        dropoffLat,
-        dropoffLng,
-        finalFare: parseFloat(aiFare),
-        aiFare,
+        pickupLat: parseFloat(pickupLat ?? '0'),
+        pickupLng: parseFloat(pickupLng ?? '0'),
+        dropoffLat: parseFloat(dropoffLat ?? '0'),
+        dropoffLng: parseFloat(dropoffLng ?? '0'),
+        finalFare: parseFloat(aiFare ?? '0'),
+        aiFare: parseFloat(aiFare ?? '0'),
         driverLocation: null,
         driverName: null,
       });
 
-      navigation.replace('Tracking', { tripId });
+      router.replace('/tracking');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Please try again.');
     } finally {
@@ -170,7 +181,7 @@ export default function BidRequestScreen({ navigation, route }: Props) {
             <Text style={styles.aiFareLabel}>AI Estimated Fare</Text>
             <Text style={styles.aiFareAmount}>${parseFloat(aiFare ?? '0').toFixed(2)}</Text>
           </View>
-          <TouchableOpacity style={styles.useAiBtn} onPress={useAiFare} disabled={loading}>
+          <TouchableOpacity style={styles.useAiBtn} onPress={handleUseAiFare} disabled={loading}>
             <Text style={styles.useAiBtnText}>Use This</Text>
           </TouchableOpacity>
         </View>
@@ -262,7 +273,7 @@ export default function BidRequestScreen({ navigation, route }: Props) {
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.cancelBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
           <Text style={styles.cancelBtnText}>Back</Text>
         </TouchableOpacity>
       </View>

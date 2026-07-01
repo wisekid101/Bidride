@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { useTripStore } from '../store/trip.store';
 import { useSocketStore } from '../store/socket.store';
@@ -25,8 +25,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function TrackingScreen() {
-  const navigation = useNavigation<any>();
-  const { activeTrip, pendingCounter } = useTripStore();
+  const { activeTrip, completedTrip, pendingCounter } = useTripStore();
   const { subscribeToTrip } = useSocketStore();
   const mapRef = useRef<MapView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -52,18 +51,15 @@ export function TrackingScreen() {
     }
   }, [activeTrip?.status]);
 
-  // Trip completion redirect
   useEffect(() => {
-    const { completedTrip } = useTripStore.getState();
     if (completedTrip?.status === 'completed') {
-      navigation.navigate('TripComplete');
+      router.replace('/trip-complete');
+    } else if (!activeTrip) {
+      router.replace('/(tabs)');
     }
-  }, [activeTrip?.status]);
+  }, [activeTrip, completedTrip]);
 
-  if (!activeTrip) {
-    navigation.navigate('Home');
-    return null;
-  }
+  if (!activeTrip) return null;
 
   const driverLocation = activeTrip.driverLocation;
   const statusLabel = STATUS_LABELS[activeTrip.status] ?? activeTrip.status;
@@ -119,8 +115,11 @@ export function TrackingScreen() {
       {/* SOS Button — always visible during trip */}
       <TouchableOpacity
         style={styles.sosButton}
-        onPress={() => navigation.navigate('SOS')}
+        onPress={() => router.push('/sos')}
         activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Emergency SOS"
+        accessibilityHint="Opens emergency safety screen"
       >
         <Text style={styles.sosText}>SOS</Text>
       </TouchableOpacity>

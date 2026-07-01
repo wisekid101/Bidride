@@ -9,18 +9,14 @@ import {
   ActivityIndicator,
   Linking,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Shield, ExternalLink, CheckCircle } from 'lucide-react-native';
 import { Colors } from '../../constants/theme';
 import { useDriverStore } from '../../store/driver.store';
-
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-};
+import { router } from 'expo-router';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
-export default function BankAccountScreen({ navigation }: Props) {
+export default function BankAccountScreen() {
   const { accessToken } = useDriverStore();
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -111,7 +107,7 @@ export default function BankAccountScreen({ navigation }: Props) {
         ) : (
           <TouchableOpacity
             style={styles.continueBtn}
-            onPress={() => navigation.navigate('OnboardingComplete')}
+            onPress={() => router.push('/onboarding/complete')}
           >
             <Text style={styles.continueBtnText}>Finish Setup</Text>
           </TouchableOpacity>

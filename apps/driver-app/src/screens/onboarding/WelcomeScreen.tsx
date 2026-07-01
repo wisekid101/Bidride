@@ -7,14 +7,10 @@ import {
   SafeAreaView,
   Image,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Colors, Typography } from '../../constants/theme';
+import { router } from 'expo-router';
 
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-};
-
-export default function WelcomeScreen({ navigation }: Props) {
+export default function WelcomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
@@ -53,14 +49,14 @@ export default function WelcomeScreen({ navigation }: Props) {
       <View style={styles.actions}>
         <TouchableOpacity
           style={styles.primaryBtn}
-          onPress={() => navigation.navigate('PhoneAuth')}
+          onPress={() => router.push('/onboarding/personal-info')}
         >
           <Text style={styles.primaryBtnText}>Get Started</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.secondaryBtn}
-          onPress={() => navigation.navigate('PhoneAuth')}
+          onPress={() => router.replace('/(auth)')}
         >
           <Text style={styles.secondaryBtnText}>I Already Have an Account</Text>
         </TouchableOpacity>

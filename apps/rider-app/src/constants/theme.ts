@@ -17,8 +17,8 @@ export const Colors = {
   text: '#FFFFFF',           // Primary text on navy
   textPrimary: '#FFFFFF',    // Alias for text
   textSecondary: '#8FA8C8',  // Muted text
-  textTertiary: '#4A6785',   // More muted text
-  textDisabled: '#4A6785',
+  textTertiary: '#6B88A8',   // More muted text — 4.7:1 on navy, passes WCAG AA
+  textDisabled: '#6B88A8',
 
   border: '#1A3A5C',
   separator: '#172E4A',

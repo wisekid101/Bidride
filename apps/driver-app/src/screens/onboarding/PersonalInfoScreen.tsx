@@ -10,17 +10,13 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Colors, Typography } from '../../constants/theme';
 import { useDriverStore } from '../../store/driver.store';
-
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-};
+import { router } from 'expo-router';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
-export default function PersonalInfoScreen({ navigation }: Props) {
+export default function PersonalInfoScreen() {
   const { accessToken } = useDriverStore();
   const [loading, setLoading] = useState(false);
 
@@ -82,7 +78,7 @@ export default function PersonalInfoScreen({ navigation }: Props) {
         throw new Error(data.message ?? 'Submission failed');
       }
 
-      navigation.navigate('DocumentUpload');
+      router.push('/onboarding/document-upload');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Something went wrong. Please try again.');
     } finally {

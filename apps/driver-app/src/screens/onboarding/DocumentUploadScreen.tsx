@@ -8,15 +8,11 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import { CheckCircle, Upload, AlertCircle } from 'lucide-react-native';
 import { Colors } from '../../constants/theme';
 import { useDriverStore } from '../../store/driver.store';
-
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-};
+import { router } from 'expo-router';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
@@ -29,7 +25,7 @@ interface DocItem {
   status: DocStatus;
 }
 
-export default function DocumentUploadScreen({ navigation }: Props) {
+export default function DocumentUploadScreen() {
   const { accessToken } = useDriverStore();
 
   const [docs, setDocs] = useState<DocItem[]>([
@@ -153,7 +149,7 @@ export default function DocumentUploadScreen({ navigation }: Props) {
       <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.continueBtn, !allUploaded && styles.continueBtnDisabled]}
-          onPress={() => navigation.navigate('BackgroundCheck')}
+          onPress={() => router.push('/onboarding/background-check')}
           disabled={!allUploaded}
         >
           <Text style={styles.continueBtnText}>Continue</Text>

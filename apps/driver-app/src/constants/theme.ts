@@ -18,8 +18,8 @@ export const Colors = {
   text: '#FFFFFF',
   textPrimary: '#FFFFFF',
   textSecondary: '#94A3B8',
-  textTertiary: '#64748B',
-  textDisabled: '#4A6785',
+  textTertiary: '#6B88A8',
+  textDisabled: '#6B88A8',
 
   success: '#22C55E',
   warning: '#F59E0B',

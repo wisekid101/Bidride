@@ -9,13 +9,9 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Colors } from '../../constants/theme';
 import { useDriverStore } from '../../store/driver.store';
-
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-};
+import { router } from 'expo-router';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
@@ -32,7 +28,7 @@ The background check will be conducted by an accredited Consumer Reporting Agenc
 
 By authorizing this check, you certify that all information you have provided is accurate and complete.`;
 
-export default function BackgroundCheckScreen({ navigation }: Props) {
+export default function BackgroundCheckScreen() {
   const { accessToken } = useDriverStore();
   const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -56,7 +52,7 @@ export default function BackgroundCheckScreen({ navigation }: Props) {
         throw new Error(data.message ?? 'Request failed');
       }
 
-      navigation.navigate('VehicleInfo');
+      router.push('/onboarding/vehicle-info');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Please try again.');
     } finally {

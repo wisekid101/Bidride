@@ -11,14 +11,9 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Plus, Trash2, UserPlus } from 'lucide-react-native';
 import { Colors } from '../constants/theme';
 import { useAuthStore } from '../store/auth.store';
-
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-};
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
@@ -29,7 +24,7 @@ interface TrustedContact {
   relationship: string;
 }
 
-export default function TrustedContactsScreen({ navigation }: Props) {
+export default function TrustedContactsScreen() {
   const { accessToken } = useAuthStore();
   const [contacts, setContacts] = useState<TrustedContact[]>([]);
   const [loading, setLoading] = useState(true);

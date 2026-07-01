@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { useAuthStore } from '../store/auth.store';
@@ -18,12 +18,13 @@ import { useAuthStore } from '../store/auth.store';
 type AuthPhase = 'phone' | 'otp';
 
 export function PhoneAuthScreen() {
-  const navigation = useNavigation<any>();
+
   const { setTokens } = useAuthStore();
   const [phase, setPhase] = useState<AuthPhase>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
   const otpRef = useRef<TextInput>(null);
 
   const formatPhone = (raw: string): string => {
@@ -47,6 +48,13 @@ export function PhoneAuthScreen() {
       await api.post('/auth/send-otp', { phone: e164Phone, role: 'rider' });
       setPhase('otp');
       setTimeout(() => otpRef.current?.focus(), 300);
+      setResendCountdown(30);
+      const interval = setInterval(() => {
+        setResendCountdown((c) => {
+          if (c <= 1) { clearInterval(interval); return 0; }
+          return c - 1;
+        });
+      }, 1000);
     } catch (err: any) {
       if (err.code === 'AUTH_OTP_RATE_LIMITED') {
         Alert.alert('Too many attempts', 'Please wait 10 minutes before requesting a new code.');
@@ -72,9 +80,9 @@ export function PhoneAuthScreen() {
       await setTokens(result.access_token, result.refresh_token, result.user.id);
 
       if (result.user.isNew) {
-        navigation.replace('profile-setup');
+        router.replace('/profile-setup');
       } else {
-        navigation.replace('Home');
+        router.replace('/(tabs)');
       }
     } catch (err: any) {
       if (err.code === 'AUTH_INVALID_OTP') {
@@ -96,6 +104,7 @@ export function PhoneAuthScreen() {
       <View style={styles.inner}>
         {/* Logo */}
         <Text style={styles.logo}>BidiRide</Text>
+        <Text style={styles.appLabel}>Rider App</Text>
         <Text style={styles.tagline}>AI-powered rides. Fair prices. Fast.</Text>
 
         {phase === 'phone' && (
@@ -118,6 +127,11 @@ export function PhoneAuthScreen() {
               By continuing you agree to our Terms of Service and Privacy Policy.
               We'll send a verification code.
             </Text>
+            {__DEV__ && (
+              <Text style={styles.devNote}>
+                DEV MODE — Code appears in the auth-service terminal log. No SMS is sent.
+              </Text>
+            )}
             <TouchableOpacity
               style={[styles.button, loading && styles.buttonDisabled]}
               onPress={sendOtp}
@@ -165,12 +179,17 @@ export function PhoneAuthScreen() {
                 <Text style={styles.buttonText}>Verify</Text>
               )}
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.resendLink}
-              onPress={() => { setPhase('phone'); setOtp(''); }}
-            >
-              <Text style={styles.resendText}>Use a different number</Text>
-            </TouchableOpacity>
+            <View style={styles.resendRow}>
+              <TouchableOpacity onPress={resendCountdown > 0 ? undefined : sendOtp} disabled={resendCountdown > 0}>
+                <Text style={[styles.resendText, resendCountdown > 0 && styles.resendDisabled]}>
+                  {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend code'}
+                </Text>
+              </TouchableOpacity>
+              <Text style={styles.resendSep}> · </Text>
+              <TouchableOpacity onPress={() => { setPhase('phone'); setOtp(''); }}>
+                <Text style={styles.resendText}>Change number</Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </View>
@@ -188,10 +207,29 @@ const styles = StyleSheet.create({
     letterSpacing: -1,
     marginBottom: Spacing.xs,
   },
+  appLabel: {
+    color: Colors.primary,
+    fontSize: Typography.size.sm,
+    fontWeight: Typography.weight.semibold,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: Spacing.xs,
+  },
   tagline: {
     color: Colors.textSecondary,
     fontSize: Typography.size.base,
     marginBottom: Spacing['3xl'],
+  },
+  devNote: {
+    color: Colors.gold,
+    fontSize: Typography.size.xs,
+    lineHeight: 16,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.gold + '50',
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
   },
   label: {
     color: Colors.text,
@@ -262,6 +300,8 @@ const styles = StyleSheet.create({
     fontSize: Typography.size.md,
     fontWeight: Typography.weight.bold,
   },
-  resendLink: { alignItems: 'center', marginTop: Spacing.lg },
+  resendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: Spacing.lg, gap: 4 },
   resendText: { color: Colors.textSecondary, fontSize: Typography.size.sm },
+  resendSep: { color: Colors.textDisabled, fontSize: Typography.size.sm },
+  resendDisabled: { color: Colors.textDisabled },
 });

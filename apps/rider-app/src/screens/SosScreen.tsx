@@ -8,6 +8,7 @@ import {
   Vibration,
   Platform,
   Alert,
+  Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
@@ -104,7 +105,14 @@ export function SosScreen() {
           </Text>
 
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <TouchableOpacity style={styles.sosCircle} onPress={beginSos} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.sosCircle}
+              onPress={beginSos}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Activate Emergency SOS"
+              accessibilityHint="Double-tap to begin 5-second countdown. Tap Cancel to abort."
+            >
               <Text style={styles.sosCircleText}>SOS</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -114,7 +122,13 @@ export function SosScreen() {
           </TouchableOpacity>
 
           <View style={styles.callRow}>
-            <Text style={styles.orText}>Need to call 911 directly?</Text>
+            <TouchableOpacity
+              onPress={() => Linking.openURL('tel:911')}
+              accessibilityRole="button"
+              accessibilityLabel="Call 911"
+            >
+              <Text style={[styles.orText, styles.callLink]}>Call 911 directly</Text>
+            </TouchableOpacity>
           </View>
         </>
       )}
@@ -122,7 +136,11 @@ export function SosScreen() {
       {phase === 'countdown' && (
         <>
           <Text style={styles.countdownLabel}>SOS activating in</Text>
-          <Animated.Text style={[styles.countdown, { transform: [{ scale: pulseAnim }] }]}>
+          <Animated.Text
+            style={[styles.countdown, { transform: [{ scale: pulseAnim }] }]}
+            accessibilityLiveRegion="assertive"
+            accessibilityLabel={`${countdown} seconds remaining`}
+          >
             {countdown}
           </Animated.Text>
           <TouchableOpacity style={styles.cancelButton} onPress={cancelSos} activeOpacity={0.85}>
@@ -196,6 +214,7 @@ const styles = StyleSheet.create({
   cancelLink: { paddingVertical: Spacing.md },
   cancelLinkText: { color: Colors.textSecondary, fontSize: Typography.size.base },
   orText: { color: Colors.textSecondary, fontSize: Typography.size.sm, textAlign: 'center' },
+  callLink: { color: Colors.safety, textDecorationLine: 'underline' },
   callRow: { marginTop: Spacing.lg },
   countdownLabel: {
     color: Colors.textSecondary,

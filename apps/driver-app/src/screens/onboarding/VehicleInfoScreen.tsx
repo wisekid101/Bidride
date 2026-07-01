@@ -10,13 +10,9 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Colors } from '../../constants/theme';
 import { useDriverStore } from '../../store/driver.store';
-
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-};
+import { router } from 'expo-router';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
@@ -27,7 +23,7 @@ const VEHICLE_CLASSES = [
   { key: 'black', label: 'Black Car', desc: 'Premium black car service' },
 ];
 
-export default function VehicleInfoScreen({ navigation }: Props) {
+export default function VehicleInfoScreen() {
   const { accessToken } = useDriverStore();
   const [loading, setLoading] = useState(false);
   const [vehicleClass, setVehicleClass] = useState('standard');
@@ -82,7 +78,7 @@ export default function VehicleInfoScreen({ navigation }: Props) {
         throw new Error(data.message ?? 'Failed to add vehicle');
       }
 
-      navigation.navigate('BankAccount');
+      router.push('/onboarding/bank-account');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Please try again.');
     } finally {

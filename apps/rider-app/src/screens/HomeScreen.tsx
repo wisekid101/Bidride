@@ -8,10 +8,13 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Dimensions,
 } from 'react-native';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { geocodingApi, ResolvedAddress } from '../api/geocoding';
@@ -29,7 +32,6 @@ interface FareEstimate {
 }
 
 export function HomeScreen() {
-  const navigation = useNavigation<any>();
   const mapRef = useRef<MapView>(null);
   const { activeTrip } = useTripStore();
   const { recentAddresses, homeAddress, workAddress, addRecent } = useAddressStore();
@@ -42,7 +44,8 @@ export function HomeScreen() {
   const [requestingRide, setRequestingRide] = useState(false);
   const [fareError, setFareError] = useState<string | null>(null);
   const [ewrVisible, setEwrVisible] = useState(false);
-  const [hasDefaultPaymentMethod, setHasDefaultPaymentMethod] = useState<boolean | null>(null);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [defaultPaymentMethodId, setDefaultPaymentMethodId] = useState<string | null | undefined>(undefined);
   const pendingEwrAddress = useRef<ResolvedAddress | null>(null);
   const sessionToken = useRef(Math.random().toString(36).slice(2)).current;
 
@@ -50,8 +53,8 @@ export function HomeScreen() {
     api.get<{ paymentMethods: { isDefault: boolean }[]; defaultPaymentMethodId: string | null }>(
       '/riders/me/payment-methods',
     )
-      .then((res) => setHasDefaultPaymentMethod(!!res.defaultPaymentMethodId))
-      .catch(() => setHasDefaultPaymentMethod(false));
+      .then((res) => setDefaultPaymentMethodId(res.defaultPaymentMethodId ?? null))
+      .catch(() => setDefaultPaymentMethodId(null));
   }, []);
 
   useEffect(() => {
@@ -73,7 +76,7 @@ export function HomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (activeTrip) navigation.navigate('Tracking');
+    if (activeTrip) router.push('/tracking');
   }, [activeTrip]);
 
   const getEstimate = async (pickup: ResolvedAddress, dropoff: ResolvedAddress) => {
@@ -127,13 +130,13 @@ export function HomeScreen() {
   const requestRide = async () => {
     if (!pickupResolved || !dropoffResolved || !fareEstimate) return;
 
-    if (!hasDefaultPaymentMethod) {
+    if (!defaultPaymentMethodId) {
       Alert.alert(
         'Payment Method Required',
         'Please add a payment method before requesting a ride.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Add Card', onPress: () => navigation.navigate('PaymentMethods') },
+          { text: 'Add Card', onPress: () => router.push('/payment-methods') },
         ],
       );
       return;
@@ -163,7 +166,7 @@ export function HomeScreen() {
         aiFare: trip.aiFare,
       });
 
-      navigation.navigate('Tracking');
+      router.push('/tracking');
     } catch (err: any) {
       if (err.code === 'ACCOUNT_UNDER_REVIEW') {
         setFareError('Your account is under safety review. Please contact support.');
@@ -218,8 +221,15 @@ export function HomeScreen() {
         </MapView>
       )}
 
-      <View style={styles.bottomSheet}>
-        <View style={styles.pill} />
+      <View style={[styles.bottomSheet, sheetExpanded && styles.bottomSheetExpanded]}>
+        <TouchableOpacity
+          onPress={() => setSheetExpanded((e) => !e)}
+          activeOpacity={1}
+          style={styles.pillWrap}
+          accessibilityLabel={sheetExpanded ? 'Collapse panel' : 'Expand panel'}
+        >
+          <View style={styles.pill} />
+        </TouchableOpacity>
         <Text style={styles.heading}>Where to?</Text>
 
         <ScrollView
@@ -304,7 +314,19 @@ export function HomeScreen() {
 
         <TouchableOpacity
           style={styles.bidButton}
-          onPress={() => navigation.navigate('BidRequest', { fareEstimate })}
+          onPress={() => fareEstimate && pickupResolved && dropoffResolved && router.push({
+            pathname: '/bid-request',
+            params: {
+              aiFare: String(fareEstimate.fare),
+              pickupAddress: pickupResolved.formattedAddress,
+              dropoffAddress: dropoffResolved.formattedAddress,
+              pickupLat: String(pickupResolved.lat),
+              pickupLng: String(pickupResolved.lng),
+              dropoffLat: String(dropoffResolved.lat),
+              dropoffLng: String(dropoffResolved.lng),
+              paymentMethodId: defaultPaymentMethodId ?? '',
+            },
+          })}
           disabled={!fareEstimate}
         >
           <Text style={styles.bidButtonText}>Make an offer instead</Text>
@@ -339,13 +361,19 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 16,
   },
+  pillWrap: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginBottom: Spacing.xs,
+  },
   pill: {
     width: 40,
     height: 4,
     backgroundColor: Colors.border,
     borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: Spacing.md,
+  },
+  bottomSheetExpanded: {
+    maxHeight: SCREEN_HEIGHT * 0.75,
   },
   heading: {
     color: Colors.text,
