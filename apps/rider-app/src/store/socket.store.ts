@@ -34,6 +34,8 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       vehicleModel?: string;
       vehicleColor?: string;
       licensePlate?: string;
+      driverPhotoUrl?: string;
+      estimatedArrival?: string;
     }) => {
       const current = useTripStore.getState().activeTrip;
       if (!current) return;
@@ -46,6 +48,8 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
         vehicleModel: data.vehicleModel,
         vehicleColor: data.vehicleColor,
         licensePlate: data.licensePlate,
+        driverPhotoUrl: data.driverPhotoUrl,
+        estimatedArrival: data.estimatedArrival,
         status: 'accepted',
       });
     });

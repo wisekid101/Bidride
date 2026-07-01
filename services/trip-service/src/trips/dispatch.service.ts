@@ -51,6 +51,8 @@ export class DispatchService {
       vehicleModel?: string;
       vehicleColor?: string;
       licensePlate?: string;
+      driverPhotoUrl?: string;
+      estimatedArrival?: string;
     },
   ): Promise<void> {
     await this.publish(`rider:trip:${tripId}`, {
@@ -63,6 +65,8 @@ export class DispatchService {
       vehicleModel: driverInfo.vehicleModel,
       vehicleColor: driverInfo.vehicleColor,
       licensePlate: driverInfo.licensePlate,
+      driverPhotoUrl: driverInfo.driverPhotoUrl,
+      estimatedArrival: driverInfo.estimatedArrival,
     });
 
     // Push: rider's app may be backgrounded — notify them their driver is assigned

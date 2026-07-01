@@ -156,7 +156,7 @@ export class TripsService {
       where: { id: driver.id },
       include: {
         vehicles: { where: { isActive: true }, take: 1 },
-        user: { select: { firstName: true, lastName: true } },
+        user: { select: { firstName: true, lastName: true, profilePhotoUrl: true } },
       },
     });
 
@@ -168,6 +168,7 @@ export class TripsService {
       vehicleModel: activeVehicle?.model,
       vehicleColor: activeVehicle?.color,
       licensePlate: activeVehicle?.licensePlate,
+      driverPhotoUrl: driverDetail?.user?.profilePhotoUrl ?? undefined,
     });
 
     return updated;

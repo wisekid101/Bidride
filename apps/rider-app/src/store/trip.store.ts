@@ -36,6 +36,7 @@ interface ActiveTrip {
   vehicleColor?: string;
   licensePlate?: string;
   estimatedArrival?: string;
+  driverPhotoUrl?: string;
   driverLocation?: DriverLocation | null;
 }
 
