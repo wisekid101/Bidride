@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { IsNumber, IsString, IsBoolean, IsOptional, Min, Max } from 'class-validator';
 import { FareEngineService } from './fare-engine.service';
@@ -34,5 +34,19 @@ export class PricingController {
     // Returns current surge multiplier for a named zone
     // Reads from Redis cache populated by demand monitoring
     return { area, multiplier: 1.0, cached: true };
+  }
+
+  @Get('demand-zones')
+  @UseGuards(AuthGuard('jwt'))
+  getDemandZones(
+    @Query('lat') lat: string,
+    @Query('lng') lng: string,
+    @Query('radiusMi') radiusMi?: string,
+  ) {
+    return this.fareEngine.getDemandZones(
+      parseFloat(lat),
+      parseFloat(lng),
+      radiusMi !== undefined ? parseFloat(radiusMi) : 5,
+    );
   }
 }

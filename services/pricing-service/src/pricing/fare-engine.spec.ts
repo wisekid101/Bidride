@@ -97,4 +97,60 @@ describe('FareEngineService', () => {
     const r2 = await service.estimateFare(baseInput);
     expect(r1.fare).toBe(r2.fare);
   });
+
+  // ── getDemandZones ─────────────────────────────────────────────────────────
+
+  describe('getDemandZones', () => {
+    beforeEach(() => {
+      mockRedis.mget = jest.fn().mockResolvedValue([]);
+    });
+
+    afterEach(() => {
+      mockRedis.mget = jest.fn().mockResolvedValue([]);
+    });
+
+    it('returns empty points when Redis is undefined', async () => {
+      const noRedisService = new FareEngineService(mockPrisma, undefined);
+      const result = await noRedisService.getDemandZones(40.6895, -74.1745, 5);
+      expect(result.points).toEqual([]);
+      expect(result.generatedAt).toBeDefined();
+    });
+
+    it('returns empty points when all zone keys have no demand', async () => {
+      mockRedis.mget = jest.fn().mockResolvedValue(Array(100).fill(null));
+      const result = await service.getDemandZones(40.6895, -74.1745, 5);
+      expect(result.points).toEqual([]);
+    });
+
+    it('decodes the EWR zone key into a point with correct coordinates and weight', async () => {
+      const ewrLatZone = Math.floor(40.6895 / 0.018); // 2260
+      const ewrLngZone = Math.floor(-74.1745 / 0.022); // -3371
+      const ewrKey = `surge:requests:${ewrLatZone}:${ewrLngZone}`;
+
+      mockRedis.mget = jest.fn().mockImplementation((...keys: string[]) =>
+        Promise.resolve(keys.map((k) => (k === ewrKey ? '12' : null))),
+      );
+
+      const result = await service.getDemandZones(40.6895, -74.1745, 5);
+
+      const hit = result.points.find(
+        (p) => Math.abs(p.latitude - (ewrLatZone + 0.5) * 0.018) < 0.001,
+      );
+      expect(hit).toBeDefined();
+      expect(hit!.weight).toBe(12);
+      expect(hit!.latitude).toBeCloseTo((ewrLatZone + 0.5) * 0.018, 3);
+      expect(hit!.longitude).toBeCloseTo((ewrLngZone + 0.5) * 0.022, 3);
+    });
+
+    it('includes generatedAt as a valid ISO timestamp', async () => {
+      const result = await service.getDemandZones(40.6895, -74.1745, 5);
+      expect(new Date(result.generatedAt).getTime()).not.toBeNaN();
+    });
+
+    it('returns empty points for invalid coordinates (NaN guard)', async () => {
+      const result = await service.getDemandZones(NaN, NaN, 5);
+      expect(result.points).toEqual([]);
+      expect(mockRedis.mget).not.toHaveBeenCalled();
+    });
+  });
 });

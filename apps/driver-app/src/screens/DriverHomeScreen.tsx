@@ -23,6 +23,30 @@ export function DriverHomeScreen() {
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toggling, setToggling] = useState(false);
+  const [heatmapPoints, setHeatmapPoints] = useState<
+    Array<{ latitude: number; longitude: number; weight: number }>
+  >([]);
+
+  // Poll demand heatmap every 30s while online — clears when going offline
+  useEffect(() => {
+    if (!currentLocation || !isOnline) {
+      setHeatmapPoints([]);
+      return;
+    }
+
+    const fetchZones = () => {
+      api
+        .get<{ points: Array<{ latitude: number; longitude: number; weight: number }> }>(
+          `/pricing/demand-zones?lat=${currentLocation.lat}&lng=${currentLocation.lng}&radiusMi=5`,
+        )
+        .then((res) => setHeatmapPoints(res.points))
+        .catch(() => {});
+    };
+
+    fetchZones();
+    const interval = setInterval(fetchZones, 30_000);
+    return () => clearInterval(interval);
+  }, [currentLocation, isOnline]);
 
   // Navigate away when a counter offer is accepted by the rider
   useEffect(() => {
@@ -98,9 +122,8 @@ export function DriverHomeScreen() {
           }}
           customMapStyle={darkMapStyle}
         >
-          {/* Demand heatmap — populated from Redis surge data */}
           <Heatmap
-            points={[]}
+            points={heatmapPoints}
             radius={30}
             gradient={{ colors: ['#00D4C6', '#F4B400', '#EF4444'], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
           />

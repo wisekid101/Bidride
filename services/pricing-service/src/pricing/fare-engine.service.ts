@@ -136,6 +136,61 @@ export class FareEngineService {
     }
   }
 
+  async getDemandZones(
+    lat: number,
+    lng: number,
+    radiusMi = 5,
+  ): Promise<{ points: Array<{ latitude: number; longitude: number; weight: number }>; generatedAt: string }> {
+    if (!this.redis || isNaN(lat) || isNaN(lng)) {
+      return { points: [], generatedAt: new Date().toISOString() };
+    }
+
+    // Bounding box in degrees: 1° lat ≈ 69 mi, 1° lng ≈ 53 mi at 40°N
+    const radiusDegLat = radiusMi / 69.0;
+    const radiusDegLng = radiusMi / 53.0;
+
+    const latMin = Math.floor((lat - radiusDegLat) / 0.018);
+    const latMax = Math.floor((lat + radiusDegLat) / 0.018);
+    const lngMin = Math.floor((lng - radiusDegLng) / 0.022);
+    const lngMax = Math.floor((lng + radiusDegLng) / 0.022);
+
+    const keys: string[] = [];
+    const zonePairs: Array<{ latZone: number; lngZone: number }> = [];
+
+    for (let lz = latMin; lz <= latMax; lz++) {
+      for (let gz = lngMin; gz <= lngMax; gz++) {
+        keys.push(`surge:requests:${lz}:${gz}`);
+        zonePairs.push({ latZone: lz, lngZone: gz });
+      }
+    }
+
+    if (keys.length === 0) {
+      return { points: [], generatedAt: new Date().toISOString() };
+    }
+
+    const values = await this.redis.mget(...keys);
+    const points: Array<{ latitude: number; longitude: number; weight: number }> = [];
+
+    for (let i = 0; i < values.length; i++) {
+      const val = values[i];
+      if (!val) continue;
+
+      const weight = parseInt(val, 10);
+      if (isNaN(weight) || weight <= 0) continue;
+
+      const { latZone, lngZone } = zonePairs[i];
+      const latitude = (latZone + 0.5) * 0.018;
+      const longitude = (lngZone + 0.5) * 0.022;
+
+      // Haversine filter: exclude corners of the rectangular bounding box
+      if (this.haversineDistance(lat, lng, latitude, longitude) <= radiusMi) {
+        points.push({ latitude, longitude, weight });
+      }
+    }
+
+    return { points, generatedAt: new Date().toISOString() };
+  }
+
   private async getSurgeScore(lat: number, lng: number): Promise<number> {
     const zone = this.getZoneKey(lat, lng);
 
