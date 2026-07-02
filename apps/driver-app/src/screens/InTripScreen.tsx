@@ -95,7 +95,7 @@ export function InTripScreen({
         currentLat: currentLocation.lat,
         currentLng: currentLocation.lng,
       });
-      router.replace('/(tabs)');
+      router.replace(`/rate-rider?tripId=${tripId}&riderName=${encodeURIComponent(riderName)}`);
     } catch (err: any) {
       if (err.code === 'TRIP_TOO_FAR_FROM_DROPOFF') {
         Alert.alert('Too far', 'You must be within 0.2 miles of the dropoff to end the trip.');

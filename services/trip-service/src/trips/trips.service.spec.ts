@@ -31,6 +31,7 @@ const mockPrisma = {
   driver: { findUnique: jest.fn(), update: jest.fn() },
   trustScore: { findUnique: jest.fn() },
   fraudAlert: { findFirst: jest.fn() },
+  rating: { upsert: jest.fn().mockResolvedValue({}) },
   trip: {
     findUnique: jest.fn(),
     update: jest.fn(),
@@ -168,6 +169,84 @@ describe('TripsService — rateDriver', () => {
 
     await expect(service.rateDriver('trip-1', 'user-1', { rating: 5 }))
       .rejects.toThrow(BadRequestException);
+  });
+});
+
+// ─── rateRider ───────────────────────────────────────────────────────────────
+
+describe('TripsService — rateRider', () => {
+  function makeDriverTrip(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: 'trip-1',
+      riderId: 'rider-1',
+      driverId: 'driver-1',
+      status: TripStatus.completed,
+      driverRatingRider: null,
+      ...overrides,
+    };
+  }
+
+  it('writes driverRatingRider to trip row and upserts Rating', async () => {
+    const service = await buildService();
+    mockPrisma.driver.findUnique.mockResolvedValue({ id: 'driver-1' });
+    mockPrisma.trip.findUnique.mockResolvedValue(makeDriverTrip());
+    mockPrisma.trip.update.mockResolvedValue(makeDriverTrip({ driverRatingRider: 4 }));
+
+    await service.rateRider('trip-1', 'user-driver-1', { rating: 4 });
+
+    expect(mockPrisma.trip.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { driverRatingRider: 4 } }),
+    );
+    expect(mockPrisma.rating.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tripId: 'trip-1' },
+        create: expect.objectContaining({ driverToRider: 4, riderFlagged: false }),
+        update: expect.objectContaining({ driverToRider: 4, riderFlagged: false }),
+      }),
+    );
+  });
+
+  it('sets riderFlagged true when flagRider is passed', async () => {
+    const service = await buildService();
+    mockPrisma.driver.findUnique.mockResolvedValue({ id: 'driver-1' });
+    mockPrisma.trip.findUnique.mockResolvedValue(makeDriverTrip());
+    mockPrisma.trip.update.mockResolvedValue(makeDriverTrip({ driverRatingRider: 2 }));
+
+    await service.rateRider('trip-1', 'user-driver-1', { rating: 2, flagRider: true });
+
+    expect(mockPrisma.rating.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ riderFlagged: true }),
+        update: expect.objectContaining({ riderFlagged: true }),
+      }),
+    );
+  });
+
+  it('throws BadRequestException when rider already rated', async () => {
+    const service = await buildService();
+    mockPrisma.driver.findUnique.mockResolvedValue({ id: 'driver-1' });
+    mockPrisma.trip.findUnique.mockResolvedValue(makeDriverTrip({ driverRatingRider: 3 }));
+
+    await expect(service.rateRider('trip-1', 'user-driver-1', { rating: 5 }))
+      .rejects.toThrow(BadRequestException);
+  });
+
+  it('throws BadRequestException when trip is not completed', async () => {
+    const service = await buildService();
+    mockPrisma.driver.findUnique.mockResolvedValue({ id: 'driver-1' });
+    mockPrisma.trip.findUnique.mockResolvedValue(makeDriverTrip({ status: TripStatus.in_progress }));
+
+    await expect(service.rateRider('trip-1', 'user-driver-1', { rating: 5 }))
+      .rejects.toThrow(BadRequestException);
+  });
+
+  it('throws NotFoundException when trip not found or not this driver\'s', async () => {
+    const service = await buildService();
+    mockPrisma.driver.findUnique.mockResolvedValue({ id: 'driver-2' }); // different driver
+    mockPrisma.trip.findUnique.mockResolvedValue(makeDriverTrip()); // belongs to driver-1
+
+    await expect(service.rateRider('trip-1', 'user-driver-2', { rating: 5 }))
+      .rejects.toThrow(NotFoundException);
   });
 });
 

@@ -11,7 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DispatchService } from './dispatch.service';
 import { EarningsFloorService } from './earnings-floor.service';
 import { assertValidTransition, isNightRide, isTerminal } from './trip-state-machine';
-import { CreateTripDto, EndTripDto, RateTripDto } from './dto';
+import { CreateTripDto, EndTripDto, RateTripDto, RateRiderDto } from './dto';
 import { REDIS_CLIENT } from '../redis/redis.module';
 
 const PLATFORM_FEE_RATE = 0.20;
@@ -301,9 +301,23 @@ export class TripsService {
       throw new BadRequestException('Trip already rated.');
     }
 
-    const updatedTrip = await this.prisma.trip.update({
+    await this.prisma.trip.update({
       where: { id: tripId },
       data: { riderRatingDriver: dto.rating },
+    });
+
+    await this.prisma.rating.upsert({
+      where: { tripId },
+      create: {
+        tripId,
+        riderId: rider.id,
+        riderToDriver: dto.rating,
+        riderComment: dto.comment ?? null,
+      },
+      update: {
+        riderToDriver: dto.rating,
+        riderComment: dto.comment ?? null,
+      },
     });
 
     // Recalculate driver's average rating across all rated completed trips
@@ -325,7 +339,44 @@ export class TripsService {
       this.scheduleTrustRefresh(trip.riderId, trip.driverId);
     }
 
-    return updatedTrip;
+    return { success: true };
+  }
+
+  async rateRider(tripId: string, userId: string, dto: RateRiderDto) {
+    const driver = await this.resolveDriver(userId);
+    const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
+    if (!trip || trip.driverId !== driver.id) throw new NotFoundException('Trip not found.');
+    if (trip.status !== TripStatus.completed) {
+      throw new BadRequestException('Can only rate completed trips.');
+    }
+    if (trip.driverRatingRider !== null) {
+      throw new BadRequestException('Rider already rated.');
+    }
+
+    await this.prisma.trip.update({
+      where: { id: tripId },
+      data: { driverRatingRider: dto.rating },
+    });
+
+    await this.prisma.rating.upsert({
+      where: { tripId },
+      create: {
+        tripId,
+        riderId: trip.riderId,
+        driverToRider: dto.rating,
+        driverComment: dto.comment ?? null,
+        riderFlagged: dto.flagRider ?? false,
+      },
+      update: {
+        driverToRider: dto.rating,
+        driverComment: dto.comment ?? null,
+        riderFlagged: dto.flagRider ?? false,
+      },
+    });
+
+    this.scheduleTrustRefresh(trip.riderId, trip.driverId);
+
+    return { success: true };
   }
 
   async markNoShow(tripId: string, userId: string) {

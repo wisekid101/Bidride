@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsString, IsOptional, Min, Max } from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsString, IsOptional, Min, Max } from 'class-validator';
 import { RideType } from '@bidride/database/generated/client';
 
 export class CreateTripDto {
@@ -44,6 +44,19 @@ export class RateTripDto {
   @IsString()
   @IsOptional()
   comment?: string;
+}
+
+export class RateRiderDto {
+  @IsNumber() @Min(1) @Max(5)
+  rating: number;
+
+  @IsString()
+  @IsOptional()
+  comment?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  flagRider?: boolean;
 }
 
 export class CancelTripDto {

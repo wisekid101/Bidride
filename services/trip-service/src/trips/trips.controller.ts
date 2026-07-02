@@ -14,7 +14,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { TripsService } from './trips.service';
-import { CreateTripDto, EndTripDto, RateTripDto, CancelTripDto } from './dto';
+import { CreateTripDto, EndTripDto, RateTripDto, RateRiderDto, CancelTripDto } from './dto';
 
 @Controller('trips')
 @UseGuards(AuthGuard('jwt'), ThrottlerGuard)
@@ -76,6 +76,11 @@ export class TripsController {
   @Post(':id/rate')
   rateTrip(@Request() req: any, @Param('id') id: string, @Body() dto: RateTripDto) {
     return this.trips.rateDriver(id, req.user.sub, dto);
+  }
+
+  @Post(':id/rate-rider')
+  rateRider(@Request() req: any, @Param('id') id: string, @Body() dto: RateRiderDto) {
+    return this.trips.rateRider(id, req.user.sub, dto);
   }
 
   @Post(':id/no-show')

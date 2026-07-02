@@ -1,36 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  TextInput,
   SafeAreaView,
   ScrollView,
   Alert,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Star } from 'lucide-react-native';
 import { Colors, Fonts } from '../constants/theme';
 import { useTripStore } from '../store/trip.store';
 import { api } from '../api/client';
 
-type Props = {
-  navigation: NativeStackNavigationProp<any>;
-  route: RouteProp<any>;
-};
-
-export default function TripCompleteScreen({ navigation, route }: Props) {
+export default function TripCompleteScreen() {
   const { activeTrip, completedTrip, clearCompletedTrip } = useTripStore();
+  const params = useLocalSearchParams<{
+    tripId?: string;
+    finalFare?: string;
+    driverName?: string;
+    pickupAddress?: string;
+    dropoffAddress?: string;
+  }>();
   const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [commentFocused, setCommentFocused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const tripId = route.params?.tripId ?? completedTrip?.id ?? activeTrip?.id;
-  const finalFare = completedTrip?.finalFare ?? route.params?.finalFare ?? activeTrip?.finalFare ?? 0;
-  const driverName = route.params?.driverName ?? completedTrip?.driverName ?? activeTrip?.driverName ?? 'Your Driver';
-  const pickupAddress = route.params?.pickupAddress ?? completedTrip?.pickupAddress ?? activeTrip?.pickupAddress ?? '';
-  const dropoffAddress = route.params?.dropoffAddress ?? completedTrip?.dropoffAddress ?? activeTrip?.dropoffAddress ?? '';
+  const tripId = params.tripId ?? completedTrip?.id ?? activeTrip?.id;
+  const finalFare = completedTrip?.finalFare ?? params.finalFare ?? activeTrip?.finalFare ?? 0;
+  const driverName = params.driverName ?? completedTrip?.driverName ?? activeTrip?.driverName ?? 'Your Driver';
+  const pickupAddress = params.pickupAddress ?? completedTrip?.pickupAddress ?? activeTrip?.pickupAddress ?? '';
+  const dropoffAddress = params.dropoffAddress ?? completedTrip?.dropoffAddress ?? activeTrip?.dropoffAddress ?? '';
 
   const aiFare = completedTrip?.aiFare ?? activeTrip?.aiFare;
   const savings = aiFare != null ? Math.max(0, aiFare - parseFloat(String(finalFare))) : 0;
@@ -43,7 +47,10 @@ export default function TripCompleteScreen({ navigation, route }: Props) {
 
     setSubmitting(true);
     try {
-      await api.post(`/trips/${tripId}/rate`, { rating });
+      await api.post(`/trips/${tripId}/rate`, {
+        rating,
+        ...(comment.trim() && { comment: comment.trim() }),
+      });
       setSubmitted(true);
     } catch {
       // Rating is non-critical — don't block the user
@@ -55,7 +62,7 @@ export default function TripCompleteScreen({ navigation, route }: Props) {
 
   const done = () => {
     clearCompletedTrip();
-    navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    router.replace('/(tabs)');
   };
 
   return (
@@ -107,6 +114,18 @@ export default function TripCompleteScreen({ navigation, route }: Props) {
               ))}
             </View>
 
+            <TextInput
+              style={[styles.commentInput, commentFocused && styles.commentInputFocused]}
+              placeholder="Add a comment (optional)"
+              placeholderTextColor={Colors.textTertiary}
+              value={comment}
+              onChangeText={setComment}
+              onFocus={() => setCommentFocused(true)}
+              onBlur={() => setCommentFocused(false)}
+              multiline
+              maxLength={200}
+            />
+
             <TouchableOpacity
               style={[styles.ratingBtn, (rating === 0 || submitting) && styles.ratingBtnDisabled]}
               onPress={submitRating}
@@ -119,6 +138,13 @@ export default function TripCompleteScreen({ navigation, route }: Props) {
 
             <TouchableOpacity onPress={done} style={styles.skipBtn}>
               <Text style={styles.skipText}>Skip</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => Alert.alert('Report an Issue', 'For lost items or trip issues, please email support@bidride.com.')}
+              style={styles.reportBtn}
+            >
+              <Text style={styles.reportText}>Report an issue</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -198,6 +224,23 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   routeAddress: { fontSize: 14, color: Colors.textPrimary, flex: 1 },
+  commentInput: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    color: Colors.textPrimary,
+    fontSize: 14,
+    padding: 12,
+    minHeight: 72,
+    textAlignVertical: 'top',
+  },
+  commentInputFocused: {
+    borderColor: Colors.teal,
+  },
+  reportBtn: { marginTop: 4, padding: 8 },
+  reportText: { fontSize: 13, color: Colors.textTertiary, textDecorationLine: 'underline' },
   ratingSection: { alignItems: 'center', gap: 16 },
   ratingTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary },
   stars: { flexDirection: 'row', gap: 8 },

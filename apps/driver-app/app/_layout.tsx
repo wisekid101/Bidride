@@ -77,6 +77,19 @@ export default function RootLayout() {
         <Stack.Screen name="in-trip" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="airport-mode" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="wallet" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen
+          name="rate-rider"
+          options={{
+            animation: 'slide_from_right',
+            headerShown: true,
+            headerStyle: { backgroundColor: '#0A2342' },
+            headerTintColor: '#00D4C6',
+            headerTitleStyle: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' as const },
+            headerBackTitle: '',
+            headerShadowVisible: false,
+            headerTitle: 'Rate Your Rider',
+          }}
+        />
       </Stack>
     </>
   );
