@@ -4,10 +4,14 @@ import Stripe from 'stripe';
 
 @Injectable()
 export class PaymentMethodsService {
-  private prisma = new PrismaClient();
-  private stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
-    apiVersion: '2024-04-10',
-  });
+  private readonly prisma = new PrismaClient();
+  private readonly stripe: Stripe;
+
+  constructor() {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error('STRIPE_SECRET_KEY environment variable is required');
+    this.stripe = new Stripe(key, { apiVersion: '2024-04-10' });
+  }
 
   async listPaymentMethods(userId: string) {
     const rider = await this.prisma.rider.findUnique({

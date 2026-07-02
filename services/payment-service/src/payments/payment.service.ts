@@ -99,6 +99,20 @@ export class PaymentService {
     return { paymentIntentId: paymentIntent.id, status: paymentIntent.status };
   }
 
+  async chargeTripByDefault(tripId: string, riderId: string, amount: number) {
+    const rider = await this.prisma.rider.findUnique({
+      where: { id: riderId },
+      select: { stripeCustomerId: true, defaultPaymentMethodId: true },
+    });
+    if (!rider?.stripeCustomerId || !rider.defaultPaymentMethodId) {
+      throw new BadRequestException({
+        code: 'NO_PAYMENT_METHOD',
+        message: 'Rider has no default payment method on file.',
+      });
+    }
+    return this.chargeTrip(tripId, riderId, amount, rider.defaultPaymentMethodId);
+  }
+
   // ─── Driver Payouts ───────────────────────────────────────────────────────
 
   async linkBankAccount(driverId: string, token: string) {
@@ -131,6 +145,10 @@ export class PaymentService {
     });
 
     return { accountId, message: 'Bank linked. Micro-deposit verification initiated.' };
+  }
+
+  async creditDriverWallet(driverId: string, tripId: string, amount: number): Promise<void> {
+    await this.wallet.creditEarning(driverId, tripId, amount);
   }
 
   async getDriverWallet(driverId: string) {
@@ -175,6 +193,38 @@ export class PaymentService {
     };
   }
 
+  async createConnectOnboardingLink(driverId: string): Promise<{ url: string }> {
+    const driver = await this.prisma.driver.findUnique({ where: { id: driverId } });
+    if (!driver) throw new NotFoundException('Driver not found.');
+
+    let accountId = driver.stripeAccountId;
+    if (!accountId) {
+      const account = await this.stripe.accounts.create({
+        type: 'express',
+        country: 'US',
+        capabilities: { transfers: { requested: true } },
+        metadata: { driver_id: driverId },
+      });
+      accountId = account.id;
+      await this.prisma.driver.update({
+        where: { id: driverId },
+        data: { stripeAccountId: accountId },
+      });
+    }
+
+    const returnUrl = this.config.get<string>('APP_RETURN_URL') ?? 'bidiride://wallet';
+    const refreshUrl = this.config.get<string>('APP_REFRESH_URL') ?? 'bidiride://wallet/connect';
+
+    const link = await this.stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
+      type: 'account_onboarding',
+    });
+
+    return { url: link.url };
+  }
+
   async instantPayout(driverId: string) {
     const driver = await this.prisma.driver.findUnique({ where: { id: driverId } });
     if (!driver?.stripeAccountId) throw new BadRequestException('No bank account on file.');
@@ -208,7 +258,7 @@ export class PaymentService {
       destination: driver.stripeAccountId,
       metadata: { driver_id: driverId, type: 'instant' },
     }, {
-      idempotencyKey: `instant_${driverId}_${Date.now()}`,
+      idempotencyKey: `instant_payout_${driverId}_${new Date().toISOString().slice(0, 10)}`,
     });
 
     await this.redis.incrby(dailyCapKey, Math.round(wallet.availableBalance * 100));
@@ -309,7 +359,7 @@ export class PaymentService {
   ): Promise<{ status: string }> {
     const pi = await this.stripe.paymentIntents.capture(paymentIntentId, {
       amount_to_capture: amountCents,
-    });
+    }, { idempotencyKey: `capture_${paymentIntentId}` });
 
     await this.prisma.payment.updateMany({
       where: { stripePaymentIntentId: paymentIntentId },

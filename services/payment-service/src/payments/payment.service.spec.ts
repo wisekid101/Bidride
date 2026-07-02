@@ -1,5 +1,5 @@
 import { PaymentService } from './payment.service';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 // Mock Stripe
 jest.mock('stripe', () => {
@@ -9,6 +9,11 @@ jest.mock('stripe', () => {
         id: 'pi_test_123',
         status: 'succeeded',
       }),
+      capture: jest.fn().mockResolvedValue({ id: 'pi_test_123', status: 'succeeded' }),
+      cancel: jest.fn().mockResolvedValue({ id: 'pi_test_123', status: 'canceled' }),
+    },
+    accountLinks: {
+      create: jest.fn().mockResolvedValue({ url: 'https://connect.stripe.com/setup/test' }),
     },
     customers: {
       create: jest.fn().mockResolvedValue({ id: 'cus_test_123' }),
@@ -359,6 +364,142 @@ describe('PaymentService', () => {
         where: { driverId: 'driver-1', status: 'pending' },
         data: { status: 'failed' },
       });
+    });
+  });
+
+  describe('createAuthorizationHold', () => {
+    it('creates a manual-capture PaymentIntent and returns paymentIntentId', async () => {
+      const result = await service.createAuthorizationHold('cus_test', 'pm_test', 2000);
+      expect(result).toEqual({ paymentIntentId: 'pi_test_123' });
+    });
+
+    it('throws BadRequestException when amountCents is below 100', async () => {
+      await expect(
+        service.createAuthorizationHold('cus_test', 'pm_test', 50),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('captureAuthorizationHold', () => {
+    it('calls stripe.capture with idempotency key and updates payment record', async () => {
+      mockPrisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.captureAuthorizationHold('pi_test_123', 2000);
+
+      expect(result).toEqual({ status: 'succeeded' });
+      expect(mockPrisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { stripePaymentIntentId: 'pi_test_123' },
+        data: { status: 'succeeded' },
+      });
+    });
+  });
+
+  describe('voidAuthorizationHold', () => {
+    it('calls stripe.cancel and updates payment record to failed', async () => {
+      mockPrisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.voidAuthorizationHold('pi_test_123');
+
+      expect(result).toEqual({ status: 'canceled' });
+      expect(mockPrisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { stripePaymentIntentId: 'pi_test_123' },
+        data: { status: 'failed' },
+      });
+    });
+  });
+
+  describe('chargeTripByDefault', () => {
+    it('looks up default payment method and delegates to chargeTrip', async () => {
+      mockPrisma.rider.findUnique
+        .mockResolvedValueOnce({
+          id: 'rider-1',
+          stripeCustomerId: 'cus_test_123',
+          defaultPaymentMethodId: 'pm_default_123',
+        })
+        .mockResolvedValueOnce({
+          id: 'rider-1',
+          stripeCustomerId: 'cus_test_123',
+        });
+      mockPrisma.payment.create.mockResolvedValue({});
+
+      await service.chargeTripByDefault('trip-1', 'rider-1', 20.00);
+
+      expect(mockPrisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ tripId: 'trip-1', amount: 20.00 }),
+        }),
+      );
+    });
+
+    it('throws NO_PAYMENT_METHOD when rider has no default payment method', async () => {
+      mockPrisma.rider.findUnique.mockResolvedValue({
+        id: 'rider-1',
+        stripeCustomerId: 'cus_test_123',
+        defaultPaymentMethodId: null,
+      });
+
+      await expect(
+        service.chargeTripByDefault('trip-1', 'rider-1', 20.00),
+      ).rejects.toMatchObject(
+        expect.objectContaining({ response: expect.objectContaining({ code: 'NO_PAYMENT_METHOD' }) }),
+      );
+    });
+
+    it('throws NO_PAYMENT_METHOD when rider has no Stripe customer', async () => {
+      mockPrisma.rider.findUnique.mockResolvedValue({
+        id: 'rider-1',
+        stripeCustomerId: null,
+        defaultPaymentMethodId: null,
+      });
+
+      await expect(
+        service.chargeTripByDefault('trip-1', 'rider-1', 20.00),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('creditDriverWallet', () => {
+    it('delegates to wallet.creditEarning with correct params', async () => {
+      await service.creditDriverWallet('driver-1', 'trip-1', 15.50);
+
+      expect(mockWallet.creditEarning).toHaveBeenCalledWith('driver-1', 'trip-1', 15.50);
+    });
+  });
+
+  describe('createConnectOnboardingLink', () => {
+    it('creates Express account when driver has none and returns onboarding URL', async () => {
+      mockPrisma.driver.findUnique.mockResolvedValue({
+        id: 'driver-1',
+        stripeAccountId: null,
+      });
+      mockPrisma.driver.update.mockResolvedValue({});
+
+      const result = await service.createConnectOnboardingLink('driver-1');
+
+      expect(result).toEqual({ url: 'https://connect.stripe.com/setup/test' });
+      expect(mockPrisma.driver.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ stripeAccountId: 'acct_test_123' }) }),
+      );
+    });
+
+    it('reuses existing stripeAccountId without creating a new account', async () => {
+      mockPrisma.driver.findUnique.mockResolvedValue({
+        id: 'driver-1',
+        stripeAccountId: 'acct_existing_123',
+      });
+
+      const result = await service.createConnectOnboardingLink('driver-1');
+
+      expect(result).toEqual({ url: 'https://connect.stripe.com/setup/test' });
+      expect(mockPrisma.driver.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when driver does not exist', async () => {
+      mockPrisma.driver.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createConnectOnboardingLink('nonexistent'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

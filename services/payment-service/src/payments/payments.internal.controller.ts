@@ -7,7 +7,7 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import { IsString, Min, IsInt } from 'class-validator';
+import { IsString, Min, IsInt, IsNumber } from 'class-validator';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
 
@@ -35,6 +35,30 @@ class CaptureHoldDto {
 class VoidHoldDto {
   @IsString()
   paymentIntentId: string;
+}
+
+class ChargeTripDto {
+  @IsString()
+  tripId: string;
+
+  @IsString()
+  riderId: string;
+
+  @IsNumber()
+  @Min(0)
+  amount: number;
+}
+
+class CreditWalletDto {
+  @IsString()
+  driverId: string;
+
+  @IsString()
+  tripId: string;
+
+  @IsNumber()
+  @Min(0)
+  amount: number;
 }
 
 // Internal controller — only reachable from within the VPC (not exposed via public ALB)
@@ -67,5 +91,17 @@ export class PaymentsInternalController {
   @HttpCode(HttpStatus.OK)
   cancelHold(@Body() dto: VoidHoldDto) {
     return this.payments.voidAuthorizationHold(dto.paymentIntentId);
+  }
+
+  @Post('charge-trip')
+  @HttpCode(HttpStatus.OK)
+  chargeTrip(@Body() dto: ChargeTripDto) {
+    return this.payments.chargeTripByDefault(dto.tripId, dto.riderId, dto.amount);
+  }
+
+  @Post('credit-wallet')
+  @HttpCode(HttpStatus.OK)
+  creditWallet(@Body() dto: CreditWalletDto) {
+    return this.payments.creditDriverWallet(dto.driverId, dto.tripId, dto.amount);
   }
 }

@@ -26,4 +26,14 @@ export class PayoutDriverController {
     if (!driver) throw new NotFoundException('Driver not found');
     return this.payments.instantPayout(driver.id);
   }
+
+  @Post('connect')
+  async connect(@Headers('x-user-id') userId: string) {
+    const driver = await this.prisma.driver.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!driver) throw new NotFoundException('Driver not found');
+    return this.payments.createConnectOnboardingLink(driver.id);
+  }
 }

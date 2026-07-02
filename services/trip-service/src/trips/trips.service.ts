@@ -18,6 +18,7 @@ const PLATFORM_FEE_RATE = 0.20;
 const NO_SHOW_WAIT_MINUTES = 5;
 const DROPOFF_LOCK_RADIUS_MILES = 0.2;
 const SURGE_COUNTER_TTL_SEC = 600; // 10-minute rolling window
+const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007';
 
 function getZoneKey(lat: number, lng: number): string {
   return `${Math.floor(lat / 0.018)}:${Math.floor(lng / 0.022)}`;
@@ -250,6 +251,12 @@ export class TripsService {
     await this.redis.del(`trip:${tripId}:state`);
     await this.redis.del(`trip:${tripId}:claimed`);
     await this.dispatch.notifyTripCompleted(tripId, finalFare, floorResult);
+
+    // Fire-and-forget: charge rider for completed trip (non-bid standard trip path)
+    this.chargeRiderForTrip(tripId, trip.riderId, finalFare);
+
+    // Fire-and-forget: credit driver wallet with take-home earnings
+    this.creditDriverWalletForTrip(trip.driverId, tripId, floorResult.totalDriverEarnings);
 
     // Fire-and-forget: recalculate trust scores for both parties post-trip
     this.scheduleTrustRefresh(trip.riderId, trip.driverId);
@@ -610,5 +617,38 @@ export class TripsService {
       Math.sin(dLat / 2) ** 2 +
       Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  private chargeRiderForTrip(tripId: string, riderId: string, amount: number): void {
+    void (async () => {
+      try {
+        await fetch(`${PAYMENT_SERVICE_URL}/payments/internal/charge-trip`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+          },
+          body: JSON.stringify({ tripId, riderId, amount }),
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch { /* fire-and-forget — trip completion is not gated on payment */ }
+    })();
+  }
+
+  private creditDriverWalletForTrip(driverId: string | null, tripId: string, amount: number): void {
+    if (!driverId || amount <= 0) return;
+    void (async () => {
+      try {
+        await fetch(`${PAYMENT_SERVICE_URL}/payments/internal/credit-wallet`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+          },
+          body: JSON.stringify({ driverId, tripId, amount }),
+          signal: AbortSignal.timeout(5000),
+        });
+      } catch { /* fire-and-forget — wallet credit is eventually consistent */ }
+    })();
   }
 }
