@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
@@ -39,6 +39,14 @@ if (Platform.OS === 'android') {
   });
 }
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 export default function RootLayout() {
   const { loadTokens, isAuthenticated } = useAuthStore();
 
@@ -63,6 +71,37 @@ export default function RootLayout() {
       void registerPushToken();
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    const receivedSub = Notifications.addNotificationReceivedListener((_notification) => {
+      // Foreground push — OS displays it via setNotificationHandler above
+    });
+
+    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as {
+        type?: string;
+        tripId?: string;
+      };
+      switch (data?.type) {
+        case 'TRIP_ASSIGNED':
+        case 'DRIVER_ARRIVED':
+        case 'TRIP_STARTED':
+          router.push('/tracking');
+          break;
+        case 'TRIP_COMPLETED':
+          router.push('/trip-complete');
+          break;
+        case 'TRIP_CANCELLED':
+          router.replace('/(tabs)');
+          break;
+      }
+    });
+
+    return () => {
+      receivedSub.remove();
+      responseSub.remove();
+    };
+  }, []);
 
   const stripeKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? 'pk_test_REPLACE_WITH_REAL_KEY';
 

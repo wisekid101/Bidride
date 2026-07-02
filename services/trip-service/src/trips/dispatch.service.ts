@@ -97,6 +97,12 @@ export class DispatchService {
       tripId,
       timestamp: new Date().toISOString(),
     });
+
+    // Push for riders who backgrounded the app between driver arrival and trip start
+    void this.pushToRiderByTrip(tripId, 'Your ride has started',
+      'Sit back and enjoy your trip!',
+      { type: 'TRIP_STARTED', tripId },
+    );
   }
 
   async notifyTripCompleted(
@@ -115,6 +121,12 @@ export class DispatchService {
       { type: 'TRIP_COMPLETED', tripId, finalFare: String(finalFare) },
     );
 
+    // Always notify driver of their take-home — regardless of whether floor was triggered
+    void this.pushToDriverByTrip(tripId, 'Trip Complete',
+      `Your take-home: $${floorResult.totalDriverEarnings.toFixed(2)}`,
+      { type: 'TRIP_COMPLETED', tripId },
+    );
+
     if (!floorResult.floorMet) {
       await this.publish(`driver:trip:${tripId}`, {
         event: 'earnings:floor_triggered',
@@ -124,10 +136,47 @@ export class DispatchService {
       });
 
       void this.pushToDriverByTrip(tripId, 'Earnings Floor Activated',
-        `BidiRide added $${floorResult.supplement.toFixed(2)} — your take-home: $${floorResult.totalDriverEarnings.toFixed(2)}`,
+        `BidiRide added $${floorResult.supplement.toFixed(2)} supplement to meet your earnings floor.`,
         { type: 'FLOOR_SUPPLEMENT', tripId },
       );
     }
+  }
+
+  async notifyDriverRatingReceived(tripId: string): Promise<void> {
+    void this.pushToDriverByTrip(tripId, 'New Rating',
+      'You received feedback on your recent trip.',
+      { type: 'RATING_RECEIVED', tripId },
+    );
+  }
+
+  async notifyDriverTripCancelled(tripId: string): Promise<void> {
+    try {
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+        select: { driverId: true },
+      });
+      if (!trip?.driverId) return;
+
+      const driver = await this.prisma.driver.findUnique({
+        where: { id: trip.driverId },
+        select: { userId: true, pushToken: true },
+      });
+      if (!driver) return;
+
+      // Real-time socket event so foregrounded driver gets immediate state update
+      await this.publish(`user:${driver.userId}:events`, {
+        event: 'trip:cancelled',
+        tripId,
+      });
+
+      // Push for backgrounded driver — generic body, no rider PII
+      if (driver.pushToken) {
+        void this.sendFcmPush(driver.pushToken, 'Trip Cancelled',
+          'The rider cancelled this trip.',
+          { type: 'TRIP_CANCELLED', tripId },
+        );
+      }
+    } catch { /* fire-and-forget — non-critical */ }
   }
 
   // ─── Bid Broadcast Methods ────────────────────────────────────────────────

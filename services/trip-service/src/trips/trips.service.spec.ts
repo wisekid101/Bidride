@@ -53,6 +53,7 @@ const mockDispatch = {
   notifyRiderDriverAssigned: jest.fn().mockResolvedValue(undefined),
   notifyTripCompleted: jest.fn().mockResolvedValue(undefined),
   broadcastRequest: jest.fn().mockResolvedValue(undefined),
+  notifyDriverRatingReceived: jest.fn().mockResolvedValue(undefined),
 };
 
 const mockFloor = {

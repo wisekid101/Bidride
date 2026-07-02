@@ -71,6 +71,10 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
       set({ counterResult: { bidId: data.bidId, tripId: data.tripId, finalFare: 0, accepted: false }, incomingBid: null });
     });
 
+    socket.on('trip:cancelled', () => {
+      set({ incomingBid: null, counterResult: null });
+    });
+
     socket.on('disconnect', () => {
       set({ socket: null });
     });

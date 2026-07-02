@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
@@ -38,6 +38,14 @@ if (Platform.OS === 'android') {
   });
 }
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 export default function RootLayout() {
   const { loadTokens, isAuthenticated } = useDriverStore();
 
@@ -62,6 +70,37 @@ export default function RootLayout() {
       void registerPushToken();
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    const receivedSub = Notifications.addNotificationReceivedListener((_notification) => {
+      // Notification arrived while app is foregrounded — OS shows it via setNotificationHandler
+    });
+
+    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as {
+        type?: string;
+        tripId?: string;
+      };
+      switch (data?.type) {
+        case 'NEW_REQUEST':
+          router.push('/incoming-request');
+          break;
+        case 'COUNTER_ACCEPTED':
+        case 'TRIP_CANCELLED':
+          router.replace('/(tabs)');
+          break;
+        case 'TRIP_COMPLETED':
+        case 'RATING_RECEIVED':
+          router.replace('/(tabs)/earnings');
+          break;
+      }
+    });
+
+    return () => {
+      receivedSub.remove();
+      responseSub.remove();
+    };
+  }, []);
 
   if (!fontsLoaded) return null;
 

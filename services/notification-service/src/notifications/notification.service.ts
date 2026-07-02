@@ -162,6 +162,36 @@ export class NotificationService {
     });
   }
 
+  async notifyDriverCancellation(pushToken: string): Promise<void> {
+    if (!pushToken) return;
+    await this.fcm.send({
+      token: pushToken,
+      title: 'Trip Cancelled',
+      body: 'The rider cancelled this trip.',
+      data: { type: 'TRIP_CANCELLED' },
+    });
+  }
+
+  async notifyDriverRatingReceived(pushToken: string): Promise<void> {
+    if (!pushToken) return;
+    await this.fcm.send({
+      token: pushToken,
+      title: 'New Feedback',
+      body: 'You received feedback on your recent trip.',
+      data: { type: 'RATING_RECEIVED' },
+    });
+  }
+
+  async notifyRiderTripStarted(pushToken: string, driverName: string): Promise<void> {
+    if (!pushToken) return;
+    await this.fcm.send({
+      token: pushToken,
+      title: 'Trip Started',
+      body: `Your trip with ${driverName} has started!`,
+      data: { type: 'TRIP_STARTED' },
+    });
+  }
+
   async sendDriverWeeklyPayout(
     email: string,
     driverName: string,

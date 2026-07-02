@@ -287,6 +287,7 @@ export class TripsService {
     });
 
     await this.redis.del(`trip:${tripId}:state`);
+    void this.dispatch.notifyDriverTripCancelled(tripId);
     return updated;
   }
 
@@ -338,6 +339,9 @@ export class TripsService {
     if (trip.driverId) {
       this.scheduleTrustRefresh(trip.riderId, trip.driverId);
     }
+
+    // Fire-and-forget: notify driver they received a rating (no score, no comment)
+    void this.dispatch.notifyDriverRatingReceived(tripId);
 
     return { success: true };
   }
