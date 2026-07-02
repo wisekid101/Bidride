@@ -4,6 +4,7 @@ import {
   Patch,
   Post,
   Body,
+  Param,
   Query,
   Headers,
   UseGuards,
@@ -68,6 +69,15 @@ export class RidersController {
       page ? parseInt(page) : undefined,
       limit ? parseInt(limit) : undefined,
     );
+  }
+
+  @Get('me/trips/:tripId')
+  @UseGuards(JwtAuthGuard)
+  getTripById(
+    @Headers('x-user-id') userId: string,
+    @Param('tripId') tripId: string,
+  ) {
+    return this.ridersService.getTripById(userId, tripId);
   }
 
   @Get('me/rewards')

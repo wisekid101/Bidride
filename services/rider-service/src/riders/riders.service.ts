@@ -136,6 +136,11 @@ export class RidersService {
           createdAt: true,
           completedAt: true,
           riderRatingDriver: true,
+          driver: {
+            select: {
+              user: { select: { firstName: true, lastName: true } },
+            },
+          },
         },
       }),
       this.prisma.trip.count({
@@ -143,7 +148,19 @@ export class RidersService {
       }),
     ]);
 
-    return { trips, total, page, pages: Math.ceil(total / limit) };
+    return {
+      trips: trips.map(({ driver, ...rest }) => ({
+        ...rest,
+        aiFare: parseFloat(rest.aiFare.toString()),
+        finalFare: rest.finalFare != null ? parseFloat(rest.finalFare.toString()) : null,
+        driverName: driver
+          ? [driver.user.firstName, driver.user.lastName].filter(Boolean).join(' ') || null
+          : null,
+      })),
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+    };
   }
 
   async setPushToken(userId: string, token: string) {
@@ -169,5 +186,54 @@ export class RidersService {
 
     if (!rider) throw new NotFoundException('Rider not found');
     return rider;
+  }
+
+  async getTripById(userId: string, tripId: string) {
+    const rider = await this.prisma.rider.findUnique({ where: { userId } });
+    if (!rider) throw new NotFoundException('Rider not found');
+
+    const trip = await this.prisma.trip.findFirst({
+      where: { id: tripId, riderId: rider.id },
+      select: {
+        id: true,
+        status: true,
+        pickupAddress: true,
+        dropoffAddress: true,
+        aiFare: true,
+        finalFare: true,
+        rideType: true,
+        isAirportTrip: true,
+        routeDistanceMiles: true,
+        actualDurationMin: true,
+        cancelReason: true,
+        createdAt: true,
+        completedAt: true,
+        riderRatingDriver: true,
+        driver: {
+          select: {
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+        vehicle: {
+          select: { make: true, model: true, color: true, licensePlate: true },
+        },
+      },
+    });
+
+    if (!trip) throw new NotFoundException('Trip not found');
+
+    const { driver, vehicle, ...rest } = trip;
+    return {
+      ...rest,
+      aiFare: parseFloat(rest.aiFare.toString()),
+      finalFare: rest.finalFare != null ? parseFloat(rest.finalFare.toString()) : null,
+      routeDistanceMiles: rest.routeDistanceMiles != null
+        ? parseFloat(rest.routeDistanceMiles.toString())
+        : null,
+      driverName: driver
+        ? [driver.user.firstName, driver.user.lastName].filter(Boolean).join(' ') || null
+        : null,
+      vehicle: vehicle ?? null,
+    };
   }
 }

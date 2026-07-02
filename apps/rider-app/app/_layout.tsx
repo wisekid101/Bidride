@@ -53,10 +53,10 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    loadTokens().then(() => {
-      if (fontsLoaded) SplashScreen.hideAsync();
-    });
-  }, [fontsLoaded]);
+    // Hide splash after tokens are loaded — don't gate on fonts so a
+    // slow/failed font load never permanently blocks the UI.
+    loadTokens().then(() => SplashScreen.hideAsync()).catch(() => SplashScreen.hideAsync());
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -64,9 +64,16 @@ export default function RootLayout() {
     }
   }, [isAuthenticated]);
 
-  if (!fontsLoaded) return null;
-
   const stripeKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? 'pk_test_REPLACE_WITH_REAL_KEY';
+
+  const navHeader = {
+    headerShown: true,
+    headerStyle: { backgroundColor: '#0A2342' },
+    headerTintColor: '#00D4C6',
+    headerTitleStyle: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' as const },
+    headerBackTitle: '',
+    headerShadowVisible: false,
+  } as const;
 
   return (
     <StripeProvider publishableKey={stripeKey} merchantIdentifier="merchant.com.bidride.rider">
@@ -75,12 +82,13 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="profile-setup" options={{ animation: 'slide_from_right', gestureEnabled: false }} />
-        <Stack.Screen name="tracking" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="tracking" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Your Ride' }} />
         <Stack.Screen name="sos" options={{ animation: 'fade', presentation: 'modal' }} />
         <Stack.Screen name="trip-complete" options={{ animation: 'slide_from_bottom' }} />
-        <Stack.Screen name="bid-request" options={{ animation: 'slide_from_bottom' }} />
-        <Stack.Screen name="trusted-contacts" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="payment-methods" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="bid-request" options={{ ...navHeader, animation: 'slide_from_bottom', headerTitle: 'Make an Offer' }} />
+        <Stack.Screen name="trusted-contacts" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Trusted Contacts' }} />
+        <Stack.Screen name="payment-methods" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Payment Methods' }} />
+        <Stack.Screen name="trip-detail" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Trip Details' }} />
       </Stack>
     </StripeProvider>
   );
