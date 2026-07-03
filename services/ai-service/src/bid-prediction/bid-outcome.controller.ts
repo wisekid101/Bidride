@@ -1,7 +1,9 @@
-import { Controller, Post, Get, Body } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { InternalKeyGuard } from '../internal-key.guard';
 import { BidOutcomeService, RecordOutcomeDto } from './bid-outcome.service';
 import { ModelMetricsService } from './model-metrics.service';
 
+@UseGuards(InternalKeyGuard)
 @Controller('ai')
 export class BidOutcomeController {
   constructor(

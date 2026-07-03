@@ -155,16 +155,17 @@ export class BidsService implements OnModuleInit {
     );
 
     // Rank drivers via AI service (300ms hard timeout; fallback to geo order)
-    const targetDriverUserIds = await this.rankDriversWithFallback(
+    const rankedResults = await this.rankDriversWithFallback(
       trip.id,
       nearbyDriverUserIds,
       dto.pickupLat,
       dto.pickupLng,
       isAirportTrip,
     );
+    const targetDriverUserIds = rankedResults.map((r) => r.driverUserId);
 
     // Fire-and-forget dispatch simulation (logs decision; never blocks broadcast)
-    void this.simulateDispatchAsync(trip.id, nearbyDriverUserIds).catch(() => {});
+    void this.simulateDispatchAsync(trip.id, rankedResults).catch(() => {});
 
     await this.dispatch.broadcastBidRequest(
       trip, bid, standardFare, bidFloor, distanceMiles, durationMin, 'Verified', targetDriverUserIds,
@@ -172,10 +173,17 @@ export class BidsService implements OnModuleInit {
 
     this.logger.log(`Bid ${bid.id} submitted: $${dto.bidAmount} (standard $${standardFare})`);
 
-    // Deterministic win probability: supply × bid competitiveness, clamped [0.15, 0.95]
-    const bidRatio = dto.bidAmount / standardFare;
-    const rawProbability = (nearbyDriverUserIds.length / 5) * Math.pow(bidRatio, 0.5);
-    const winProbability = parseFloat(Math.min(0.95, Math.max(0.15, rawProbability)).toFixed(2));
+    const winProbability = await this.fetchBidWinProbability({
+      tripId: trip.id,
+      userId: rider.userId,
+      bidAmount: dto.bidAmount,
+      aiFare: standardFare,
+      lat: dto.pickupLat,
+      lng: dto.pickupLng,
+      isAirport: isAirportTrip,
+      timeOfDay: now.getHours(),
+      availableDriversInZone: nearbyDriverUserIds.length,
+    });
 
     return {
       trip: { id: trip.id },
@@ -294,6 +302,7 @@ export class BidsService implements OnModuleInit {
 
     await this.voidStripeHold(bidId);
     await this.dispatch.notifyBidDeclinedByDriver(bid.tripId, bidId);
+    this.recordRejectedBidOutcome(bid.tripId, bidId);
 
     this.logger.log(`Bid ${bidId} declined by driver ${driver.id}`);
     return { bidId, status: BidStatus.declined };
@@ -468,6 +477,7 @@ export class BidsService implements OnModuleInit {
 
     await this.voidStripeHold(bidId);
     await this.dispatch.notifyDriverCounterDeclined(bid.tripId, bidId, bid.driverId!);
+    this.recordRejectedBidOutcome(bid.tripId, bidId);
 
     this.logger.log(`Counter on bid ${bidId} declined by rider`);
     return { bidId, status: BidStatus.declined };
@@ -511,6 +521,7 @@ export class BidsService implements OnModuleInit {
     });
 
     await this.voidStripeHold(bidId);
+    this.recordRejectedBidOutcome(bid.tripId, bidId);
     this.logger.log(`Bid ${bidId} withdrawn by rider`);
     return { bidId, status: BidStatus.withdrawn };
   }
@@ -563,6 +574,7 @@ export class BidsService implements OnModuleInit {
         } else {
           await this.dispatch.notifyBidExpired(bid.tripId, bid.id);
         }
+        this.recordRejectedBidOutcome(bid.tripId, bid.id);
         this.logger.log(`Bid ${bid.id} expired (was ${bid.status})`);
       } catch (err) {
         this.logger.error(`Failed to expire bid ${bid.id}`, err);
@@ -571,6 +583,51 @@ export class BidsService implements OnModuleInit {
   }
 
   // ─── Private: Payment Integration ────────────────────────────────────────
+
+  private async fetchBidWinProbability(params: {
+    tripId: string;
+    userId: string;
+    bidAmount: number;
+    aiFare: number;
+    lat: number;
+    lng: number;
+    isAirport: boolean;
+    timeOfDay: number;
+    availableDriversInZone: number;
+  }): Promise<number> {
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
+    const FALLBACK = 0.50;
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/ai/bid-win-probability`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+        },
+        body: JSON.stringify(params),
+        signal: AbortSignal.timeout(500),
+      });
+      if (!res.ok) return FALLBACK;
+      const envelope = await res.json() as { data: { probability: number } };
+      return parseFloat((envelope.data.probability ?? FALLBACK).toFixed(2));
+    } catch {
+      return FALLBACK;
+    }
+  }
+
+  private recordRejectedBidOutcome(tripId: string, bidId: string): void {
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL;
+    if (!AI_SERVICE_URL) return;
+    void fetch(`${AI_SERVICE_URL}/ai/bid-outcome`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+      },
+      body: JSON.stringify({ tripId, bidId, wasAccepted: false }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+  }
 
   private async createStripeHold(
     stripeCustomerId: string | null,
@@ -735,8 +792,31 @@ export class BidsService implements OnModuleInit {
     pickupLat: number,
     pickupLng: number,
     isAirportTrip: boolean,
-  ): Promise<string[]> {
+  ): Promise<Array<{ driverUserId: string; score: number }>> {
     if (driverUserIds.length === 0) return [];
+
+    const DEFAULT_DISTANCE = 3.0;
+    const DEFAULT_ETA = 8;
+    const distanceMap = new Map<string, { distanceMiles: number; etaMinutes: number }>();
+
+    await Promise.all(
+      driverUserIds.map(async (uid) => {
+        const raw = await this.redis.get(`driver:${uid}:location`).catch(() => null);
+        if (!raw) {
+          distanceMap.set(uid, { distanceMiles: DEFAULT_DISTANCE, etaMinutes: DEFAULT_ETA });
+          return;
+        }
+        try {
+          const loc = JSON.parse(raw) as { lat: number; lng: number };
+          const distanceMiles = this.haversineDistance(pickupLat, pickupLng, loc.lat, loc.lng);
+          const etaMinutes = Math.max(2, Math.round(distanceMiles * 3));
+          distanceMap.set(uid, { distanceMiles, etaMinutes });
+        } catch {
+          distanceMap.set(uid, { distanceMiles: DEFAULT_DISTANCE, etaMinutes: DEFAULT_ETA });
+        }
+      }),
+    );
+
     const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
     try {
       const res = await fetch(`${AI_SERVICE_URL}/ai/driver-ranking`, {
@@ -747,29 +827,27 @@ export class BidsService implements OnModuleInit {
           isAirportTrip,
           candidates: driverUserIds.map((id) => ({
             driverUserId: id,
-            // Distance and ETA not available here — ai-service will use defaults
-            distanceMiles: this.haversineDistance(pickupLat, pickupLng, pickupLat, pickupLng),
-            etaMinutes: 5,
+            ...(distanceMap.get(id) ?? { distanceMiles: DEFAULT_DISTANCE, etaMinutes: DEFAULT_ETA }),
           })),
         }),
         signal: AbortSignal.timeout(300),
       });
-      if (!res.ok) return driverUserIds;
-      const ranked = (await res.json()) as Array<{ driverUserId: string }>;
-      return ranked.map((r) => r.driverUserId);
+      if (!res.ok) return driverUserIds.map((id) => ({ driverUserId: id, score: 50 }));
+      const ranked = (await res.json()) as Array<{ driverUserId: string; score: number }>;
+      return ranked.map((r) => ({ driverUserId: r.driverUserId, score: r.score ?? 50 }));
     } catch {
-      return driverUserIds;
+      return driverUserIds.map((id) => ({ driverUserId: id, score: 50 }));
     }
   }
 
-  private async simulateDispatchAsync(tripId: string, driverUserIds: string[]): Promise<void> {
+  private async simulateDispatchAsync(tripId: string, rankedCandidates: Array<{ driverUserId: string; score: number }>): Promise<void> {
     const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
     await fetch(`${AI_SERVICE_URL}/ai/dispatch-simulate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({
         tripId,
-        candidates: driverUserIds.map((id) => ({ driverUserId: id, score: 50 })),
+        candidates: rankedCandidates,
       }),
       signal: AbortSignal.timeout(2000),
     });

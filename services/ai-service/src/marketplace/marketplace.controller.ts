@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Body, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, UseGuards } from '@nestjs/common';
+import { InternalKeyGuard } from '../internal-key.guard';
 import { DriverRankingService, RankDriversInput } from './driver-ranking.service';
 import { DispatchSimulatorService, DispatchCandidate } from './dispatch-simulator.service';
 import { RepositioningService } from './repositioning.service';
@@ -11,6 +12,7 @@ interface DispatchSimulateBody {
   candidates: DispatchCandidate[];
 }
 
+@UseGuards(InternalKeyGuard)
 @Controller('ai')
 export class MarketplaceController {
   constructor(

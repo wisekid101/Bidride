@@ -569,7 +569,7 @@ export class TripsService {
   }
 
   private recordBidOutcome(
-    trip: { id: string; pickupLat: unknown; pickupLng: unknown; acceptedAt: Date | null; createdAt: Date },
+    trip: { id: string; bidId?: string | null; pickupLat: unknown; pickupLng: unknown; acceptedAt: Date | null; createdAt: Date },
     finalFare: number,
     driverEarnings: number,
     platformFee: number,
@@ -590,6 +590,7 @@ export class TripsService {
       headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
       body: JSON.stringify({
         tripId: trip.id,
+        bidId: trip.bidId ?? undefined,
         zoneKey,
         wasAccepted: true,
         timeToAcceptanceMs,

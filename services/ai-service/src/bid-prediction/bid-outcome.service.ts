@@ -42,6 +42,13 @@ export class BidOutcomeService {
         ? (predictionProbability >= 0.5) === dto.wasAccepted
         : null;
 
+    const driversViewed = dto.bidId
+      ? await this.prisma.driverBidExposure.count({ where: { bidId: dto.bidId } }).catch(() => 0)
+      : (dto.driversViewed ?? 0);
+    const driversDeclined = dto.driversDeclined ?? 0;
+    const driversCountered = dto.driversCountered ?? 0;
+    const driversIgnored = Math.max(0, driversViewed - driversDeclined - driversCountered - (dto.wasAccepted ? 1 : 0));
+
     void this.prisma.bidOutcome.create({
       data: {
         tripId: dto.tripId,
@@ -49,10 +56,10 @@ export class BidOutcomeService {
         zoneKey: dto.zoneKey ?? null,
         wasAccepted: dto.wasAccepted,
         timeToAcceptanceMs: dto.timeToAcceptanceMs ?? null,
-        driversViewed: dto.driversViewed ?? 0,
-        driversIgnored: dto.driversIgnored ?? 0,
-        driversDeclined: dto.driversDeclined ?? 0,
-        driversCountered: dto.driversCountered ?? 0,
+        driversViewed,
+        driversIgnored,
+        driversDeclined,
+        driversCountered,
         finalAcceptedAmount: dto.finalAcceptedAmount != null
           ? new Prisma.Decimal(dto.finalAcceptedAmount)
           : null,
