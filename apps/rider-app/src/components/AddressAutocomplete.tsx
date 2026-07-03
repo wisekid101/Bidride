@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,9 @@ import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
+  Modal,
+  SafeAreaView,
+  Platform,
 } from 'react-native';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { geocodingApi, PlaceSuggestion, ResolvedAddress } from '../api/geocoding';
@@ -41,20 +44,25 @@ export function AddressAutocomplete({
   recentAddresses = [],
   showRecents = true,
 }: Props) {
-  const [inputValue, setInputValue] = useState(initialValue);
+  const [displayValue, setDisplayValue] = useState(initialValue);
+  const [resolved, setResolved] = useState(!!initialValue);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalInput, setModalInput] = useState('');
   const [apiSuggestions, setApiSuggestions] = useState<PlaceSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
-  const [resolved, setResolved] = useState(!!initialValue);
-  const [isFocused, setIsFocused] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const blurDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchApiSuggestions = useCallback(
+  // Sync display value when parent resolves pickup from GPS
+  useEffect(() => {
+    if (initialValue) {
+      setDisplayValue(initialValue);
+      setResolved(true);
+    }
+  }, [initialValue]);
+
+  const fetchSuggestions = useCallback(
     async (query: string) => {
-      if (query.trim().length < 2) {
-        setApiSuggestions([]);
-        return;
-      }
+      if (query.trim().length < 2) { setApiSuggestions([]); return; }
       setLoading(true);
       try {
         const results = await geocodingApi.autocomplete(query, sessionToken);
@@ -68,65 +76,58 @@ export function AddressAutocomplete({
     [sessionToken],
   );
 
-  const handleTextChange = (text: string) => {
-    setInputValue(text);
-    setResolved(false);
+  const handleModalTextChange = (text: string) => {
+    setModalInput(text);
     setApiSuggestions([]);
-
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (text.trim().length >= 2) {
-      debounceRef.current = setTimeout(() => fetchApiSuggestions(text), 350);
+      debounceRef.current = setTimeout(() => fetchSuggestions(text), 350);
     }
   };
 
   const handleSelectApi = async (suggestion: PlaceSuggestion) => {
-    setInputValue(suggestion.description);
-    setApiSuggestions([]);
     setLoading(true);
-
     try {
       const coords = await geocodingApi.getPlaceCoordinates(suggestion.placeId);
-      setResolved(true);
-      onAddressResolved({
+      const addr: ResolvedAddress = {
         placeId: suggestion.placeId,
         formattedAddress: coords.formattedAddress,
         lat: coords.lat,
         lng: coords.lng,
-      });
+      };
+      setDisplayValue(coords.formattedAddress);
+      setResolved(true);
+      onAddressResolved(addr);
+      closeModal();
     } catch {
-      // Keep the text but don't mark resolved
+      // keep modal open so user can retry
     } finally {
       setLoading(false);
     }
   };
 
   const handleSelectRecent = (item: RecentItem) => {
-    setInputValue(item.formattedAddress);
-    setApiSuggestions([]);
+    setDisplayValue(item.formattedAddress);
     setResolved(true);
     onAddressResolved(item);
+    closeModal();
   };
 
-  const handleFocus = () => {
-    if (blurDelayRef.current) clearTimeout(blurDelayRef.current);
-    setIsFocused(true);
+  const openModal = () => {
+    setModalInput('');
+    setApiSuggestions([]);
+    setModalVisible(true);
   };
 
-  const handleBlur = () => {
-    blurDelayRef.current = setTimeout(() => {
-      setIsFocused(false);
-      setApiSuggestions([]);
-    }, 200);
+  const closeModal = () => {
+    setModalVisible(false);
+    setApiSuggestions([]);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
   };
 
   const showRecentList =
-    showRecents &&
-    isFocused &&
-    inputValue.trim().length === 0 &&
-    !resolved &&
-    recentAddresses.length > 0;
-
-  const showApiList = apiSuggestions.length > 0 && !resolved;
+    showRecents && modalInput.trim().length === 0 && recentAddresses.length > 0;
+  const showApiList = apiSuggestions.length > 0;
 
   const listItems: SuggestionItem[] = showRecentList
     ? recentAddresses.map((a) => ({ kind: 'recent' as const, address: a }))
@@ -135,12 +136,10 @@ export function AddressAutocomplete({
     : [];
 
   const renderItem = ({ item, index }: { item: SuggestionItem; index: number }) => {
-    const isFirst = index === 0;
-
     if (item.kind === 'recent') {
       return (
         <TouchableOpacity
-          style={[styles.suggestion, !isFirst && styles.suggestionBorder]}
+          style={styles.suggestion}
           onPress={() => handleSelectRecent(item.address)}
           activeOpacity={0.75}
         >
@@ -151,10 +150,9 @@ export function AddressAutocomplete({
         </TouchableOpacity>
       );
     }
-
     return (
       <TouchableOpacity
-        style={[styles.suggestion, !isFirst && styles.suggestionBorder]}
+        style={styles.suggestion}
         onPress={() => handleSelectApi(item.suggestion)}
         activeOpacity={0.75}
       >
@@ -172,31 +170,62 @@ export function AddressAutocomplete({
 
   return (
     <View style={styles.wrapper}>
-      <View style={[styles.inputRow, isFocused && styles.inputRowFocused]}>
+      {/* Trigger row — shows current address, opens search modal on tap */}
+      <TouchableOpacity
+        style={[styles.inputRow, resolved && styles.inputRowResolved]}
+        onPress={openModal}
+        activeOpacity={0.7}
+      >
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
-        <TextInput
-          style={styles.input}
-          placeholder={placeholder}
-          placeholderTextColor={Colors.textSecondary}
-          value={inputValue}
-          onChangeText={handleTextChange}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          autoCorrect={false}
-          autoComplete="off"
-          returnKeyType="search"
-        />
-        {loading && (
-          <ActivityIndicator size="small" color={Colors.primary} style={styles.spinner} />
-        )}
-        {resolved && !loading && <View style={styles.resolvedDot} />}
-      </View>
+        <Text
+          style={[styles.inputText, !displayValue && styles.placeholderText]}
+          numberOfLines={1}
+        >
+          {displayValue || placeholder}
+        </Text>
+        {resolved && <View style={styles.resolvedDot} />}
+      </TouchableOpacity>
 
-      {listItems.length > 0 && (
-        <View style={styles.dropdown}>
-          {showRecentList && (
-            <Text style={styles.dropdownLabel}>Recent</Text>
+      {/* Full-screen address search modal — keyboard never covers input here */}
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        onRequestClose={closeModal}
+      >
+        <SafeAreaView style={styles.modal}>
+          {/* Header */}
+          <View style={styles.modalHeader}>
+            <View style={[styles.modalDot, { backgroundColor: dotColor }]} />
+            <TextInput
+              style={styles.modalInput}
+              placeholder={placeholder}
+              placeholderTextColor={Colors.textSecondary}
+              value={modalInput}
+              onChangeText={handleModalTextChange}
+              autoFocus
+              autoCorrect={false}
+              autoComplete="off"
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+            {loading
+              ? <ActivityIndicator size="small" color={Colors.primary} style={styles.spinner} />
+              : null}
+            <TouchableOpacity onPress={closeModal} style={styles.cancelBtn} activeOpacity={0.7}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.divider} />
+
+          {/* Section label */}
+          {showRecentList && listItems.length > 0 && (
+            <Text style={styles.sectionLabel}>RECENT</Text>
           )}
+          {showApiList && listItems.length > 0 && (
+            <Text style={styles.sectionLabel}>SUGGESTIONS</Text>
+          )}
+
           <FlatList
             data={listItems}
             keyExtractor={(item, i) =>
@@ -205,19 +234,17 @@ export function AddressAutocomplete({
                 : `a-${item.suggestion.placeId}`
             }
             keyboardShouldPersistTaps="handled"
-            scrollEnabled={false}
             renderItem={renderItem}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
           />
-        </View>
-      )}
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
-    position: 'relative',
-    zIndex: 10,
     marginBottom: Spacing.sm,
   },
   inputRow: {
@@ -230,22 +257,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'transparent',
   },
-  inputRowFocused: {
-    borderColor: Colors.border,
+  inputRowResolved: {
+    borderColor: Colors.primary + '40',
   },
   dot: {
     width: 10,
     height: 10,
     borderRadius: 5,
     marginRight: Spacing.sm,
+    flexShrink: 0,
   },
-  input: {
+  inputText: {
     flex: 1,
     color: Colors.text,
     fontSize: Typography.size.base,
   },
-  spinner: {
-    marginLeft: Spacing.sm,
+  placeholderText: {
+    color: Colors.textSecondary,
   },
   resolvedDot: {
     width: 8,
@@ -254,47 +282,75 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.success,
     marginLeft: Spacing.sm,
   },
-  dropdown: {
-    position: 'absolute',
-    top: 52,
-    left: 0,
-    right: 0,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    zIndex: 20,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+
+  // Modal styles
+  modal: {
+    flex: 1,
+    backgroundColor: Colors.background,
   },
-  dropdownLabel: {
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.base,
+    paddingVertical: Platform.OS === 'ios' ? Spacing.sm : Spacing.md,
+    gap: Spacing.sm,
+  },
+  modalDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    flexShrink: 0,
+  },
+  modalInput: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: Typography.size.md,
+    paddingVertical: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.md,
+    height: 44,
+  },
+  spinner: {
+    marginHorizontal: Spacing.xs,
+  },
+  cancelBtn: {
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: Spacing.sm,
+  },
+  cancelText: {
+    color: Colors.primary,
+    fontSize: Typography.size.base,
+    fontWeight: Typography.weight.medium,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: Colors.border,
+  },
+  sectionLabel: {
     color: Colors.textSecondary,
     fontSize: Typography.size.xs,
     fontWeight: Typography.weight.semibold,
     letterSpacing: 0.8,
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.sm,
-    paddingBottom: 4,
-    textTransform: 'uppercase',
+    paddingHorizontal: Spacing.base,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xs,
   },
   suggestion: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 11,
+    paddingHorizontal: Spacing.base,
+    paddingVertical: 14,
   },
-  suggestionBorder: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
+  separator: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginHorizontal: Spacing.base,
   },
   recentIcon: {
     fontSize: 14,
     marginRight: Spacing.sm,
-    width: 18,
+    width: 20,
     textAlign: 'center',
   },
   apiSuggestionText: {
@@ -302,13 +358,12 @@ const styles = StyleSheet.create({
   },
   suggestionMain: {
     color: Colors.text,
-    fontSize: Typography.size.sm,
+    fontSize: Typography.size.base,
     fontWeight: Typography.weight.medium,
-    flex: 1,
   },
   suggestionSecondary: {
     color: Colors.textSecondary,
-    fontSize: Typography.size.xs,
+    fontSize: Typography.size.sm,
     marginTop: 2,
   },
 });
