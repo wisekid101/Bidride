@@ -11,6 +11,10 @@ out/
 .expo/
 *.tsbuildinfo
 
+# Expo prebuild native projects (generated — never commit)
+apps/*/ios/
+apps/*/android/
+
 # Environment files (never commit secrets)
 .env
 .env.local
