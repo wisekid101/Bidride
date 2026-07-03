@@ -1,6 +1,6 @@
 import { useDriverStore } from '../store/driver.store';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com/v1';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { accessToken } = useDriverStore.getState();

@@ -1,6 +1,6 @@
 import { useAuthStore } from '../store/auth.store';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com/v1';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
 async function request<T>(
   path: string,
@@ -32,6 +32,10 @@ async function request<T>(
       code: error?.error?.code ?? error?.code,
       status: response.status,
     });
+  }
+
+  if (response.status === 204 || response.headers?.get('content-length') === '0') {
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;
