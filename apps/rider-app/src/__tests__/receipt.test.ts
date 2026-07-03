@@ -15,7 +15,7 @@ jest.mock('expo-router', () => ({
     tripId: 'trip-test-123',
     pickupAddress: '1 Airport Blvd, Newark, NJ',
     dropoffAddress: '350 5th Ave, New York, NY',
-    fareAmount: '38.50',
+    finalFare: '38.50',
     distanceMiles: '16.4',
     durationMinutes: '22',
     driverName: 'Marcus',

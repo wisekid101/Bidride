@@ -10,6 +10,10 @@ import React from 'react';
 import { render, act } from '@testing-library/react-native';
 import { IncomingRequestScreen } from '../screens/IncomingRequestScreen';
 
+jest.mock('expo-router', () => ({
+  router: { push: jest.fn(), replace: jest.fn(), back: jest.fn() },
+}));
+
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }),
 }));
