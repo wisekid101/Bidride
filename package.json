@@ -14,7 +14,11 @@
     "db:migrate:prod": "pnpm --filter @bidride/database migrate:deploy",
     "db:seed": "pnpm --filter @bidride/database seed",
     "db:seed:fraud": "pnpm --filter @bidride/database seed:fraud",
-    "db:studio": "pnpm --filter @bidride/database studio"
+    "db:studio": "pnpm --filter @bidride/database studio",
+    "dev:proxy": "node scripts/dev-proxy.js",
+    "dev:backend": "turbo run dev --filter=!@bidride/rider-app --filter=!@bidride/driver-app --filter=!@bidride/admin --parallel",
+    "dev:rider": "pnpm --filter @bidride/rider-app dev",
+    "dev:driver": "pnpm --filter @bidride/driver-app dev"
   },
   "workspaces": [
     "apps/*",
