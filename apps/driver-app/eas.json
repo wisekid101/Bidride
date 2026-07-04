@@ -8,9 +8,6 @@
       "distribution": "internal",
       "ios": {
         "simulator": false
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "http://YOUR_LAN_IP:8080"
       }
     },
     "simulator": {
