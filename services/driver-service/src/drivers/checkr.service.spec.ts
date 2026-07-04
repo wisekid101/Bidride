@@ -247,8 +247,8 @@ describe('CheckrService', () => {
       it('removes driver from dispatch pool', async () => {
         await service.handleWebhookEvent(makeEvent('report.completed', 'suspended'));
 
-        expect(mockRedis.del).toHaveBeenCalledWith(`driver:location:${mockDriver.id}`);
-        expect(mockRedis.zrem).toHaveBeenCalledWith('drivers:geo', mockDriver.id);
+        expect(mockRedis.del).toHaveBeenCalledWith(`driver:${mockDriver.userId}:location`);
+        expect(mockRedis.zrem).toHaveBeenCalledWith('drivers:geo', mockDriver.userId);
       });
 
       it('publishes driver:bgc:final_adverse_action event', async () => {

@@ -141,7 +141,7 @@ export class DriversService {
     if (dto.isAvailable && dto.currentLat && dto.currentLng) {
       // Store initial location for dispatch matching
       await this.redis.setex(
-        `driver:location:${driver.id}`,
+        `driver:${userId}:location`,
         300,
         JSON.stringify({ lat: parseFloat(dto.currentLat), lng: parseFloat(dto.currentLng) }),
       );
@@ -149,11 +149,11 @@ export class DriversService {
         'drivers:geo',
         parseFloat(dto.currentLng),
         parseFloat(dto.currentLat),
-        driver.id,
+        userId,
       );
     } else if (!dto.isAvailable) {
-      await this.redis.del(`driver:location:${driver.id}`);
-      await this.redis.zrem('drivers:geo', driver.id);
+      await this.redis.del(`driver:${userId}:location`);
+      await this.redis.zrem('drivers:geo', userId);
     }
 
     return { isAvailable: dto.isAvailable };
@@ -334,8 +334,8 @@ export class DriversService {
     });
 
     // Force disconnect from dispatch pool
-    await this.redis.del(`driver:location:${driverId}`);
-    await this.redis.zrem('drivers:geo', driverId);
+    await this.redis.del(`driver:${driver.userId}:location`);
+    await this.redis.zrem('drivers:geo', driver.userId);
 
     await this.redis.publish(
       'driver:suspended',

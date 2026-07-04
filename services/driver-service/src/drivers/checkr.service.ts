@@ -171,8 +171,8 @@ export class CheckrService {
           isAvailable: false,
         },
       });
-      await this.redis.del(`driver:location:${driver.id}`);
-      await this.redis.zrem('drivers:geo', driver.id);
+      await this.redis.del(`driver:${driver.userId}:location`);
+      await this.redis.zrem('drivers:geo', driver.userId);
       await this.redis.publish(
         'driver:bgc:final_adverse_action',
         JSON.stringify({ driverId: driver.id, userId: driver.userId, reportId: report.id }),
