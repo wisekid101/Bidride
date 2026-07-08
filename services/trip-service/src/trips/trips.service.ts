@@ -508,6 +508,75 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     return trip;
   }
 
+  // Cold-start rehydration: the single in-flight trip the caller participates
+  // in (as rider or driver), shaped for the mobile apps. Read-only.
+  async getActiveTripForUser(userId: string) {
+    const [rider, driver] = await Promise.all([
+      this.prisma.rider.findUnique({ where: { userId }, select: { id: true } }),
+      this.prisma.driver.findUnique({ where: { userId }, select: { id: true } }),
+    ]);
+    if (!rider && !driver) return { trip: null };
+
+    const trip = await this.prisma.trip.findFirst({
+      where: {
+        status: {
+          in: [
+            TripStatus.searching,
+            TripStatus.accepted,
+            TripStatus.driver_en_route,
+            TripStatus.driver_arrived,
+            TripStatus.in_progress,
+          ],
+        },
+        OR: [
+          ...(rider ? [{ riderId: rider.id }] : []),
+          ...(driver ? [{ driverId: driver.id }] : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        rider: { select: { displayName: true } },
+        driver: {
+          include: {
+            vehicles: { where: { isActive: true }, take: 1 },
+            user: { select: { firstName: true, lastName: true, profilePhotoUrl: true } },
+          },
+        },
+      },
+    });
+    if (!trip) return { trip: null };
+
+    const vehicle = trip.driver?.vehicles[0] ?? null;
+    return {
+      trip: {
+        id: trip.id,
+        status: trip.status,
+        role: driver && trip.driverId === driver.id ? 'driver' : 'rider',
+        pickupAddress: trip.pickupAddress,
+        dropoffAddress: trip.dropoffAddress,
+        pickupLat: Number(trip.pickupLat),
+        pickupLng: Number(trip.pickupLng),
+        dropoffLat: Number(trip.dropoffLat),
+        dropoffLng: Number(trip.dropoffLng),
+        aiFare: Number(trip.aiFare),
+        riderName: trip.rider?.displayName ?? 'Rider',
+        driver: trip.driver
+          ? {
+              name:
+                [trip.driver.user?.firstName, trip.driver.user?.lastName].filter(Boolean).join(' ') ||
+                'Your Driver',
+              badge: (trip.driver.currentBadge as string) ?? 'Verified',
+              vehicleMake: vehicle?.make,
+              vehicleModel: vehicle?.model,
+              vehicleColor: vehicle?.color,
+              licensePlate: vehicle?.licensePlate,
+              photoUrl: trip.driver.user?.profilePhotoUrl ?? undefined,
+            }
+          : null,
+      },
+    };
+  }
+
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
   private async getActiveTrip(tripId: string) {

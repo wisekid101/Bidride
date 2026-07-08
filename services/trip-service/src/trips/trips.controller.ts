@@ -42,6 +42,13 @@ export class TripsController {
     return this.trips.createTrip(req.user.sub, dto);
   }
 
+  // Must be declared before @Get(':id') so "active" isn't matched as an id.
+  @Get('active')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  getActiveTrip(@Request() req: any) {
+    return this.trips.getActiveTripForUser(req.user.sub);
+  }
+
   @Get(':id')
   getTrip(@Request() req: any, @Param('id') id: string) {
     return this.trips.getTripById(id, req.user.sub);

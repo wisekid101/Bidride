@@ -24,6 +24,8 @@ interface InTripProps {
   dropoffAddress: string;
   driverTakeHome: number;
   earningsFloorAmount: number;
+  // 'in_progress' when rehydrating a trip that was already started
+  initialPhase?: 'arrived' | 'in_progress';
 }
 
 export function InTripScreen({
@@ -32,13 +34,14 @@ export function InTripScreen({
   dropoffAddress,
   driverTakeHome,
   earningsFloorAmount,
+  initialPhase,
 }: InTripProps) {
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [elapsedMin, setElapsedMin] = useState(0);
   // Trip runs driver_arrived -> in_progress (POST /start) -> completed (POST /end);
   // the End button is only valid once the trip has been started.
-  const [phase, setPhase] = useState<'arrived' | 'in_progress'>('arrived');
+  const [phase, setPhase] = useState<'arrived' | 'in_progress'>(initialPhase ?? 'arrived');
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
 

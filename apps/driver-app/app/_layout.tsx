@@ -16,6 +16,56 @@ SplashScreen.preventAutoHideAsync();
 // useQuery consumer) requires a QueryClientProvider above it.
 const queryClient = new QueryClient();
 
+const PLATFORM_FEE_RATE = 0.20;
+
+// Cold-start rehydration: if the server has an in-flight trip this driver
+// already accepted, route straight to the matching screen with the same
+// params the normal accept/arrived flow passes. Searching trips are skipped
+// (request cards are ephemeral; redispatch re-broadcasts them).
+async function restoreActiveTrip() {
+  try {
+    const { trip } = await api.get<{
+      trip: {
+        id: string;
+        status: string;
+        role: 'rider' | 'driver';
+        pickupAddress: string;
+        dropoffAddress: string;
+        aiFare: number;
+        riderName: string;
+      } | null;
+    }>('/trips/active');
+    if (!trip || trip.role !== 'driver') return;
+
+    const driverTakeHome = (trip.aiFare * (1 - PLATFORM_FEE_RATE)).toFixed(2);
+    if (trip.status === 'accepted' || trip.status === 'driver_en_route') {
+      router.replace({
+        pathname: '/navigating-to-pickup',
+        params: {
+          tripId: trip.id,
+          pickupAddress: trip.pickupAddress,
+          dropoffAddress: trip.dropoffAddress,
+          driverTakeHome,
+        },
+      });
+    } else if (trip.status === 'driver_arrived' || trip.status === 'in_progress') {
+      router.replace({
+        pathname: '/in-trip',
+        params: {
+          tripId: trip.id,
+          riderName: trip.riderName,
+          dropoffAddress: trip.dropoffAddress,
+          driverTakeHome,
+          earningsFloorAmount: '0',
+          phase: trip.status === 'in_progress' ? 'in_progress' : 'arrived',
+        },
+      });
+    }
+  } catch {
+    // Rehydration is best-effort — a failed fetch must never block startup
+  }
+}
+
 async function registerPushToken() {
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -66,13 +116,15 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    loadTokens().then(() => {
+    loadTokens().then(async () => {
       // Reconnect the socket on cold start so dispatch events arrive without
       // re-login. Guard on socket presence — this effect re-runs when fonts
       // load, and connect() alone doesn't dedupe a still-handshaking socket.
       const { accessToken } = useDriverStore.getState();
       if (accessToken && !useDriverSocketStore.getState().socket) {
         useDriverSocketStore.getState().connect(accessToken);
+        // Sockets first, then restore any in-flight trip before splash hides.
+        await restoreActiveTrip();
       }
       if (fontsLoaded) SplashScreen.hideAsync();
     });
