@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useDriverStore } from '../src/store/driver.store';
 import { useDriverSocketStore } from '../src/store/socket.store';
@@ -83,6 +83,21 @@ export default function RootLayout() {
       void registerPushToken();
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    // iOS suspension kills the WebSocket and exhausts socket.io's retry budget,
+    // leaving a driver who looks Online but receives no requests. Reconnect on
+    // foreground; connect() is idempotent so this never duplicates sockets.
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const { accessToken } = useDriverStore.getState();
+      const { socket, connect } = useDriverSocketStore.getState();
+      if (accessToken && !socket?.connected) {
+        connect(accessToken);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     const receivedSub = Notifications.addNotificationReceivedListener((_notification) => {

@@ -57,6 +57,12 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
   connect: (accessToken) => {
     const existing = get().socket;
     if (existing?.connected) return;
+    if (existing) {
+      // Dead or mid-handshake socket — tear it down fully so its built-in
+      // auto-reconnect can't resurrect it as a phantom duplicate.
+      existing.removeAllListeners();
+      existing.disconnect();
+    }
 
     const socket = io(WS_URL, {
       auth: { token: accessToken },
@@ -93,9 +99,10 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
       set({ incomingBid: null, incomingRequest: null, counterResult: null });
     });
 
-    socket.on('disconnect', () => {
-      set({ socket: null });
-    });
+    // Keep the socket reference on transient disconnects: emitLocation already
+    // guards on socket.connected, socket.io retries in the background, and the
+    // AppState foreground handler reconnects through connect(). Nulling here
+    // would orphan an instance that still auto-reconnects.
 
     set({ socket });
   },
