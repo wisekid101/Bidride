@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,10 @@ import MapView, { Marker } from 'react-native-maps';
 import { MAP_PROVIDER } from '../constants/map';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import * as Location from 'expo-location';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
+import { useDriverSocketStore } from '../store/socket.store';
 
 interface NavigatingToPickupProps {
   tripId: string;
@@ -30,6 +32,23 @@ export function NavigatingToPickupScreen({
 }: NavigatingToPickupProps) {
   const mapRef = useRef<MapView>(null);
   const [marking, setMarking] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Stream GPS to the rider while heading to pickup — same cadence as InTripScreen.
+  // The tripId routes the event to the rider's trip room via the gateway.
+  useEffect(() => {
+    let sub: Location.LocationSubscription | null = null;
+    (async () => {
+      sub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 15 },
+        (pos) => {
+          setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          useDriverSocketStore.getState().emitLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.heading ?? undefined, tripId);
+        },
+      );
+    })();
+    return () => { sub?.remove(); };
+  }, []);
 
   const markArrived = async () => {
     setMarking(true);
@@ -61,7 +80,26 @@ export function NavigatingToPickupScreen({
         provider={MAP_PROVIDER}
         style={styles.map}
         customMapStyle={darkMapStyle}
-      />
+        initialRegion={
+          currentLocation
+            ? {
+                latitude: currentLocation.lat,
+                longitude: currentLocation.lng,
+                latitudeDelta: 0.03,
+                longitudeDelta: 0.03,
+              }
+            : undefined
+        }
+        key={currentLocation ? 'located' : 'waiting'}
+      >
+        {currentLocation && (
+          <Marker coordinate={{ latitude: currentLocation.lat, longitude: currentLocation.lng }}>
+            <View style={styles.carMarker}>
+              <Ionicons name="car" size={20} color={Colors.primaryText} />
+            </View>
+          </Marker>
+        )}
+      </MapView>
 
       {/* Top bar */}
       <View style={styles.topBar}>
@@ -108,6 +146,10 @@ export function NavigatingToPickupScreen({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   map: { flex: 1 },
+  carMarker: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center',
+  },
   topBar: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 60 : 32,

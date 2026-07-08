@@ -26,6 +26,13 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       reconnectionDelay: 1000,
     });
 
+    // Rooms do not survive socket.io reconnection — rejoin the active trip's
+    // room on every (re)connect so live tracking survives dropped sockets.
+    socket.on('connect', () => {
+      const trip = useTripStore.getState().activeTrip;
+      if (trip?.id) socket.emit('subscribe:trip', { tripId: trip.id });
+    });
+
     socket.on('driver:assigned', (data: {
       driverId: string;
       driverName: string;
@@ -125,8 +132,8 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
   },
 
   subscribeToTrip: (tripId) => {
-    const { socket } = get();
-    if (!socket?.connected) return;
-    socket.emit('subscribe:trip', { tripId });
+    // No connected-guard: socket.io buffers emits made before the handshake
+    // completes, and a guard here silently drops the room join at cold start.
+    get().socket?.emit('subscribe:trip', { tripId });
   },
 }));
