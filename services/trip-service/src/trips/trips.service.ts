@@ -4,6 +4,8 @@ import {
   ForbiddenException,
   BadRequestException,
   Inject,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { TripStatus, RideType } from '@bidride/database/generated/client';
 import Redis from 'ioredis';
@@ -18,6 +20,14 @@ const PLATFORM_FEE_RATE = 0.20;
 const NO_SHOW_WAIT_MINUTES = 5;
 const DROPOFF_LOCK_RADIUS_MILES = 0.2;
 const SURGE_COUNTER_TTL_SEC = 600; // 10-minute rolling window
+
+// Standard-ride dispatch: how long a broadcast may go unanswered before the
+// sweeper acts (driver card is 60s; +15s buffer), how many re-broadcasts are
+// allowed, and how often the sweeper scans for stale searching trips.
+const DISPATCH_WINDOW_MS = 75_000;
+const MAX_REDISPATCHES = 2;
+const DISPATCH_SWEEP_INTERVAL_MS = 15_000;
+const NO_DRIVERS_REASON = 'no_drivers_available';
 const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007';
 
 function getZoneKey(lat: number, lng: number): string {
@@ -25,13 +35,29 @@ function getZoneKey(lat: number, lng: number): string {
 }
 
 @Injectable()
-export class TripsService {
+export class TripsService implements OnModuleInit, OnModuleDestroy {
+  private dispatchSweepTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly dispatch: DispatchService,
     private readonly earningsFloor: EarningsFloorService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
+
+  onModuleInit(): void {
+    // DB-driven sweep — survives restarts and also cleans up any searching
+    // trips orphaned before this service instance started.
+    this.dispatchSweepTimer = setInterval(() => {
+      this.sweepStaleSearchingTrips().catch((err) =>
+        console.error('Dispatch sweep failed:', err),
+      );
+    }, DISPATCH_SWEEP_INTERVAL_MS);
+  }
+
+  onModuleDestroy(): void {
+    if (this.dispatchSweepTimer) clearInterval(this.dispatchSweepTimer);
+  }
 
   async createTrip(userId: string, dto: CreateTripDto) {
     const rider = await this.resolveRider(userId);
@@ -95,6 +121,13 @@ export class TripsService {
       durationMin: dispatchDurationMin,
       riderBadge: rider.currentBadge as string,
     }).catch(console.error);
+
+    // Track dispatch attempts so the sweeper can re-broadcast or fail cleanly
+    void this.redis.set(
+      `trip:${trip.id}:dispatch`,
+      JSON.stringify({ attempts: 0, lastDispatchAt: Date.now() }),
+      'EX', 3600,
+    ).catch(() => {});
 
     // Store planned route + compute safety score (fire-and-forget)
     void this.storeTripRouteSafety(
@@ -618,6 +651,88 @@ export class TripsService {
     return airportTerms.some(
       (term) => pickup.includes(term) || dropoff.includes(term),
     );
+  }
+
+  // ─── Standard-ride redispatch / no-drivers timeout ───────────────────────
+
+  private async sweepStaleSearchingTrips(): Promise<void> {
+    const staleBefore = new Date(Date.now() - DISPATCH_WINDOW_MS);
+    const staleTrips = await this.prisma.trip.findMany({
+      where: { status: TripStatus.searching, createdAt: { lt: staleBefore } },
+      include: { rider: { select: { currentBadge: true } } },
+      take: 20,
+    });
+
+    for (const trip of staleTrips) {
+      const metaRaw = await this.redis.get(`trip:${trip.id}:dispatch`);
+      // No metadata (pre-feature orphan or Redis restart): fail rather than
+      // re-broadcast a request of unknown age.
+      const meta = metaRaw
+        ? (JSON.parse(metaRaw) as { attempts: number; lastDispatchAt: number })
+        : { attempts: MAX_REDISPATCHES, lastDispatchAt: 0 };
+
+      if (Date.now() - meta.lastDispatchAt < DISPATCH_WINDOW_MS) continue;
+
+      if (meta.attempts < MAX_REDISPATCHES) {
+        await this.redispatchTrip(trip, meta.attempts + 1);
+      } else {
+        await this.failTripNoDrivers(trip.id);
+      }
+    }
+  }
+
+  private async redispatchTrip(
+    trip: {
+      id: string;
+      pickupAddress: string;
+      dropoffAddress: string;
+      pickupLat: unknown;
+      pickupLng: unknown;
+      dropoffLat: unknown;
+      dropoffLng: unknown;
+      aiFare: unknown;
+      rideType: string;
+      isAirportTrip: boolean;
+      rider: { currentBadge: string } | null;
+    },
+    attempt: number,
+  ): Promise<void> {
+    const distanceMiles = this.haversineDistance(
+      Number(trip.pickupLat), Number(trip.pickupLng),
+      Number(trip.dropoffLat), Number(trip.dropoffLng),
+    );
+    const durationMin = Math.round((distanceMiles / 20) * 60);
+
+    await this.dispatch.broadcastRequest({
+      ...trip,
+      distanceMiles,
+      durationMin,
+      riderBadge: (trip.rider?.currentBadge as string) ?? 'verified',
+    });
+
+    await this.redis.set(
+      `trip:${trip.id}:dispatch`,
+      JSON.stringify({ attempts: attempt, lastDispatchAt: Date.now() }),
+      'EX', 3600,
+    );
+
+    await this.dispatch.notifyRiderSearchingUpdate(trip.id, attempt);
+  }
+
+  private async failTripNoDrivers(tripId: string): Promise<void> {
+    // Guard against a driver accepting between the sweep query and this write
+    const { count } = await this.prisma.trip.updateMany({
+      where: { id: tripId, status: TripStatus.searching },
+      data: {
+        status: TripStatus.cancelled,
+        cancelledAt: new Date(),
+        cancelReason: NO_DRIVERS_REASON,
+      },
+    });
+    if (count === 0) return;
+
+    await this.redis.del(`trip:${tripId}:state`, `trip:${tripId}:dispatch`);
+    await this.dispatch.notifyRiderNoDrivers(tripId);
   }
 
   private haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {

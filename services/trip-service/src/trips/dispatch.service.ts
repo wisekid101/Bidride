@@ -376,6 +376,25 @@ export class DispatchService {
     });
   }
 
+  // ─── Standard-ride redispatch / no-drivers notifications ─────────────────
+
+  async notifyRiderSearchingUpdate(tripId: string, attempt: number): Promise<void> {
+    await this.publish(`rider:trip:${tripId}`, {
+      event: 'trip:searchingUpdate',
+      tripId,
+      attempt,
+      message: 'Still looking for drivers...',
+    });
+  }
+
+  async notifyRiderNoDrivers(tripId: string): Promise<void> {
+    await this.publish(`rider:trip:${tripId}`, {
+      event: 'trip:noDrivers',
+      tripId,
+      message: 'No drivers available. Try again.',
+    });
+  }
+
   // ─── Private helpers ─────────────────────────────────────────────────────
 
   private async publish(channel: string, data: object): Promise<void> {

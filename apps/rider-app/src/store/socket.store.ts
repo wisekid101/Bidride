@@ -78,6 +78,20 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       useTripStore.getState().updateTripStatus('cancelled');
     });
 
+    // Standard-ride redispatch: server re-broadcast the request to drivers
+    socket.on('trip:searchingUpdate', (data: { tripId: string; attempt: number }) => {
+      const current = useTripStore.getState().activeTrip;
+      if (!current || current.id !== data.tripId) return;
+      useTripStore.getState().setActiveTrip({ ...current, searchingAttempt: data.attempt });
+    });
+
+    // Standard-ride timeout: no driver accepted after all re-broadcasts
+    socket.on('trip:noDrivers', (data: { tripId: string }) => {
+      const current = useTripStore.getState().activeTrip;
+      if (!current || current.id !== data.tripId) return;
+      useTripStore.getState().setActiveTrip({ ...current, status: 'no_drivers' });
+    });
+
     socket.on('bid:countered', (data: {
       bidId: string;
       tripId: string;

@@ -29,6 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
   driver_arrived:   'Your driver has arrived',
   in_progress:      'Enjoy your ride',
   completed:        'You have arrived!',
+  no_drivers:       'No drivers available. Try again.',
 };
 
 interface GoogleDirectionsResponse {
@@ -54,7 +55,7 @@ function decodePolyline(encoded: string): Array<{ latitude: number; longitude: n
 }
 
 export function TrackingScreen() {
-  const { activeTrip, completedTrip, pendingCounter } = useTripStore();
+  const { activeTrip, completedTrip, pendingCounter, setActiveTrip } = useTripStore();
   const { subscribeToTrip } = useSocketStore();
   const mapRef = useRef<MapView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -143,7 +144,10 @@ export function TrackingScreen() {
   if (!activeTrip) return null;
 
   const driverLocation = activeTrip.driverLocation;
-  const statusLabel = STATUS_LABELS[activeTrip.status] ?? activeTrip.status;
+  const statusLabel =
+    activeTrip.status === 'searching' && (activeTrip.searchingAttempt ?? 0) > 0
+      ? 'Still looking for drivers...'
+      : STATUS_LABELS[activeTrip.status] ?? activeTrip.status;
   const displayEta = activeTrip.estimatedArrival ?? localEta;
   const canCancel = CANCELLABLE_STATUSES.has(activeTrip.status);
 
@@ -255,6 +259,18 @@ export function TrackingScreen() {
           <Text style={styles.cancelText}>
             {cancelling ? 'Cancelling...' : 'Cancel Ride'}
           </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* No drivers found — trip was cancelled server-side; let the rider leave */}
+      {activeTrip.status === 'no_drivers' && (
+        <TouchableOpacity
+          style={styles.cancelButtonFloating}
+          onPress={() => setActiveTrip(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Try again"
+        >
+          <Text style={styles.cancelText}>Try Again</Text>
         </TouchableOpacity>
       )}
 
