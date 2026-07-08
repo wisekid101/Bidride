@@ -55,16 +55,8 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 // Wrap the existing rewriteRequestUrl to also fix .pnpm path traversal.
 const existingRewrite = config.server.rewriteRequestUrl;
 config.server.rewriteRequestUrl = (url) => {
-  // HTTP clients normalize ../../ before sending, so Metro sees the .pnpm store
-  // path without traversal: /node_modules/.pnpm/pkg@version.../node_modules/pkg/...
-  // Rewrite to the projectRoot-relative symlink path Metro can serve directly:
-  // /node_modules/pkg/...
-  // Also consume any leading /../.. traversal — otherwise the rewritten path
-  // resolves against the monorepo ROOT's expo-router symlink, which can be a
-  // different pnpm peer-variant than the app's own, loading two expo-router
-  // instances into one bundle (breaks router context: "No filename found").
   const rewritten = url.replace(
-    /(?:\/\.\.)*\/node_modules\/\.pnpm\/[^/]+\/node_modules\/([^?]+)/,
+    /\/node_modules\/\.pnpm\/[^/]+\/node_modules\/([^?]+)/,
     '/node_modules/$1',
   );
   return existingRewrite ? existingRewrite(rewritten) : rewritten;

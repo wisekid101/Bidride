@@ -84,7 +84,17 @@ export class TripsService {
       .catch(() => {});
 
     // Begin dispatch (async — finds available drivers in zone)
-    this.dispatch.broadcastRequest(trip).catch(console.error);
+    const dispatchDistanceMiles = this.haversineDistance(
+      dto.pickupLat, dto.pickupLng,
+      dto.dropoffLat, dto.dropoffLng,
+    );
+    const dispatchDurationMin = Math.round((dispatchDistanceMiles / 20) * 60);
+    this.dispatch.broadcastRequest({
+      ...trip,
+      distanceMiles: dispatchDistanceMiles,
+      durationMin: dispatchDurationMin,
+      riderBadge: rider.currentBadge as string,
+    }).catch(console.error);
 
     // Store planned route + compute safety score (fire-and-forget)
     void this.storeTripRouteSafety(

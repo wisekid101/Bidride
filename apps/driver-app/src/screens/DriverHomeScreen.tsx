@@ -7,7 +7,8 @@ import {
   Switch,
   Platform,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Heatmap } from 'react-native-maps';
+import MapView, { Heatmap } from 'react-native-maps';
+import { MAP_PROVIDER, MAP_SUPPORTS_HEATMAP } from '../constants/map';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,11 +16,12 @@ import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { useDriverStore } from '../store/driver.store';
 import { useDriverSocketStore } from '../store/socket.store';
 import { IncomingRequestScreen } from './IncomingRequestScreen';
+import { IncomingStandardRequestScreen } from './IncomingStandardRequestScreen';
 import { api } from '../api/client';
 
 export function DriverHomeScreen() {
   const { isOnline, todayEarnings, setOnlineStatus } = useDriverStore();
-  const { incomingBid, clearIncomingBid, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
+  const { incomingBid, clearIncomingBid, incomingRequest, clearIncomingRequest, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toggling, setToggling] = useState(false);
@@ -87,8 +89,9 @@ export function DriverHomeScreen() {
       const nextState = !isOnline;
       await api.patch('/drivers/me/availability', {
         isAvailable: nextState,
-        currentLat: currentLocation?.lat ?? null,
-        currentLng: currentLocation?.lng ?? null,
+        ...(currentLocation
+          ? { currentLat: String(currentLocation.lat), currentLng: String(currentLocation.lng) }
+          : {}),
       });
       setOnlineStatus(nextState);
     } catch (err) {
@@ -112,7 +115,7 @@ export function DriverHomeScreen() {
       {currentLocation && (
         <MapView
           ref={mapRef}
-          provider={PROVIDER_GOOGLE}
+          provider={MAP_PROVIDER}
           style={styles.map}
           initialRegion={{
             latitude: currentLocation.lat,
@@ -122,11 +125,13 @@ export function DriverHomeScreen() {
           }}
           customMapStyle={darkMapStyle}
         >
-          <Heatmap
-            points={heatmapPoints}
-            radius={30}
-            gradient={{ colors: ['#00D4C6', '#F4B400', '#EF4444'], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
-          />
+          {MAP_SUPPORTS_HEATMAP && (
+            <Heatmap
+              points={heatmapPoints}
+              radius={30}
+              gradient={{ colors: ['#00D4C6', '#F4B400', '#EF4444'], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
+            />
+          )}
         </MapView>
       )}
 
@@ -153,6 +158,23 @@ export function DriverHomeScreen() {
           <Text style={styles.airportButtonText}>EWR Queue</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Incoming standard ride overlay — primary flow; only shown when no bid is pending */}
+      {isOnline && incomingRequest && !incomingBid && (
+        <IncomingStandardRequestScreen
+          tripId={incomingRequest.tripId}
+          pickupAddress={incomingRequest.pickupAddress}
+          dropoffAddress={incomingRequest.dropoffAddress}
+          aiFare={incomingRequest.aiFare}
+          driverTakeHome={parseFloat((incomingRequest.aiFare * (1 - PLATFORM_FEE_RATE)).toFixed(2))}
+          distanceMiles={incomingRequest.distanceMiles}
+          durationMin={incomingRequest.durationMin}
+          isAirportTrip={incomingRequest.isAirportTrip}
+          riderBadge={incomingRequest.riderBadge}
+          onAccepted={clearIncomingRequest}
+          onDeclined={clearIncomingRequest}
+        />
+      )}
 
       {/* Incoming bid overlay — only rendered when online and a bid is available */}
       {isOnline && incomingBid && (

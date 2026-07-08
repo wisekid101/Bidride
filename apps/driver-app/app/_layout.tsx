@@ -6,6 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { useDriverStore } from '../src/store/driver.store';
+import { useDriverSocketStore } from '../src/store/socket.store';
 import { api } from '../src/api/client';
 
 SplashScreen.preventAutoHideAsync();
@@ -61,6 +62,13 @@ export default function RootLayout() {
 
   useEffect(() => {
     loadTokens().then(() => {
+      // Reconnect the socket on cold start so dispatch events arrive without
+      // re-login. Guard on socket presence — this effect re-runs when fonts
+      // load, and connect() alone doesn't dedupe a still-handshaking socket.
+      const { accessToken } = useDriverStore.getState();
+      if (accessToken && !useDriverSocketStore.getState().socket) {
+        useDriverSocketStore.getState().connect(accessToken);
+      }
       if (fontsLoaded) SplashScreen.hideAsync();
     });
   }, [fontsLoaded]);

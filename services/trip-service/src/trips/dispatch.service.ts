@@ -16,24 +16,34 @@ export class DispatchService {
 
   async broadcastRequest(trip: {
     id: string;
+    pickupAddress: string;
+    dropoffAddress: string;
     pickupLat: unknown;
     pickupLng: unknown;
     dropoffLat: unknown;
     dropoffLng: unknown;
     aiFare: unknown;
+    distanceMiles: number;
+    durationMin: number;
     rideType: string;
     isAirportTrip: boolean;
+    riderBadge: string;
   }): Promise<void> {
     const payload = JSON.stringify({
       event: 'request:incoming',
       tripId: trip.id,
+      pickupAddress: trip.pickupAddress,
+      dropoffAddress: trip.dropoffAddress,
       pickupLat: trip.pickupLat,
       pickupLng: trip.pickupLng,
       dropoffLat: trip.dropoffLat,
       dropoffLng: trip.dropoffLng,
       aiFare: trip.aiFare,
+      distanceMiles: trip.distanceMiles,
+      durationMin: trip.durationMin,
       rideType: trip.rideType,
       isAirportTrip: trip.isAirportTrip,
+      riderBadge: trip.riderBadge,
     });
 
     // Published on 'dispatch' channel — WebSocket gateway consumes and fans out

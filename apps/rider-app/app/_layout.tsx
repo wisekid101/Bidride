@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { useAuthStore } from '../src/store/auth.store';
+import { useSocketStore } from '../src/store/socket.store';
 import { api } from '../src/api/client';
 
 SplashScreen.preventAutoHideAsync();
@@ -63,7 +64,11 @@ export default function RootLayout() {
   useEffect(() => {
     // Hide splash after tokens are loaded — don't gate on fonts so a
     // slow/failed font load never permanently blocks the UI.
-    loadTokens().then(() => SplashScreen.hideAsync()).catch(() => SplashScreen.hideAsync());
+    loadTokens().then(() => {
+      const { accessToken } = useAuthStore.getState();
+      if (accessToken) useSocketStore.getState().connect(accessToken);
+      return SplashScreen.hideAsync();
+    }).catch(() => SplashScreen.hideAsync());
   }, []);
 
   useEffect(() => {
@@ -115,7 +120,7 @@ export default function RootLayout() {
   } as const;
 
   return (
-    <StripeProvider publishableKey={stripeKey} merchantIdentifier="merchant.com.bidride.rider">
+    <StripeProvider publishableKey={stripeKey} merchantIdentifier="merchant.com.bidride.rider" urlScheme="bidride-rider">
       <StatusBar style="light" backgroundColor="#0A2342" />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="(auth)" />

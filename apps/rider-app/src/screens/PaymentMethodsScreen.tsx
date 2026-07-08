@@ -120,6 +120,7 @@ export function PaymentMethodsScreen() {
         setupIntentClientSecret: clientSecret,
         merchantDisplayName: 'BidiRide',
         allowsDelayedPaymentMethods: false,
+        returnURL: 'bidride-rider://stripe-redirect',
       });
 
       if (initError) {
@@ -134,6 +135,19 @@ export function PaymentMethodsScreen() {
           setError(presentError.message);
         }
       } else {
+        // A just-added card must become the default when none is set —
+        // the ride request flow is gated on defaultPaymentMethodId.
+        try {
+          const res = await api.get<ListResponse>('/riders/me/payment-methods');
+          const added = res.paymentMethods ?? [];
+          if (added.length > 0 && !added.some((m) => m.isDefault)) {
+            await api.post('/riders/me/payment-methods/default', {
+              paymentMethodId: added[0].id,
+            });
+          }
+        } catch {
+          // Non-fatal — the card is saved; default can be set manually.
+        }
         await load();
       }
     } catch {

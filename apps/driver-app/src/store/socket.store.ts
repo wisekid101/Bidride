@@ -17,6 +17,17 @@ export interface IncomingBid {
   riderBadge: 'Verified' | 'Trusted' | 'Business' | 'VIP';
 }
 
+export interface IncomingRequest {
+  tripId: string;
+  pickupAddress: string;
+  dropoffAddress: string;
+  aiFare: number;
+  distanceMiles: number;
+  durationMin: number;
+  isAirportTrip: boolean;
+  riderBadge: 'Verified' | 'Trusted' | 'Business' | 'VIP';
+}
+
 interface CounterResult {
   bidId: string;
   tripId: string;
@@ -27,10 +38,12 @@ interface CounterResult {
 interface DriverSocketStore {
   socket: Socket | null;
   incomingBid: IncomingBid | null;
+  incomingRequest: IncomingRequest | null;
   counterResult: CounterResult | null;
   connect: (accessToken: string) => void;
   disconnect: () => void;
   clearIncomingBid: () => void;
+  clearIncomingRequest: () => void;
   clearCounterResult: () => void;
   emitLocation: (lat: number, lng: number, heading?: number, tripId?: string) => void;
 }
@@ -38,6 +51,7 @@ interface DriverSocketStore {
 export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
   socket: null,
   incomingBid: null,
+  incomingRequest: null,
   counterResult: null,
 
   connect: (accessToken) => {
@@ -59,6 +73,10 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
       }
     });
 
+    socket.on('request:incoming', (data: IncomingRequest) => {
+      set({ incomingRequest: data });
+    });
+
     socket.on('bid:counterAccepted', (data: { bidId: string; tripId: string; finalFare: number }) => {
       set({ counterResult: { ...data, accepted: true }, incomingBid: null });
     });
@@ -72,7 +90,7 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
     });
 
     socket.on('trip:cancelled', () => {
-      set({ incomingBid: null, counterResult: null });
+      set({ incomingBid: null, incomingRequest: null, counterResult: null });
     });
 
     socket.on('disconnect', () => {
@@ -84,10 +102,11 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
 
   disconnect: () => {
     get().socket?.disconnect();
-    set({ socket: null, incomingBid: null, counterResult: null });
+    set({ socket: null, incomingBid: null, incomingRequest: null, counterResult: null });
   },
 
   clearIncomingBid: () => set({ incomingBid: null }),
+  clearIncomingRequest: () => set({ incomingRequest: null }),
   clearCounterResult: () => set({ counterResult: null }),
 
   emitLocation: (lat, lng, heading, tripId) => {

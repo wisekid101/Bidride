@@ -14,6 +14,7 @@ import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { useAuthStore } from '../store/auth.store';
+import { useSocketStore } from '../store/socket.store';
 
 type AuthPhase = 'phone' | 'otp';
 
@@ -78,6 +79,7 @@ export function PhoneAuthScreen() {
       }>('/auth/verify-otp', { phone: e164Phone, code: otp, role: 'rider' });
 
       await setTokens(result.access_token, result.refresh_token, result.user.id);
+      useSocketStore.getState().connect(result.access_token);
 
       if (result.user.isNew) {
         router.replace('/profile-setup');

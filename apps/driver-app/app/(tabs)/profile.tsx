@@ -170,7 +170,7 @@ export default function DriverProfileScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>
-                  {profile?.avgRating != null ? profile.avgRating.toFixed(2) : '—'}
+                  {profile?.avgRating != null ? Number(profile.avgRating).toFixed(2) : '—'}
                 </Text>
                 <Text style={styles.statLabel}>rating</Text>
               </View>

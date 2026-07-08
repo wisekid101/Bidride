@@ -8,7 +8,8 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
+import { MAP_PROVIDER } from '../constants/map';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
@@ -150,9 +151,19 @@ export function TrackingScreen() {
     <View style={styles.container}>
       <MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+        provider={MAP_PROVIDER}
         style={styles.map}
         customMapStyle={darkMapStyle}
+        initialRegion={
+          activeTrip.pickupLat && activeTrip.pickupLng
+            ? {
+                latitude: Number(activeTrip.pickupLat),
+                longitude: Number(activeTrip.pickupLng),
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              }
+            : undefined
+        }
       >
         {driverLocation && (
           <Marker

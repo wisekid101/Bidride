@@ -9,7 +9,8 @@ import {
   Vibration,
   PanResponder,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
+import { MAP_PROVIDER } from '../constants/map';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
@@ -35,6 +36,10 @@ export function InTripScreen({
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [elapsedMin, setElapsedMin] = useState(0);
+  // Trip runs driver_arrived -> in_progress (POST /start) -> completed (POST /end);
+  // the End button is only valid once the trip has been started.
+  const [phase, setPhase] = useState<'arrived' | 'in_progress'>('arrived');
+  const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
 
   // Track elapsed time
@@ -84,6 +89,24 @@ export function InTripScreen({
     api.post('/safety/panic', { tripId }).catch(console.error);
   };
 
+  const startTrip = async () => {
+    setStarting(true);
+    try {
+      await api.post(`/trips/${tripId}/start`, {});
+      setElapsedMin(0);
+      setPhase('in_progress');
+    } catch (err: any) {
+      if (err.code === 'TRIP_INVALID_TRANSITION') {
+        // Already started (e.g. after an app reload) — just advance the UI.
+        setPhase('in_progress');
+      } else {
+        Alert.alert('Error', 'Could not start trip. Try again.');
+      }
+    } finally {
+      setStarting(false);
+    }
+  };
+
   const endTrip = async () => {
     if (!currentLocation) {
       Alert.alert('Error', 'Cannot end trip — location unavailable.');
@@ -112,7 +135,7 @@ export function InTripScreen({
       {currentLocation && (
         <MapView
           ref={mapRef}
-          provider={PROVIDER_GOOGLE}
+          provider={MAP_PROVIDER}
           style={styles.map}
           initialRegion={{
             latitude: currentLocation.lat,
@@ -165,16 +188,33 @@ export function InTripScreen({
           </View>
         )}
 
-        <TouchableOpacity
-          style={[styles.endButton, ending && styles.endButtonDisabled]}
-          onPress={endTrip}
-          disabled={ending}
-        >
-          <Text style={styles.endButtonText}>
-            {ending ? 'Ending Trip...' : 'End Trip'}
-          </Text>
-        </TouchableOpacity>
-        <Text style={styles.endHint}>Must be within 0.2 mi of dropoff</Text>
+        {phase === 'arrived' ? (
+          <>
+            <TouchableOpacity
+              style={[styles.endButton, starting && styles.endButtonDisabled]}
+              onPress={startTrip}
+              disabled={starting}
+            >
+              <Text style={styles.endButtonText}>
+                {starting ? 'Starting Trip...' : 'Start Trip'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.endHint}>Tap when the rider is in the car</Text>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[styles.endButton, ending && styles.endButtonDisabled]}
+              onPress={endTrip}
+              disabled={ending}
+            >
+              <Text style={styles.endButtonText}>
+                {ending ? 'Ending Trip...' : 'End Trip'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.endHint}>Must be within 0.2 mi of dropoff</Text>
+          </>
+        )}
       </View>
     </View>
   );

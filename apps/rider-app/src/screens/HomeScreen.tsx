@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,10 @@ import {
 } from 'react-native';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
+import { MAP_PROVIDER } from '../constants/map';
 import * as Location from 'expo-location';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { geocodingApi, ResolvedAddress } from '../api/geocoding';
@@ -49,13 +50,15 @@ export function HomeScreen() {
   const pendingEwrAddress = useRef<ResolvedAddress | null>(null);
   const sessionToken = useRef(Math.random().toString(36).slice(2)).current;
 
-  useEffect(() => {
-    api.get<{ paymentMethods: { isDefault: boolean }[]; defaultPaymentMethodId: string | null }>(
-      '/riders/me/payment-methods',
-    )
-      .then((res) => setDefaultPaymentMethodId(res.defaultPaymentMethodId ?? null))
-      .catch(() => setDefaultPaymentMethodId(null));
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      api.get<{ paymentMethods: { isDefault: boolean }[]; defaultPaymentMethodId: string | null }>(
+        '/riders/me/payment-methods',
+      )
+        .then((res) => setDefaultPaymentMethodId(res.defaultPaymentMethodId ?? null))
+        .catch(() => setDefaultPaymentMethodId(null));
+    }, []),
+  );
 
   useEffect(() => {
     (async () => {
@@ -163,7 +166,9 @@ export function HomeScreen() {
         pickupLng: pickupResolved.lng,
         dropoffLat: dropoffResolved.lat,
         dropoffLng: dropoffResolved.lng,
-        aiFare: trip.aiFare,
+        // aiFare arrives as a string (Prisma Decimal JSON serialization) —
+        // coerce here so downstream .toFixed() renders don't crash.
+        aiFare: Number(trip.aiFare),
       });
 
       router.push('/tracking');
@@ -197,7 +202,7 @@ export function HomeScreen() {
       {currentLocation && (
         <MapView
           ref={mapRef}
-          provider={PROVIDER_GOOGLE}
+          provider={MAP_PROVIDER}
           style={styles.map}
           initialRegion={{
             latitude: currentLocation.lat,

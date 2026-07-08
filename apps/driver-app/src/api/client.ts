@@ -29,17 +29,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     });
   }
 
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
 async function refreshAccessToken(): Promise<boolean> {
-  const { refreshToken, userId, setTokens } = useDriverStore.getState();
+  const { accessToken, refreshToken, userId, setTokens } = useDriverStore.getState();
   if (!refreshToken || !userId) return false;
 
   try {
     const response = await fetch(`${BASE_URL}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
       body: JSON.stringify({ refreshToken }),
     });
     if (!response.ok) return false;

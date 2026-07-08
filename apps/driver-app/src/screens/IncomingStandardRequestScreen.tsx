@@ -7,7 +7,6 @@ import {
   Animated,
   Vibration,
   Platform,
-  TextInput,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,24 +16,21 @@ import { api } from '../api/client';
 
 const ACCEPT_WINDOW_SECONDS = 60;
 
-interface RequestCardProps {
-  bidId: string;
+interface Props {
   tripId: string;
   pickupAddress: string;
   dropoffAddress: string;
   aiFare: number;
-  driverTakeHome: number; // Pre-calculated: riderOffer × 0.80
+  driverTakeHome: number;
   distanceMiles: number;
   durationMin: number;
   isAirportTrip: boolean;
   riderBadge: 'Verified' | 'Trusted' | 'Business' | 'VIP';
   onAccepted: () => void;
   onDeclined: () => void;
-  onCountered: () => void;
 }
 
-export function IncomingRequestScreen({
-  bidId,
+export function IncomingStandardRequestScreen({
   tripId,
   pickupAddress,
   dropoffAddress,
@@ -46,13 +42,10 @@ export function IncomingRequestScreen({
   riderBadge,
   onAccepted,
   onDeclined,
-  onCountered,
-}: RequestCardProps) {
+}: Props) {
   const [timeLeft, setTimeLeft] = useState(ACCEPT_WINDOW_SECONDS);
   const timerWidth = useRef(new Animated.Value(1)).current;
   const [loading, setLoading] = useState(false);
-  const [showCounter, setShowCounter] = useState(false);
-  const [counterInput, setCounterInput] = useState('');
 
   useEffect(() => {
     Vibration.vibrate([0, 400, 200, 400, 200, 400]);
@@ -75,7 +68,7 @@ export function IncomingRequestScreen({
     };
   }, []);
 
-  // Fires when timer reaches zero; loading guard prevents dismiss while accept is in-flight
+  // Auto-dismiss when timer expires; loading guard protects an in-flight accept
   useEffect(() => {
     if (timeLeft === 0 && !loading) {
       onDeclined();
@@ -85,50 +78,22 @@ export function IncomingRequestScreen({
   const accept = async () => {
     setLoading(true);
     try {
-      await api.post(`/bids/${bidId}/accept`, {});
+      await api.post(`/trips/${tripId}/accept`, {});
       onAccepted();
       router.push({
         pathname: '/navigating-to-pickup',
         params: { tripId, pickupAddress, dropoffAddress, driverTakeHome: driverTakeHome.toString() },
       });
     } catch (err: any) {
-      if (err.code === 'ACCOUNT_UNDER_REVIEW') {
+      if (err.code === 'TRIP_ALREADY_CLAIMED') {
+        Alert.alert('Too slow', 'Another driver accepted this ride first.');
+        onDeclined();
+      } else if (err.code === 'ACCOUNT_UNDER_REVIEW') {
         Alert.alert('Account Under Review', 'Your account is under safety review. Please contact support.');
         onDeclined();
-      } else if (err.code === 'BID_ALREADY_CLAIMED') {
-        Alert.alert('Too slow', 'Another driver accepted this bid first.');
-        onDeclined();
       } else {
-        Alert.alert('Error', 'Could not accept bid. Try again.');
+        Alert.alert('Error', 'Could not accept ride. Try again.');
       }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const decline = async () => {
-    try {
-      await api.post(`/bids/${bidId}/decline`, {});
-    } catch {}
-    onDeclined();
-  };
-
-  const submitCounter = async () => {
-    const amount = parseFloat(counterInput);
-    const riderOffer = driverTakeHome / 0.80; // recover original riderOffer
-    if (isNaN(amount) || amount <= riderOffer || amount >= aiFare) {
-      Alert.alert(
-        'Invalid counter',
-        `Counter must be between $${riderOffer.toFixed(2)} and $${aiFare.toFixed(2)}.`,
-      );
-      return;
-    }
-    setLoading(true);
-    try {
-      await api.post(`/bids/${bidId}/counter`, { counterAmount: amount });
-      onCountered();
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Could not submit counter offer.');
     } finally {
       setLoading(false);
     }
@@ -164,12 +129,12 @@ export function IncomingRequestScreen({
           )}
         </View>
 
-        {/* DRIVER TAKE-HOME LEADS — this is the primary metric */}
+        {/* Driver take-home leads — largest element per design rules */}
         <Text style={styles.takeHomeLabel}>Your take-home</Text>
         <Text style={styles.takeHomeAmount}>${driverTakeHome.toFixed(2)}</Text>
         <Text style={styles.perMileText}>${perMile}/mi · {distanceMiles.toFixed(1)} mi · ~{durationMin} min</Text>
 
-        {/* Rider badge — label only, no score */}
+        {/* Rider badge */}
         <View style={styles.riderRow}>
           <Text style={styles.riderLabel}>Rider</Text>
           <View style={[styles.badgeChip, riderBadge === 'VIP' && styles.badgeVip]}>
@@ -194,52 +159,20 @@ export function IncomingRequestScreen({
           </View>
         </View>
 
-        {showCounter ? (
-          <View style={styles.counterSection}>
-            <TextInput
-              style={styles.counterInput}
-              value={counterInput}
-              onChangeText={setCounterInput}
-              placeholder={`$${(driverTakeHome / 0.80 + 0.01).toFixed(2)} – $${(aiFare - 0.01).toFixed(2)}`}
-              placeholderTextColor={Colors.textSecondary}
-              keyboardType="decimal-pad"
-              autoFocus
-            />
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={styles.declineButton}
-                onPress={() => { setShowCounter(false); setCounterInput(''); }}
-              >
-                <Text style={styles.declineText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.acceptButton, loading && styles.acceptButtonLoading]}
-                onPress={submitCounter}
-                disabled={loading}
-              >
-                <Text style={styles.acceptText}>{loading ? 'Sending...' : 'Send Counter'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.declineButton} onPress={decline} disabled={loading}>
-              <Text style={styles.declineText}>Decline</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.counterButton} onPress={() => setShowCounter(true)} disabled={loading}>
-              <Text style={styles.counterText}>Counter</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.acceptButton, loading && styles.acceptButtonLoading]}
-              onPress={accept}
-              disabled={loading}
-            >
-              <Text style={styles.acceptText}>
-                {loading ? 'Accepting...' : `Accept · $${driverTakeHome.toFixed(2)}`}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        <View style={styles.buttonRow}>
+          <TouchableOpacity style={styles.declineButton} onPress={onDeclined} disabled={loading}>
+            <Text style={styles.declineText}>Decline</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.acceptButton, loading && styles.acceptButtonLoading]}
+            onPress={accept}
+            disabled={loading}
+          >
+            <Text style={styles.acceptText}>
+              {loading ? 'Accepting...' : `Accept · $${driverTakeHome.toFixed(2)}`}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -288,8 +221,6 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   airportBadgeText: { color: Colors.primaryText, fontSize: Typography.size.xs, fontWeight: Typography.weight.bold },
-
-  // Driver take-home is the largest, most prominent element
   takeHomeLabel: { color: Colors.textSecondary, fontSize: Typography.size.sm },
   takeHomeAmount: {
     color: Colors.gold,
@@ -299,7 +230,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   perMileText: { color: Colors.textSecondary, fontSize: Typography.size.sm, marginBottom: Spacing.md },
-
   riderRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.md },
   riderLabel: { color: Colors.textSecondary, fontSize: Typography.size.sm },
   badgeChip: {
@@ -310,7 +240,6 @@ const styles = StyleSheet.create({
   },
   badgeVip: { backgroundColor: Colors.gold + '22' },
   badgeText: { color: Colors.primary, fontSize: Typography.size.xs, fontWeight: Typography.weight.semibold },
-
   addressSection: {
     backgroundColor: Colors.background,
     borderRadius: Radius.md,
@@ -325,31 +254,7 @@ const styles = StyleSheet.create({
   addressTextWrap: { flex: 1 },
   addressLabel: { color: Colors.textSecondary, fontSize: Typography.size.xs },
   addressText: { color: Colors.text, fontSize: Typography.size.sm, fontWeight: Typography.weight.medium },
-
-  counterSection: { gap: Spacing.sm },
-  counterInput: {
-    backgroundColor: Colors.background,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    color: Colors.text,
-    fontSize: Typography.size.md,
-    fontFamily: Typography.fontFamilyMono,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    textAlign: 'center',
-  },
   buttonRow: { flexDirection: 'row', gap: Spacing.sm },
-  counterButton: {
-    flex: 1,
-    borderRadius: Radius.lg,
-    paddingVertical: 16,
-    alignItems: 'center',
-    backgroundColor: Colors.background,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-  },
-  counterText: { color: Colors.primary, fontSize: Typography.size.base, fontWeight: Typography.weight.semibold },
   declineButton: {
     flex: 1,
     borderRadius: Radius.lg,
