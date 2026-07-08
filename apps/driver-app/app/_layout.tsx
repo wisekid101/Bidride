@@ -5,11 +5,16 @@ import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useDriverStore } from '../src/store/driver.store';
 import { useDriverSocketStore } from '../src/store/socket.store';
 import { api } from '../src/api/client';
 
 SplashScreen.preventAutoHideAsync();
+
+// Single client for the whole app — EarningsDashboardScreen (and any other
+// useQuery consumer) requires a QueryClientProvider above it.
+const queryClient = new QueryClient();
 
 async function registerPushToken() {
   try {
@@ -113,7 +118,7 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <>
+    <QueryClientProvider client={queryClient}>
       <StatusBar style="light" backgroundColor="#0A2342" />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="(auth)" />
@@ -138,6 +143,6 @@ export default function RootLayout() {
           }}
         />
       </Stack>
-    </>
+    </QueryClientProvider>
   );
 }
