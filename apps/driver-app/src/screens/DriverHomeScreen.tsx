@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Switch,
   Platform,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import MapView, { Heatmap } from 'react-native-maps';
 import { MAP_PROVIDER, MAP_SUPPORTS_HEATMAP } from '../constants/map';
@@ -19,15 +21,34 @@ import { IncomingRequestScreen } from './IncomingRequestScreen';
 import { IncomingStandardRequestScreen } from './IncomingStandardRequestScreen';
 import { api } from '../api/client';
 
+// LayoutAnimation is opt-in on old Android architecture
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// Downtown Newark — map placeholder region until the first GPS fix lands
+const NEWARK_REGION = {
+  latitude: 40.7357,
+  longitude: -74.1724,
+  latitudeDelta: 0.08,
+  longitudeDelta: 0.08,
+};
+
 export function DriverHomeScreen() {
   const { isOnline, todayEarnings, setOnlineStatus } = useDriverStore();
   const { incomingBid, clearIncomingBid, incomingRequest, clearIncomingRequest, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toggling, setToggling] = useState(false);
+  const [zoneExpanded, setZoneExpanded] = useState(false);
   const [heatmapPoints, setHeatmapPoints] = useState<
     Array<{ latitude: number; longitude: number; weight: number }>
   >([]);
+
+  const toggleZonePanel = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setZoneExpanded((e) => !e);
+  };
 
   // Poll demand heatmap every 30s while online — clears when going offline
   useEffect(() => {
@@ -112,28 +133,34 @@ export function DriverHomeScreen() {
 
   return (
     <View style={styles.container}>
-      {currentLocation && (
-        <MapView
-          ref={mapRef}
-          provider={MAP_PROVIDER}
-          style={styles.map}
-          initialRegion={{
-            latitude: currentLocation.lat,
-            longitude: currentLocation.lng,
-            latitudeDelta: 0.08,
-            longitudeDelta: 0.08,
-          }}
-          customMapStyle={darkMapStyle}
-        >
-          {MAP_SUPPORTS_HEATMAP && (
-            <Heatmap
-              points={heatmapPoints}
-              radius={30}
-              gradient={{ colors: [Colors.teal, Colors.gold, Colors.safety], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
-            />
-          )}
-        </MapView>
-      )}
+      {/* Map is the screen — rendered immediately on the Newark fallback
+          region so GPS latency never leaves a blank void. The key remount
+          re-centers it once the real fix arrives. */}
+      <MapView
+        key={currentLocation ? 'located' : 'fallback'}
+        ref={mapRef}
+        provider={MAP_PROVIDER}
+        style={styles.map}
+        initialRegion={
+          currentLocation
+            ? {
+                latitude: currentLocation.lat,
+                longitude: currentLocation.lng,
+                latitudeDelta: 0.08,
+                longitudeDelta: 0.08,
+              }
+            : NEWARK_REGION
+        }
+        customMapStyle={darkMapStyle}
+      >
+        {MAP_SUPPORTS_HEATMAP && (
+          <Heatmap
+            points={heatmapPoints}
+            radius={30}
+            gradient={{ colors: [Colors.teal, Colors.gold, Colors.safety], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
+          />
+        )}
+      </MapView>
 
       {/* Online Toggle Header */}
       <View style={styles.header}>
@@ -195,46 +222,67 @@ export function DriverHomeScreen() {
         />
       )}
 
-      {/* Zone Opportunity Card — rule-based estimate using floor formula + session data */}
-      <View style={styles.zoneCard}>
-        <View style={styles.zoneCardHeader}>
-          <Text style={styles.zoneCardTitle}>Zone Opportunity</Text>
-          <Text style={styles.zoneCardEstimated}>estimated</Text>
-        </View>
-        {sessionAvgPerTrip !== null ? (
-          <View style={styles.zoneRow}>
-            <Text style={styles.zoneLabel}>Your session avg</Text>
-            <Text style={styles.zoneValue}>${sessionAvgPerTrip.toFixed(2)} / trip</Text>
+      {/* Bottom dock: collapsible Zone panel + compact earnings bar.
+          Kept small so the map (and demand heatmap) stays the focus. */}
+      <View style={styles.bottomDock}>
+        {/* Zone Opportunity — pull-down panel, collapsed by default */}
+        <TouchableOpacity
+          style={styles.zonePanel}
+          onPress={toggleZonePanel}
+          activeOpacity={0.85}
+          accessibilityLabel={zoneExpanded ? 'Collapse zone opportunity' : 'Expand zone opportunity'}
+        >
+          <View style={styles.zoneHandleRow}>
+            <Text style={styles.zoneTitle}>Zone Opportunity</Text>
+            <View style={styles.zoneHandleRight}>
+              <Text style={styles.zoneEstimated}>estimated</Text>
+              <Ionicons
+                name={zoneExpanded ? 'chevron-down' : 'chevron-up'}
+                size={16}
+                color={Colors.textSecondary}
+              />
+            </View>
           </View>
-        ) : (
-          <Text style={styles.zoneNoData}>No trips yet this session</Text>
-        )}
-        <View style={styles.zoneRow}>
-          <Text style={styles.zoneLabel}>Floor guarantee</Text>
-          <Text style={styles.zoneValue}>${ZONE_FLOOR_EST.toFixed(2)}+ / typical trip</Text>
-        </View>
-      </View>
 
-      {/* Earnings Card — always shows driver take-home first */}
-      <View style={styles.earningsCard}>
-        <Text style={styles.earningsLabel}>Today's Take-Home</Text>
-        <Text style={styles.earningsAmount}>${todayEarnings.takeHome.toFixed(2)}</Text>
-        <View style={styles.earningsRow}>
-          <View style={styles.earningsDetail}>
-            <Text style={styles.earningsDetailLabel}>Trips</Text>
-            <Text style={styles.earningsDetailValue}>{todayEarnings.trips}</Text>
-          </View>
-          <View style={styles.earningsDetail}>
-            <Text style={styles.earningsDetailLabel}>Hours</Text>
-            <Text style={styles.earningsDetailValue}>{todayEarnings.hoursOnline.toFixed(1)}</Text>
-          </View>
-          <View style={styles.earningsDetail}>
-            <Text style={styles.earningsDetailLabel}>Avg / trip</Text>
-            <Text style={styles.earningsDetailValue}>
-              ${todayEarnings.trips > 0 ? (todayEarnings.takeHome / todayEarnings.trips).toFixed(2) : '0.00'}
+          {zoneExpanded && (
+            <View style={styles.zoneBody}>
+              <View style={styles.zoneRow}>
+                <Text style={styles.zoneLabel}>Floor guarantee</Text>
+                <Text style={styles.zoneValue}>${ZONE_FLOOR_EST.toFixed(2)}+ / typical trip</Text>
+              </View>
+              {sessionAvgPerTrip !== null ? (
+                <View style={styles.zoneRow}>
+                  <Text style={styles.zoneLabel}>Your session avg</Text>
+                  <Text style={styles.zoneValue}>${sessionAvgPerTrip.toFixed(2)} / trip</Text>
+                </View>
+              ) : (
+                <Text style={styles.zoneNoData}>No trips yet this session</Text>
+              )}
+              <View style={styles.zoneRow}>
+                <Text style={styles.zoneLabel}>Hours online</Text>
+                <Text style={styles.zoneValue}>{todayEarnings.hoursOnline.toFixed(1)}</Text>
+              </View>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Compact earnings bar — take-home stays first and most prominent */}
+        <TouchableOpacity
+          style={styles.earningsBar}
+          onPress={() => router.push('/(tabs)/earnings')}
+          activeOpacity={0.85}
+          accessibilityLabel="Open earnings"
+        >
+          <View style={[styles.statusDot, isOnline && styles.statusDotOnline]} />
+          <Text style={styles.earningsBarStatus}>
+            {isOnline ? 'Online' : 'Offline'}
+            <Text style={styles.earningsBarTrips}>
+              {'  ·  '}{todayEarnings.trips} {todayEarnings.trips === 1 ? 'trip' : 'trips'}
             </Text>
-          </View>
-        </View>
+          </Text>
+          <Text style={styles.earningsBarAmount}>${todayEarnings.takeHome.toFixed(2)}</Text>
+          <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -283,31 +331,46 @@ const styles = StyleSheet.create({
     fontSize: Typography.size.sm,
     fontWeight: Typography.weight.semibold,
   },
-  zoneCard: {
+  bottomDock: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 264 : 244,
+    bottom: Platform.OS === 'ios' ? 24 : 16,
     left: Spacing.base,
     right: Spacing.base,
+    gap: Spacing.sm,
+  },
+  zonePanel: {
     backgroundColor: Colors.surface,
-    borderRadius: Radius.xl,
-    padding: Spacing.md,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.border,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
   },
-  zoneCardHeader: {
+  zoneHandleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.sm,
   },
-  zoneCardTitle: {
+  zoneHandleRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  zoneTitle: {
     color: Colors.text,
     fontSize: Typography.size.sm,
     fontWeight: Typography.weight.semibold,
   },
-  zoneCardEstimated: {
+  zoneEstimated: {
     color: Colors.textSecondary,
     fontSize: Typography.size.xs,
+  },
+  zoneBody: {
+    marginTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.separator,
+    paddingTop: Spacing.sm,
+    gap: 2,
   },
   zoneRow: {
     flexDirection: 'row',
@@ -330,33 +393,38 @@ const styles = StyleSheet.create({
     fontSize: Typography.size.xs,
     paddingVertical: 2,
   },
-  earningsCard: {
-    position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 100 : 80,
-    left: Spacing.base,
-    right: Spacing.base,
+  earningsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     backgroundColor: Colors.surface,
-    borderRadius: Radius.xl,
-    padding: Spacing.base,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.gold,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
   },
-  earningsLabel: { color: Colors.textSecondary, fontSize: Typography.size.sm },
-  earningsAmount: {
-    color: Colors.gold,
-    fontSize: 42,
-    fontWeight: Typography.weight.extrabold,
-    fontFamily: Typography.fontFamilyMono,
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.sm,
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: Colors.textDisabled,
   },
-  earningsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  earningsDetail: { alignItems: 'center' },
-  earningsDetailLabel: { color: Colors.textSecondary, fontSize: Typography.size.xs },
-  earningsDetailValue: {
+  statusDotOnline: { backgroundColor: Colors.primary },
+  earningsBarStatus: {
+    flex: 1,
     color: Colors.text,
-    fontSize: Typography.size.md,
-    fontWeight: Typography.weight.bold,
+    fontSize: Typography.size.sm,
+    fontWeight: Typography.weight.semibold,
+  },
+  earningsBarTrips: {
+    color: Colors.textSecondary,
+    fontWeight: Typography.weight.regular,
+  },
+  earningsBarAmount: {
+    color: Colors.gold,
+    fontSize: Typography.size.lg,
+    fontWeight: Typography.weight.extrabold,
     fontFamily: Typography.fontFamilyMono,
   },
 });
