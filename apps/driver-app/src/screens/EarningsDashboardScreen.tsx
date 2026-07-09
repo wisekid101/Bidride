@@ -37,9 +37,12 @@ interface TripEarning {
 export function EarningsDashboardScreen() {
   const [tab, setTab] = useState<Tab>('today');
 
+  // The history endpoint returns a trip array, not a summary — on the History
+  // tab the hero card shows the weekly summary instead.
+  const summaryPeriod = tab === 'history' ? 'week' : tab;
   const { data: summary, isLoading } = useQuery<EarningsSummary>({
-    queryKey: ['earnings', tab],
-    queryFn: () => api.get(`/driver/earnings/${tab === 'history' ? 'history' : tab}`),
+    queryKey: ['earnings', summaryPeriod],
+    queryFn: () => api.get(`/driver/earnings/${summaryPeriod}`),
     staleTime: 30000,
   });
 
@@ -49,8 +52,18 @@ export function EarningsDashboardScreen() {
     enabled: tab === 'history',
   });
 
-  const floorRate = summary && summary.trips > 0
-    ? ((summary.floorTriggeredCount / summary.trips) * 100).toFixed(0)
+  // Defensive: only render the summary card for a well-formed summary object,
+  // so an unexpected response shape can never crash the screen again.
+  const validSummary =
+    summary &&
+    typeof summary.takeHome === 'number' &&
+    typeof summary.trips === 'number' &&
+    typeof summary.hoursOnline === 'number'
+      ? summary
+      : null;
+
+  const floorRate = validSummary && validSummary.trips > 0
+    ? ((validSummary.floorTriggeredCount / validSummary.trips) * 100).toFixed(0)
     : '0';
 
   return (
@@ -86,34 +99,34 @@ export function EarningsDashboardScreen() {
           <Text style={styles.loading}>Loading earnings…</Text>
         )}
 
-        {summary && (
+        {validSummary && (
           <>
             {/* PRIMARY METRIC: Take-home first, largest, most prominent */}
             <View style={styles.heroCard}>
               <Text style={styles.heroLabel}>
-                {tab === 'today' ? "Today's Take-Home" : tab === 'week' ? "This Week's Take-Home" : 'Total Take-Home'}
+                {tab === 'today' ? "Today's Take-Home" : "This Week's Take-Home"}
               </Text>
-              <Text style={styles.heroAmount}>${summary.takeHome.toFixed(2)}</Text>
+              <Text style={styles.heroAmount}>${validSummary.takeHome.toFixed(2)}</Text>
               <View style={styles.heroStats}>
-                <StatChip label="Trips" value={summary.trips.toString()} />
-                <StatChip label="Hours" value={summary.hoursOnline.toFixed(1)} />
+                <StatChip label="Trips" value={validSummary.trips.toString()} />
+                <StatChip label="Hours" value={validSummary.hoursOnline.toFixed(1)} />
                 <StatChip
                   label="Avg/trip"
-                  value={`$${summary.trips > 0 ? (summary.takeHome / summary.trips).toFixed(2) : '0.00'}`}
+                  value={`$${validSummary.trips > 0 ? (validSummary.takeHome / validSummary.trips).toFixed(2) : '0.00'}`}
                 />
               </View>
             </View>
 
             {/* Earnings Floor Card */}
-            {summary.floorSupplements > 0 && (
+            {validSummary.floorSupplements > 0 && (
               <View style={styles.floorCard}>
                 <View style={styles.floorHeader}>
                   <Ionicons name="shield-checkmark" size={18} color={Colors.gold} />
                   <Text style={styles.floorTitle}>Earnings Floor Protection</Text>
                 </View>
-                <Text style={styles.floorAmount}>+${summary.floorSupplements.toFixed(2)}</Text>
+                <Text style={styles.floorAmount}>+${validSummary.floorSupplements.toFixed(2)}</Text>
                 <Text style={styles.floorDetail}>
-                  Added to {summary.floorTriggeredCount} of {summary.trips} trips ({floorRate}% of trips).
+                  Added to {validSummary.floorTriggeredCount} of {validSummary.trips} trips ({floorRate}% of trips).
                   BidiRide guarantees your minimum earnings.
                 </Text>
                 <Text style={styles.floorLearnMore}>How the floor works →</Text>
@@ -121,10 +134,10 @@ export function EarningsDashboardScreen() {
             )}
 
             {/* Rewards Bonuses */}
-            {summary.rewardBonuses > 0 && (
+            {validSummary.rewardBonuses > 0 && (
               <View style={styles.bonusCard}>
                 <Text style={styles.bonusTitle}>Reward Bonuses</Text>
-                <Text style={styles.bonusAmount}>+${summary.rewardBonuses.toFixed(2)}</Text>
+                <Text style={styles.bonusAmount}>+${validSummary.rewardBonuses.toFixed(2)}</Text>
               </View>
             )}
 
