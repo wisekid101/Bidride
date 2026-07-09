@@ -303,7 +303,10 @@ export class DriversService {
 
     if (!driver) throw new NotFoundException('Driver not found');
 
-    return driver;
+    // Same computation approveDriver enforces — the admin UI renders this
+    // checklist and gates its Approve button on it.
+    const missing = this.computeMissingRequirements(driver);
+    return { ...driver, approvalRequirements: { met: missing.length === 0, missing } };
   }
 
   // Each entry lists the accepted documentType spellings for one required doc
@@ -315,22 +318,14 @@ export class DriversService {
     { label: 'vehicle_registration', types: ['registration', 'vehicle_registration'] },
   ];
 
-  async approveDriver(driverId: string, dto: ApproveDriverDto, adminId: string) {
-    const driver = await this.prisma.driver.findUnique({
-      where: { id: driverId },
-      include: {
-        documents: { select: { documentType: true, status: true } },
-        vehicles: { select: { isActive: true } },
-      },
-    });
-    if (!driver) throw new NotFoundException('Driver not found');
-
-    if (driver.status === DriverStatus.approved) {
-      throw new ConflictException('Driver is already approved');
-    }
-
-    // Production gate: an admin cannot approve a driver who hasn't cleared
-    // every onboarding requirement. No override path — decline or wait.
+  private computeMissingRequirements(driver: {
+    documents: Array<{ documentType: string; status: string }>;
+    vehicles: Array<{ isActive: boolean }>;
+    backgroundCheckStatus: BackgroundCheckStatus;
+    insuranceProvider: string | null;
+    insurancePolicyNumber: string | null;
+    insuranceExpiry: Date | null;
+  }): string[] {
     const missing: string[] = [];
     for (const req of DriversService.REQUIRED_DOCUMENTS) {
       const ok = driver.documents.some(
@@ -349,6 +344,26 @@ export class DriversService {
     } else if (driver.insuranceExpiry <= new Date()) {
       missing.push('insurance_expired');
     }
+    return missing;
+  }
+
+  async approveDriver(driverId: string, dto: ApproveDriverDto, adminId: string) {
+    const driver = await this.prisma.driver.findUnique({
+      where: { id: driverId },
+      include: {
+        documents: { select: { documentType: true, status: true } },
+        vehicles: { select: { isActive: true } },
+      },
+    });
+    if (!driver) throw new NotFoundException('Driver not found');
+
+    if (driver.status === DriverStatus.approved) {
+      throw new ConflictException('Driver is already approved');
+    }
+
+    // Production gate: an admin cannot approve a driver who hasn't cleared
+    // every onboarding requirement. No override path — decline or wait.
+    const missing = this.computeMissingRequirements(driver);
     if (missing.length > 0) {
       throw new BadRequestException({
         message: 'Driver does not meet approval requirements',
