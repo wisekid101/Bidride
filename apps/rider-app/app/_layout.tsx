@@ -77,15 +77,11 @@ async function restoreActiveTrip() {
 
 async function registerPushToken() {
   try {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-
-    if (finalStatus !== 'granted') return;
+    // Never PROMPT from here — the signup permission-education screen owns
+    // the OS dialog so riders see the why first. This only refreshes the
+    // token for riders who already granted.
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
 
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: 'bidride-rider' });
     await api.patch('/riders/me/push-token', { token });
@@ -201,6 +197,12 @@ export default function RootLayout() {
         <Stack.Screen name="trusted-contacts" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Trusted Contacts' }} />
         <Stack.Screen name="payment-methods" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Payment Methods' }} />
         <Stack.Screen name="trip-detail" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Trip Details' }} />
+        <Stack.Screen name="edit-profile" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Edit Profile' }} />
+        <Stack.Screen name="saved-places" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Saved Places' }} />
+        <Stack.Screen name="help" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Help & Support' }} />
+        <Stack.Screen name="settings" options={{ ...navHeader, animation: 'slide_from_right', headerTitle: 'Settings' }} />
+        <Stack.Screen name="signup/payment" options={{ animation: 'slide_from_right', gestureEnabled: false }} />
+        <Stack.Screen name="signup/permissions" options={{ animation: 'slide_from_right', gestureEnabled: false }} />
       </Stack>
     </StripeProvider>
   );

@@ -1,3 +1,3 @@
-import { PhoneAuthScreen } from '../../src/screens/PhoneAuthScreen';
+import { WelcomeScreen } from '../../src/screens/WelcomeScreen';
 
-export default PhoneAuthScreen;
+export default WelcomeScreen;

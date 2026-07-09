@@ -9,9 +9,11 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  SafeAreaView,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
+import { ScreenHeader } from '../components/ui/ScreenHeader';
 import { api } from '../api/client';
 import { useAuthStore } from '../store/auth.store';
 import { useSocketStore } from '../store/socket.store';
@@ -19,6 +21,9 @@ import { useSocketStore } from '../store/socket.store';
 type AuthPhase = 'phone' | 'otp';
 
 export function PhoneAuthScreen() {
+  // Sign Up and Log In share the same OTP backend — intent only changes copy.
+  const { intent } = useLocalSearchParams<{ intent?: string }>();
+  const isSignup = intent === 'signup';
 
   const { setTokens } = useAuthStore();
   const [phase, setPhase] = useState<AuthPhase>('phone');
@@ -82,8 +87,19 @@ export function PhoneAuthScreen() {
       useSocketStore.getState().connect(result.access_token);
 
       if (result.user.isNew) {
-        router.replace('/profile-setup');
+        router.replace({ pathname: '/profile-setup', params: { flow: 'signup' } });
       } else {
+        // Returning rider with an incomplete profile (skipped setup or created
+        // via support) still needs a name on file — send them to setup once.
+        try {
+          const me = await api.get<{ firstName: string | null }>('/riders/me');
+          if (!me.firstName) {
+            router.replace('/profile-setup');
+            return;
+          }
+        } catch {
+          // Profile check is best-effort — never block login on it
+        }
         router.replace('/(tabs)');
       }
     } catch (err: any) {
@@ -103,10 +119,13 @@ export function PhoneAuthScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      <SafeAreaView>
+        <ScreenHeader />
+      </SafeAreaView>
       <View style={styles.inner}>
         {/* Logo */}
         <Text style={styles.logo}>BidiRide</Text>
-        <Text style={styles.appLabel}>Rider App</Text>
+        <Text style={styles.appLabel}>{isSignup ? 'Create your account' : 'Welcome back'}</Text>
         <Text style={styles.tagline}>AI-powered rides. Fair prices. Fast.</Text>
 
         {phase === 'phone' && (
