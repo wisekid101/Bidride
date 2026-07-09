@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
 import MapView, { Heatmap } from 'react-native-maps';
 import { MAP_PROVIDER, MAP_SUPPORTS_HEATMAP } from '../constants/map';
 import * as Location from 'expo-location';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { useDriverStore } from '../store/driver.store';
@@ -35,7 +35,7 @@ const NEWARK_REGION = {
 };
 
 export function DriverHomeScreen() {
-  const { isOnline, todayEarnings, setOnlineStatus } = useDriverStore();
+  const { isOnline, todayEarnings, setOnlineStatus, setTodayEarnings } = useDriverStore();
   const { incomingBid, clearIncomingBid, incomingRequest, clearIncomingRequest, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -49,6 +49,27 @@ export function DriverHomeScreen() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setZoneExpanded((e) => !e);
   };
+
+  // Refresh today's totals whenever Home gains focus — cold start, tab
+  // returns, and coming back from a completed ride (rate-rider replaces to
+  // the tabs, focusing Drive). Failure keeps the last known values.
+  useFocusEffect(
+    useCallback(() => {
+      api
+        .get<{ takeHome: number; trips: number; hoursOnline: number; floorSupplements: number }>(
+          '/driver/earnings/today',
+        )
+        .then((s) =>
+          setTodayEarnings({
+            takeHome: Number(s.takeHome ?? 0),
+            trips: s.trips ?? 0,
+            hoursOnline: Number(s.hoursOnline ?? 0),
+            floorSupplements: Number(s.floorSupplements ?? 0),
+          }),
+        )
+        .catch(() => {});
+    }, []),
+  );
 
   // Poll demand heatmap every 30s while online — clears when going offline
   useEffect(() => {
