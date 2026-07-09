@@ -66,6 +66,28 @@ export class DriversService {
     const age = (Date.now() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
     if (age < 21) throw new BadRequestException('Driver must be at least 21 years old');
 
+    const licenseExpiry = new Date(dto.licenseExpiry);
+    if (licenseExpiry <= new Date()) {
+      throw new BadRequestException('Driver license is expired');
+    }
+    const insuranceExpiry = new Date(dto.insuranceExpiry);
+    if (insuranceExpiry <= new Date()) {
+      throw new BadRequestException('Insurance policy is expired');
+    }
+
+    // One identity per license. App-level check only (no unique constraint in
+    // the schema), so a concurrent-submit race is possible but harmless: the
+    // duplicate still can't pass document review for a license they don't hold.
+    const licenseNumber = dto.licenseNumber.toUpperCase();
+    const licenseState = dto.licenseState.toUpperCase();
+    const duplicate = await this.prisma.driver.findFirst({
+      where: { licenseNumber, licenseState, NOT: { userId } },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException('This driver license is already registered to another account');
+    }
+
     await this.prisma.driver.update({
       where: { userId },
       data: {
@@ -76,6 +98,12 @@ export class DriversService {
         homeCity: dto.city,
         homeState: dto.state,
         homeZip: dto.zipCode,
+        licenseNumber,
+        licenseState,
+        licenseExpiry,
+        insuranceProvider: dto.insuranceProvider,
+        insurancePolicyNumber: dto.insurancePolicyNumber,
+        insuranceExpiry,
         onboardingStep: 'document_upload',
       },
     });
@@ -278,12 +306,55 @@ export class DriversService {
     return driver;
   }
 
+  // Each entry lists the accepted documentType spellings for one required doc
+  // (the app uploads 'insurance'/'registration'; the schema enum names them
+  // 'insurance_card'/'vehicle_registration').
+  private static readonly REQUIRED_DOCUMENTS: Array<{ label: string; types: string[] }> = [
+    { label: 'drivers_license', types: ['drivers_license'] },
+    { label: 'insurance_card', types: ['insurance', 'insurance_card'] },
+    { label: 'vehicle_registration', types: ['registration', 'vehicle_registration'] },
+  ];
+
   async approveDriver(driverId: string, dto: ApproveDriverDto, adminId: string) {
-    const driver = await this.prisma.driver.findUnique({ where: { id: driverId } });
+    const driver = await this.prisma.driver.findUnique({
+      where: { id: driverId },
+      include: {
+        documents: { select: { documentType: true, status: true } },
+        vehicles: { select: { isActive: true } },
+      },
+    });
     if (!driver) throw new NotFoundException('Driver not found');
 
     if (driver.status === DriverStatus.approved) {
       throw new ConflictException('Driver is already approved');
+    }
+
+    // Production gate: an admin cannot approve a driver who hasn't cleared
+    // every onboarding requirement. No override path — decline or wait.
+    const missing: string[] = [];
+    for (const req of DriversService.REQUIRED_DOCUMENTS) {
+      const ok = driver.documents.some(
+        (d) => req.types.includes(d.documentType) && d.status === 'approved',
+      );
+      if (!ok) missing.push(`document_not_approved:${req.label}`);
+    }
+    if (driver.backgroundCheckStatus !== BackgroundCheckStatus.clear) {
+      missing.push(`background_check:${driver.backgroundCheckStatus}`);
+    }
+    if (!driver.vehicles.some((v) => v.isActive)) {
+      missing.push('no_active_vehicle');
+    }
+    if (!driver.insuranceProvider || !driver.insurancePolicyNumber || !driver.insuranceExpiry) {
+      missing.push('insurance_info_missing');
+    } else if (driver.insuranceExpiry <= new Date()) {
+      missing.push('insurance_expired');
+    }
+    if (missing.length > 0) {
+      throw new BadRequestException({
+        message: 'Driver does not meet approval requirements',
+        code: 'APPROVAL_REQUIREMENTS_NOT_MET',
+        missing,
+      });
     }
 
     await this.prisma.driver.update({

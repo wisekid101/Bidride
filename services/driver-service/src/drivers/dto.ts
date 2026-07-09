@@ -36,7 +36,7 @@ export class SubmitPersonalInfoDto {
   dateOfBirth: string;
 
   @IsString()
-  @Matches(/^\d{9}$/, { message: 'SSN last 4 must be 9 digits' })
+  @Matches(/^\d{9}$/, { message: 'SSN must be exactly 9 digits (no dashes)' })
   ssn: string;
 
   @IsString()
@@ -53,6 +53,28 @@ export class SubmitPersonalInfoDto {
   @IsString()
   @Matches(/^\d{5}(-\d{4})?$/)
   zipCode: string;
+
+  @IsString()
+  @Matches(/^[A-Za-z0-9]{5,20}$/, { message: 'License number must be 5-20 letters/digits' })
+  licenseNumber: string;
+
+  @IsString()
+  @Length(2, 2)
+  licenseState: string;
+
+  @IsDateString()
+  licenseExpiry: string;
+
+  @IsString()
+  @Length(1, 100)
+  insuranceProvider: string;
+
+  @IsString()
+  @Length(1, 100)
+  insurancePolicyNumber: string;
+
+  @IsDateString()
+  insuranceExpiry: string;
 }
 
 export class RequestBackgroundCheckDto {

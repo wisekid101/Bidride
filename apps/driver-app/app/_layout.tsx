@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useDriverStore } from '../src/store/driver.store';
 import { useDriverSocketStore } from '../src/store/socket.store';
 import { api } from '../src/api/client';
+import { resolveDriverRoute } from '../src/utils/onboardingRoute';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -17,6 +18,21 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 const PLATFORM_FEE_RATE = 0.20;
+
+// Cold-start onboarding resume: a driver who isn't approved must never land
+// on Home — route them to their current onboarding step instead.
+// Returns true when it navigated (caller then skips trip restore).
+async function resumeOnboardingIfNeeded(): Promise<boolean> {
+  try {
+    const me = await api.get<{ status: string; onboardingStep: string }>('/drivers/me');
+    if (me.status === 'approved') return false;
+    router.replace(resolveDriverRoute(me) as never);
+    return true;
+  } catch {
+    // Profile fetch failed — don't block startup; auth/token flows handle it
+    return false;
+  }
+}
 
 // Cold-start rehydration: if the server has an in-flight trip this driver
 // already accepted, route straight to the matching screen with the same
@@ -123,8 +139,10 @@ export default function RootLayout() {
       const { accessToken } = useDriverStore.getState();
       if (accessToken && !useDriverSocketStore.getState().socket) {
         useDriverSocketStore.getState().connect(accessToken);
-        // Sockets first, then restore any in-flight trip before splash hides.
-        await restoreActiveTrip();
+        // Sockets first. Then: unfinished onboarding resumes exactly where the
+        // driver left off (never Home); approved drivers restore in-flight trips.
+        const resumed = await resumeOnboardingIfNeeded();
+        if (!resumed) await restoreActiveTrip();
       }
       if (fontsLoaded) SplashScreen.hideAsync();
     });

@@ -15,6 +15,7 @@ import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { useDriverStore } from '../store/driver.store';
 import { useDriverSocketStore } from '../store/socket.store';
+import { resolveDriverRoute } from '../utils/onboardingRoute';
 
 type AuthPhase = 'phone' | 'otp';
 
@@ -83,7 +84,14 @@ export function DriverAuthScreen() {
       if (result.user.isNew) {
         router.replace('/onboarding');
       } else {
-        router.replace('/(tabs)');
+        // Route by server-side onboarding progress — a returning driver who
+        // never finished onboarding must resume it, never land on Home.
+        try {
+          const me = await api.get<{ status: string; onboardingStep: string }>('/drivers/me');
+          router.replace(resolveDriverRoute(me) as never);
+        } catch {
+          router.replace('/onboarding');
+        }
       }
     } catch (err: any) {
       if (err.code === 'AUTH_INVALID_OTP') {
