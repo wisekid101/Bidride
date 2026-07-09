@@ -6,10 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  SafeAreaView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { ScreenHeader } from '../components/ui/ScreenHeader';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 
@@ -67,17 +69,15 @@ export function EarningsDashboardScreen() {
     : '0';
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Earnings</Text>
-        <TouchableOpacity onPress={() => router.push('/wallet')}>
-          <Text style={styles.walletLink}>Wallet</Text>
-        </TouchableOpacity>
-      </View>
+    <SafeAreaView style={styles.container}>
+      <ScreenHeader
+        title="Earnings"
+        right={
+          <TouchableOpacity onPress={() => router.push('/wallet')}>
+            <Text style={styles.walletLink}>Wallet</Text>
+          </TouchableOpacity>
+        }
+      />
 
       {/* Tab Bar */}
       <View style={styles.tabBar}>
@@ -156,7 +156,7 @@ export function EarningsDashboardScreen() {
           </View>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -191,16 +191,8 @@ function TripRow({ trip }: { trip: TripEarning }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 32,
-    paddingHorizontal: Spacing.base,
-    paddingBottom: Spacing.md,
-  },
-  headerTitle: { color: Colors.text, fontSize: Typography.size.xl, fontWeight: Typography.weight.bold },
+  // SafeAreaView is a no-op on Android — keep the old status-bar offset there
+  container: { flex: 1, backgroundColor: Colors.background, paddingTop: Platform.OS === 'android' ? 32 : 0 },
   walletLink: { color: Colors.primary, fontSize: Typography.size.base, fontWeight: Typography.weight.medium },
   tabBar: {
     flexDirection: 'row',

@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { ArrowLeft } from 'lucide-react-native';
+import { StyleSheet, Text, TouchableOpacity, Alert } from 'react-native';
 import { router } from 'expo-router';
-import { Colors } from '../../constants/theme';
+import { Colors, Typography } from '../../constants/theme';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { useDriverStore } from '../../store/driver.store';
 import { useDriverSocketStore } from '../../store/socket.store';
 import { ONBOARDING_ORDER, onboardingStepIndex } from '../../utils/onboardingRoute';
@@ -49,42 +49,26 @@ export function OnboardingHeader({ route, showBack = true }: OnboardingHeaderPro
   };
 
   return (
-    <View style={styles.row}>
-      {showBack ? (
+    <ScreenHeader
+      showBack={showBack}
+      onBack={goBack}
+      right={
         <TouchableOpacity
-          onPress={goBack}
+          onPress={signOut}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityLabel="Go back"
+          accessibilityLabel="Sign out"
         >
-          <ArrowLeft size={24} color={Colors.textPrimary} />
+          <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
-      ) : (
-        <View style={styles.backSpacer} />
-      )}
-      <TouchableOpacity
-        onPress={signOut}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        accessibilityLabel="Sign out"
-      >
-        <Text style={styles.signOutText}>Sign Out</Text>
-      </TouchableOpacity>
-    </View>
+      }
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  backSpacer: { width: 24, height: 24 },
   signOutText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: Typography.size.sm,
+    fontWeight: Typography.weight.semibold,
     color: Colors.textSecondary,
   },
 });

@@ -129,7 +129,7 @@ export function DriverHomeScreen() {
             <Heatmap
               points={heatmapPoints}
               radius={30}
-              gradient={{ colors: ['#00D4C6', '#F4B400', '#EF4444'], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
+              gradient={{ colors: [Colors.teal, Colors.gold, Colors.safety], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
             />
           )}
         </MapView>

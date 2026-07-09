@@ -7,12 +7,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Platform,
   SafeAreaView,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
+import { ScreenHeader } from '../components/ui/ScreenHeader';
 import { api } from '../api/client';
 
 interface WalletData {
@@ -117,13 +117,7 @@ export function WalletScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Wallet</Text>
-        <View style={{ width: 24 }} />
-      </View>
+      <ScreenHeader title="Wallet" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {error && (
@@ -218,17 +212,6 @@ export function WalletScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   spinner: { marginTop: 80 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.base,
-    paddingVertical: Spacing.md,
-    paddingTop: Platform.OS === 'ios' ? Spacing.sm : Spacing['2xl'],
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  headerTitle: { color: Colors.text, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
   content: { padding: Spacing.base, paddingBottom: 60 },
   errorBar: {
     backgroundColor: Colors.error + '22',

@@ -1,8 +1,14 @@
-// BidiRide Design System — Rider App
+// BidiRide Design System — canonical tokens.
+// The rider-app and driver-app copies of this file must stay identical.
 export const Colors = {
   background: '#0A2342',     // Deep Navy — primary background
   surface: '#0F2D55',        // Slightly lighter surface
   surfaceAlt: '#112C50',     // Card / modal background
+  border: '#1A3A5C',
+  separator: '#172E4A',
+
+  charcoal: '#0A1929',       // Charcoal Black — map geometry / deepest surfaces
+  charcoalDeep: '#051524',   // Charcoal Black — map water / absolute depth
 
   primary: '#00D4C6',        // Electric Teal — AI + primary actions
   primaryText: '#0A2342',    // Navy text on Teal (WCAG AA — never use white on teal)
@@ -20,25 +26,30 @@ export const Colors = {
   textTertiary: '#6B88A8',   // More muted text — 4.7:1 on navy, passes WCAG AA
   textDisabled: '#6B88A8',
 
-  border: '#1A3A5C',
-  separator: '#172E4A',
-
   success: '#22C55E',
   warning: '#F59E0B',
   error: '#EF4444',
 
   overlay: 'rgba(10, 35, 66, 0.85)',
-};
+} as const;
 
+// Family names MUST match the keys registered via useFonts() in
+// app/_layout.tsx. iOS also resolves the fonts' embedded family names
+// ('Inter', 'JetBrains Mono'), but Android resolves ONLY these aliases —
+// anything else silently falls back to the system font.
 export const Fonts = {
-  sans: 'Inter',
-  mono: 'JetBrains Mono',  // ALL financial figures
+  sans: 'Inter-Regular',
+  sansMedium: 'Inter-Medium',
+  sansSemiBold: 'Inter-SemiBold',
+  sansBold: 'Inter-Bold',
+  sansExtraBold: 'Inter-ExtraBold',
+  mono: 'JetBrainsMono-Regular',
+  monoBold: 'JetBrainsMono-Bold',   // ALL financial figures
 } as const;
 
 export const Typography = {
-  // Inter — all body text, labels, UI
-  fontFamily: 'Inter',
-  fontFamilyMono: 'JetBrains Mono', // Financial figures ONLY
+  fontFamily: Fonts.sans,
+  fontFamilyMono: Fonts.monoBold,   // Financial figures ONLY — always bold mono
 
   size: {
     xs: 11,
@@ -59,7 +70,13 @@ export const Typography = {
     bold: '700' as const,
     extrabold: '800' as const,
   },
-};
+
+  // Financial figure presets (JetBrains Mono)
+  heroEarnings: { fontSize: 52, fontFamily: Fonts.monoBold, fontWeight: '700' as const },
+  largeAmount:  { fontSize: 32, fontFamily: Fonts.monoBold, fontWeight: '700' as const },
+  amount:       { fontSize: 24, fontFamily: Fonts.monoBold, fontWeight: '600' as const },
+  smallAmount:  { fontSize: 18, fontFamily: Fonts.monoBold, fontWeight: '600' as const },
+} as const;
 
 export const Spacing = {
   xs: 4,
@@ -70,7 +87,7 @@ export const Spacing = {
   xl: 24,
   '2xl': 32,
   '3xl': 48,
-};
+} as const;
 
 export const Radius = {
   sm: 8,
@@ -78,7 +95,7 @@ export const Radius = {
   lg: 16,
   xl: 24,
   full: 9999,
-};
+} as const;
 
 export const Shadow = {
   card: {
@@ -95,4 +112,4 @@ export const Shadow = {
     shadowRadius: 16,
     elevation: 16,
   },
-};
+} as const;

@@ -208,7 +208,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   subtitle: {
-    color: Colors.gold,
+    // Teal, not gold — gold is reserved for earnings figures only
+    color: Colors.primary,
     fontSize: Typography.size.base,
     fontWeight: Typography.weight.semibold,
     marginBottom: Spacing.xs,
