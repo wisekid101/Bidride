@@ -10,7 +10,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Plane, Users, Clock, TrendingUp } from 'lucide-react-native';
+import { router } from 'expo-router';
+import { Plane, Users, Clock, TrendingUp, ArrowLeft } from 'lucide-react-native';
 import { Colors, Fonts } from '../constants/theme';
 import { useDriverStore } from '../store/driver.store';
 
@@ -111,9 +112,23 @@ export default function AirportModeScreen({ navigation }: Props) {
   const surge = queueStatus?.surgeMultiplier ?? 1;
   const surgeColor = surge >= 2 ? Colors.safety : surge >= 1.5 ? Colors.gold : Colors.teal;
 
+  // Leaving the screen never removes the driver from the queue — position is
+  // held server-side (see queue rules) — so back is always safe.
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity
+          onPress={goBack}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Go back"
+        >
+          <ArrowLeft size={24} color={Colors.textPrimary} />
+        </TouchableOpacity>
         <Plane size={24} color={Colors.teal} />
         <Text style={styles.title}>EWR Airport Mode</Text>
       </View>

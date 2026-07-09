@@ -12,6 +12,7 @@ import {
 import { router } from 'expo-router';
 import { Colors } from '../../constants/theme';
 import { api } from '../../api/client';
+import { OnboardingHeader } from './OnboardingHeader';
 
 export default function OnboardingCompleteScreen() {
   const scaleAnim = new Animated.Value(0);
@@ -47,6 +48,9 @@ export default function OnboardingCompleteScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Terminal screen — no earlier step to return to, but the driver must
+          still be able to switch accounts while waiting on review. */}
+      <OnboardingHeader route="/onboarding/complete" showBack={false} />
       <View style={styles.content}>
         <Animated.View style={[styles.iconWrap, { transform: [{ scale: scaleAnim }] }]}>
           <Text style={styles.icon}>🎉</Text>

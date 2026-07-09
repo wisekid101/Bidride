@@ -40,11 +40,15 @@ interface DriverSocketStore {
   incomingBid: IncomingBid | null;
   incomingRequest: IncomingRequest | null;
   counterResult: CounterResult | null;
+  // Trip the rider cancelled post-accept — active trip screens watch this
+  // and route the driver back Home.
+  cancelledTripId: string | null;
   connect: (accessToken: string) => void;
   disconnect: () => void;
   clearIncomingBid: () => void;
   clearIncomingRequest: () => void;
   clearCounterResult: () => void;
+  clearCancelledTrip: () => void;
   emitLocation: (lat: number, lng: number, heading?: number, tripId?: string) => void;
 }
 
@@ -53,6 +57,7 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
   incomingBid: null,
   incomingRequest: null,
   counterResult: null,
+  cancelledTripId: null,
 
   connect: (accessToken) => {
     const existing = get().socket;
@@ -95,8 +100,13 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
       set({ counterResult: { bidId: data.bidId, tripId: data.tripId, finalFare: 0, accepted: false }, incomingBid: null });
     });
 
-    socket.on('trip:cancelled', () => {
-      set({ incomingBid: null, incomingRequest: null, counterResult: null });
+    socket.on('trip:cancelled', (data?: { tripId?: string }) => {
+      set({
+        incomingBid: null,
+        incomingRequest: null,
+        counterResult: null,
+        ...(data?.tripId ? { cancelledTripId: data.tripId } : {}),
+      });
     });
 
     // Keep the socket reference on transient disconnects: emitLocation already
@@ -109,12 +119,13 @@ export const useDriverSocketStore = create<DriverSocketStore>((set, get) => ({
 
   disconnect: () => {
     get().socket?.disconnect();
-    set({ socket: null, incomingBid: null, incomingRequest: null, counterResult: null });
+    set({ socket: null, incomingBid: null, incomingRequest: null, counterResult: null, cancelledTripId: null });
   },
 
   clearIncomingBid: () => set({ incomingBid: null }),
   clearIncomingRequest: () => set({ incomingRequest: null }),
   clearCounterResult: () => set({ counterResult: null }),
+  clearCancelledTrip: () => set({ cancelledTripId: null }),
 
   emitLocation: (lat, lng, heading, tripId) => {
     const { socket } = get();

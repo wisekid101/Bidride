@@ -135,7 +135,11 @@ export function TrackingScreen() {
     setCancelling(true);
     try {
       await api.delete(`/trips/${activeTrip.id}`);
-      router.replace('/(tabs)');
+      // The server sends no socket event back to the cancelling rider, so the
+      // store must be cleared here — a stale activeTrip makes Home bounce
+      // straight back to this screen. The !activeTrip effect above then
+      // navigates to (tabs); no direct replace, or the two would race.
+      useTripStore.getState().updateTripStatus('cancelled');
     } catch {
       setCancelling(false);
     }

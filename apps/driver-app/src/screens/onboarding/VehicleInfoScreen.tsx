@@ -13,6 +13,7 @@ import {
 import { Colors } from '../../constants/theme';
 import { useDriverStore } from '../../store/driver.store';
 import { router } from 'expo-router';
+import { OnboardingHeader } from './OnboardingHeader';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
@@ -88,6 +89,7 @@ export default function VehicleInfoScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <OnboardingHeader route="/onboarding/vehicle-info" />
       <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Text style={styles.step}>Step 4 of 6</Text>

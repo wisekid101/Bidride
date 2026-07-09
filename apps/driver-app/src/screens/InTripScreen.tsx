@@ -45,6 +45,17 @@ export function InTripScreen({
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
 
+  // Rider cancelled mid-trip — return the driver Home instead of leaving
+  // them stranded on a dead trip screen.
+  const cancelledTripId = useDriverSocketStore((s) => s.cancelledTripId);
+  useEffect(() => {
+    if (!cancelledTripId || cancelledTripId !== tripId) return;
+    useDriverSocketStore.getState().clearCancelledTrip();
+    Alert.alert('Trip Cancelled', 'The rider cancelled this trip.', [
+      { text: 'OK', onPress: () => router.replace('/(tabs)') },
+    ]);
+  }, [cancelledTripId]);
+
   // Track elapsed time
   useEffect(() => {
     const timer = setInterval(() => setElapsedMin((m) => m + 1), 60000);

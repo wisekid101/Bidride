@@ -34,7 +34,7 @@ interface FareEstimate {
 
 export function HomeScreen() {
   const mapRef = useRef<MapView>(null);
-  const { activeTrip } = useTripStore();
+  const { activeTrip, completedTrip } = useTripStore();
   const { recentAddresses, homeAddress, workAddress, addRecent } = useAddressStore();
 
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -78,9 +78,28 @@ export function HomeScreen() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (activeTrip) router.push('/tracking');
-  }, [activeTrip]);
+  // Navigate to tracking exactly once per trip, and only while Home is the
+  // focused screen. The old unconditional push fired on every activeTrip
+  // object change — driver GPS pings replace it every ~3s — stacking duplicate
+  // tracking screens and yanking the rider back after they pressed back.
+  const navigatedTripId = useRef<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (activeTrip) {
+        if (navigatedTripId.current !== activeTrip.id) {
+          navigatedTripId.current = activeTrip.id;
+          router.push('/tracking');
+        }
+        return;
+      }
+      navigatedTripId.current = null;
+      // Trip finished while the rider was on Home (they backed out of
+      // tracking mid-trip) — still surface the completion/rating screen.
+      if (completedTrip?.status === 'completed') {
+        router.push('/trip-complete');
+      }
+    }, [activeTrip, completedTrip]),
+  );
 
   const getEstimate = async (pickup: ResolvedAddress, dropoff: ResolvedAddress) => {
     setFareError(null);
@@ -170,8 +189,8 @@ export function HomeScreen() {
         // coerce here so downstream .toFixed() renders don't crash.
         aiFare: Number(trip.aiFare),
       });
-
-      router.push('/tracking');
+      // The focus effect above navigates to /tracking on the trip-id
+      // transition — no direct push here, or the screen would stack twice.
     } catch (err: any) {
       if (err.code === 'ACCOUNT_UNDER_REVIEW') {
         setFareError('Your account is under safety review. Please contact support.');
@@ -224,6 +243,19 @@ export function HomeScreen() {
             />
           )}
         </MapView>
+      )}
+
+      {/* Rider backed out of tracking mid-trip — always give a way back. */}
+      {activeTrip && (
+        <TouchableOpacity
+          style={styles.activeRideBanner}
+          onPress={() => router.push('/tracking')}
+          activeOpacity={0.85}
+          accessibilityLabel="Return to your ride"
+        >
+          <Text style={styles.activeRideText}>Ride in progress</Text>
+          <Text style={styles.activeRideAction}>Return to ride ›</Text>
+        </TouchableOpacity>
       )}
 
       <View style={[styles.bottomSheet, sheetExpanded && styles.bottomSheetExpanded]}>
@@ -365,6 +397,31 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 16,
     elevation: 16,
+  },
+  activeRideBanner: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 60 : 32,
+    left: Spacing.base,
+    right: Spacing.base,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    paddingHorizontal: Spacing.base,
+    paddingVertical: Spacing.md,
+  },
+  activeRideText: {
+    color: Colors.text,
+    fontSize: Typography.size.base,
+    fontWeight: Typography.weight.semibold,
+  },
+  activeRideAction: {
+    color: Colors.primary,
+    fontSize: Typography.size.base,
+    fontWeight: Typography.weight.bold,
   },
   pillWrap: {
     alignItems: 'center',

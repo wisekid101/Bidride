@@ -34,6 +34,17 @@ export function NavigatingToPickupScreen({
   const [marking, setMarking] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
 
+  // Rider cancelled after accepting — return the driver Home instead of
+  // leaving them stranded on a dead trip screen.
+  const cancelledTripId = useDriverSocketStore((s) => s.cancelledTripId);
+  useEffect(() => {
+    if (!cancelledTripId || cancelledTripId !== tripId) return;
+    useDriverSocketStore.getState().clearCancelledTrip();
+    Alert.alert('Trip Cancelled', 'The rider cancelled this trip.', [
+      { text: 'OK', onPress: () => router.replace('/(tabs)') },
+    ]);
+  }, [cancelledTripId]);
+
   // Stream GPS to the rider while heading to pickup — same cadence as InTripScreen.
   // The tripId routes the event to the rider's trip room via the gateway.
   useEffect(() => {
@@ -54,14 +65,16 @@ export function NavigatingToPickupScreen({
     setMarking(true);
     try {
       await api.post(`/trips/${tripId}/arrived`, {});
-      router.push({
+      // replace, not push: keeps the stack (tabs) → in-trip so ending the trip
+      // can never send the driver "back" to this stale navigating screen.
+      router.replace({
         pathname: '/in-trip',
         params: { tripId, dropoffAddress, driverTakeHome: driverTakeHome.toString(), riderName: 'Rider', earningsFloorAmount: '0' },
       });
     } catch (err: any) {
       if (err.code === 'TRIP_INVALID_TRANSITION') {
         Alert.alert('Already marked', 'Trip status was already updated.');
-        router.push({
+        router.replace({
           pathname: '/in-trip',
           params: { tripId, dropoffAddress, driverTakeHome: driverTakeHome.toString(), riderName: 'Rider', earningsFloorAmount: '0' },
         });

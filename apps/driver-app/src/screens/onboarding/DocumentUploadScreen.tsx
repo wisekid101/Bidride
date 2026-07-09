@@ -13,6 +13,7 @@ import { CheckCircle, Upload, AlertCircle } from 'lucide-react-native';
 import { Colors } from '../../constants/theme';
 import { useDriverStore } from '../../store/driver.store';
 import { router } from 'expo-router';
+import { OnboardingHeader } from './OnboardingHeader';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
@@ -111,6 +112,7 @@ export default function DocumentUploadScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <OnboardingHeader route="/onboarding/document-upload" />
       <View style={styles.header}>
         <Text style={styles.step}>Step 2 of 6</Text>
         <Text style={styles.title}>Upload Documents</Text>
