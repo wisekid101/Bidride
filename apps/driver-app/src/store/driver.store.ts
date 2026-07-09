@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import { useDriverSocketStore } from './socket.store';
 
 interface TodayEarnings {
   takeHome: number;
@@ -49,6 +50,15 @@ export const useDriverStore = create<DriverStore>((set, get) => ({
     await SecureStore.setItemAsync('driver_refresh_token', refresh);
     await SecureStore.setItemAsync('driver_user_id', userId);
     set({ accessToken: access, refreshToken: refresh, userId, isAuthenticated: true });
+
+    // A socket created with an expired token fails its handshake and exhausts
+    // socket.io's retry budget before any HTTP call can refresh the token.
+    // Every fresh token lands here, so revive the dead socket with it.
+    // connect() is idempotent; the guard keeps login (no socket yet) untouched.
+    const { socket, connect } = useDriverSocketStore.getState();
+    if (socket && !socket.connected) {
+      connect(access);
+    }
   },
 
   clearTokens: async () => {

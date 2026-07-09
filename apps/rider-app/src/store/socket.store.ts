@@ -17,6 +17,12 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
   connect: (accessToken) => {
     const existing = get().socket;
     if (existing?.connected) return;
+    if (existing) {
+      // Dead or mid-handshake socket — tear it down fully so its built-in
+      // auto-reconnect can't resurrect it as a phantom duplicate.
+      existing.removeAllListeners();
+      existing.disconnect();
+    }
 
     const socket = io(API_URL, {
       auth: { token: accessToken },

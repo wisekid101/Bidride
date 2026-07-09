@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import { useSocketStore } from './socket.store';
 
 interface AuthState {
   accessToken: string | null;
@@ -24,6 +25,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     await SecureStore.setItemAsync('refresh_token', refresh);
     await SecureStore.setItemAsync('user_id', userId);
     set({ accessToken: access, refreshToken: refresh, userId, isAuthenticated: true });
+
+    // A socket created with an expired token fails its handshake and exhausts
+    // socket.io's retry budget before any HTTP call can refresh the token.
+    // Every fresh token lands here, so revive the dead socket with it.
+    // connect() is idempotent; the guard keeps login (no socket yet) untouched.
+    const { socket, connect } = useSocketStore.getState();
+    if (socket && !socket.connected) {
+      connect(access);
+    }
   },
 
   clearTokens: async () => {
