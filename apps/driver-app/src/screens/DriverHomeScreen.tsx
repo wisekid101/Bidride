@@ -6,8 +6,6 @@ import {
   TouchableOpacity,
   Switch,
   Platform,
-  LayoutAnimation,
-  UIManager,
 } from 'react-native';
 import MapView, { Heatmap } from 'react-native-maps';
 import { MAP_PROVIDER, MAP_SUPPORTS_HEATMAP } from '../constants/map';
@@ -19,12 +17,8 @@ import { useDriverStore } from '../store/driver.store';
 import { useDriverSocketStore } from '../store/socket.store';
 import { IncomingRequestScreen } from './IncomingRequestScreen';
 import { IncomingStandardRequestScreen } from './IncomingStandardRequestScreen';
+import { DriverHubSheet } from '../components/DriverHubSheet';
 import { api } from '../api/client';
-
-// LayoutAnimation is opt-in on old Android architecture
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 // Downtown Newark — map placeholder region until the first GPS fix lands
 const NEWARK_REGION = {
@@ -35,20 +29,14 @@ const NEWARK_REGION = {
 };
 
 export function DriverHomeScreen() {
-  const { isOnline, todayEarnings, setOnlineStatus, setTodayEarnings } = useDriverStore();
+  const { isOnline, setOnlineStatus, setTodayEarnings } = useDriverStore();
   const { incomingBid, clearIncomingBid, incomingRequest, clearIncomingRequest, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toggling, setToggling] = useState(false);
-  const [zoneExpanded, setZoneExpanded] = useState(false);
   const [heatmapPoints, setHeatmapPoints] = useState<
     Array<{ latitude: number; longitude: number; weight: number }>
   >([]);
-
-  const toggleZonePanel = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setZoneExpanded((e) => !e);
-  };
 
   // Refresh today's totals whenever Home gains focus — cold start, tab
   // returns, and coming back from a completed ride (rate-rider replaces to
@@ -145,13 +133,6 @@ export function DriverHomeScreen() {
 
   const PLATFORM_FEE_RATE = 0.20;
 
-  // Rule-based zone floor: earnings floor formula for a typical Newark trip (~3 mi, ~12 min)
-  // Formula: (miles × $1.10) + (minutes × $0.22) + $2.50
-  const ZONE_FLOOR_EST = parseFloat(((3.0 * 1.10) + (12 * 0.22) + 2.50).toFixed(2));
-  const sessionAvgPerTrip = todayEarnings.trips > 0
-    ? parseFloat((todayEarnings.takeHome / todayEarnings.trips).toFixed(2))
-    : null;
-
   return (
     <View style={styles.container}>
       {/* Map is the screen — rendered immediately on the Newark fallback
@@ -207,6 +188,10 @@ export function DriverHomeScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Driver Hub — pull-up command center (zIndex 100). Replaces the old
+          zone panel + earnings bar; both live inside the sheet now. */}
+      <DriverHubSheet />
+
       {/* Incoming standard ride overlay — primary flow; only shown when no bid is pending */}
       {isOnline && incomingRequest && !incomingBid && (
         <IncomingStandardRequestScreen
@@ -243,68 +228,6 @@ export function DriverHomeScreen() {
         />
       )}
 
-      {/* Bottom dock: collapsible Zone panel + compact earnings bar.
-          Kept small so the map (and demand heatmap) stays the focus. */}
-      <View style={styles.bottomDock}>
-        {/* Zone Opportunity — pull-down panel, collapsed by default */}
-        <TouchableOpacity
-          style={styles.zonePanel}
-          onPress={toggleZonePanel}
-          activeOpacity={0.85}
-          accessibilityLabel={zoneExpanded ? 'Collapse zone opportunity' : 'Expand zone opportunity'}
-        >
-          <View style={styles.zoneHandleRow}>
-            <Text style={styles.zoneTitle}>Zone Opportunity</Text>
-            <View style={styles.zoneHandleRight}>
-              <Text style={styles.zoneEstimated}>estimated</Text>
-              <Ionicons
-                name={zoneExpanded ? 'chevron-down' : 'chevron-up'}
-                size={16}
-                color={Colors.textSecondary}
-              />
-            </View>
-          </View>
-
-          {zoneExpanded && (
-            <View style={styles.zoneBody}>
-              <View style={styles.zoneRow}>
-                <Text style={styles.zoneLabel}>Floor guarantee</Text>
-                <Text style={styles.zoneValue}>${ZONE_FLOOR_EST.toFixed(2)}+ / typical trip</Text>
-              </View>
-              {sessionAvgPerTrip !== null ? (
-                <View style={styles.zoneRow}>
-                  <Text style={styles.zoneLabel}>Your session avg</Text>
-                  <Text style={styles.zoneValue}>${sessionAvgPerTrip.toFixed(2)} / trip</Text>
-                </View>
-              ) : (
-                <Text style={styles.zoneNoData}>No trips yet this session</Text>
-              )}
-              <View style={styles.zoneRow}>
-                <Text style={styles.zoneLabel}>Hours online</Text>
-                <Text style={styles.zoneValue}>{todayEarnings.hoursOnline.toFixed(1)}</Text>
-              </View>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        {/* Compact earnings bar — take-home stays first and most prominent */}
-        <TouchableOpacity
-          style={styles.earningsBar}
-          onPress={() => router.push('/(tabs)/earnings')}
-          activeOpacity={0.85}
-          accessibilityLabel="Open earnings"
-        >
-          <View style={[styles.statusDot, isOnline && styles.statusDotOnline]} />
-          <Text style={styles.earningsBarStatus}>
-            {isOnline ? 'Online' : 'Offline'}
-            <Text style={styles.earningsBarTrips}>
-              {'  ·  '}{todayEarnings.trips} {todayEarnings.trips === 1 ? 'trip' : 'trips'}
-            </Text>
-          </Text>
-          <Text style={styles.earningsBarAmount}>${todayEarnings.takeHome.toFixed(2)}</Text>
-          <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -351,102 +274,6 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: Typography.size.sm,
     fontWeight: Typography.weight.semibold,
-  },
-  bottomDock: {
-    position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 24 : 16,
-    left: Spacing.base,
-    right: Spacing.base,
-    gap: Spacing.sm,
-  },
-  zonePanel: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  zoneHandleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  zoneHandleRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  zoneTitle: {
-    color: Colors.text,
-    fontSize: Typography.size.sm,
-    fontWeight: Typography.weight.semibold,
-  },
-  zoneEstimated: {
-    color: Colors.textSecondary,
-    fontSize: Typography.size.xs,
-  },
-  zoneBody: {
-    marginTop: Spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: Colors.separator,
-    paddingTop: Spacing.sm,
-    gap: 2,
-  },
-  zoneRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 2,
-  },
-  zoneLabel: {
-    color: Colors.textSecondary,
-    fontSize: Typography.size.xs,
-  },
-  zoneValue: {
-    color: Colors.text,
-    fontSize: Typography.size.sm,
-    fontWeight: Typography.weight.semibold,
-    fontFamily: Typography.fontFamilyMono,
-  },
-  zoneNoData: {
-    color: Colors.textSecondary,
-    fontSize: Typography.size.xs,
-    paddingVertical: 2,
-  },
-  earningsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.gold,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.textDisabled,
-  },
-  statusDotOnline: { backgroundColor: Colors.primary },
-  earningsBarStatus: {
-    flex: 1,
-    color: Colors.text,
-    fontSize: Typography.size.sm,
-    fontWeight: Typography.weight.semibold,
-  },
-  earningsBarTrips: {
-    color: Colors.textSecondary,
-    fontWeight: Typography.weight.regular,
-  },
-  earningsBarAmount: {
-    color: Colors.gold,
-    fontSize: Typography.size.lg,
-    fontWeight: Typography.weight.extrabold,
-    fontFamily: Typography.fontFamilyMono,
   },
 });
 
