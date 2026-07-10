@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
@@ -86,6 +87,7 @@ export function detectAirportTripFromEndpoints(dto: {
 
 @Injectable()
 export class TripsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(TripsService.name);
   private dispatchSweepTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -324,9 +326,70 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       ? Math.round((completedAt.getTime() - trip.startedAt.getTime()) / 60000)
       : null;
 
-    const finalFare = Number(trip.aiFare); // Use AI fare (bid resolves separately)
-    const platformFee = finalFare * PLATFORM_FEE_RATE;
-    const driverEarnings = finalFare - platformFee;
+    // ── CANONICAL FARE ──────────────────────────────────────────────────────
+    // Standard ride: the AI fare quoted at creation becomes the final fare at
+    // completion. Offer ride (bidId set): the accepted negotiated fare was
+    // locked into trip.finalFare at accept/counter-accept — aiFare is
+    // REFERENCE-ONLY from that point. Stripe, driver earnings, receipts,
+    // history and analytics must all flow from this one value.
+    const isBidTrip = trip.bidId != null;
+
+    if (isBidTrip && trip.finalFare == null) {
+      // The accepted fare is missing — a state that should be impossible.
+      // Complete the ride so nobody is stranded, but BLOCK all money
+      // movement: never fall back to aiFare, never silently pick an amount.
+      this.logger.error(
+        `FARE INTEGRITY ERROR trip=${tripId} bid=${trip.bidId}: accepted finalFare missing — completing without charge for human resolution`,
+      );
+      // Audit writes are best-effort: a transient DB error must not stop the
+      // trip from completing (the logger line above carries the same facts).
+      try {
+        await this.prisma.tripEvent.create({
+          data: {
+            tripId,
+            eventType: 'fare_integrity_error',
+            metadata: {
+              reason: 'bid trip missing accepted finalFare at completion',
+              bidId: trip.bidId,
+              aiFare: Number(trip.aiFare),
+            },
+          },
+        });
+        // The driver DID complete this ride; money is blocked pending human
+        // resolution. Record the deterministic earnings-floor amount owed so
+        // ops can pay it manually — the floor is non-negotiable even here.
+        const floorMiles = this.haversineDistance(
+          Number(trip.pickupLat), Number(trip.pickupLng),
+          Number(trip.dropoffLat), Number(trip.dropoffLng),
+        );
+        const floorOwed = floorMiles * 1.10 + (actualDurationMin ?? 0) * 0.22 + 2.50;
+        await this.prisma.tripEvent.create({
+          data: {
+            tripId,
+            eventType: 'fare_integrity_driver_payout_hold',
+            metadata: {
+              reason: 'driver payout blocked by fare integrity error — pay at least the earnings floor manually',
+              driverId: trip.driverId,
+              earningsFloorOwed: Math.round(floorOwed * 100) / 100,
+              actualDurationMin,
+            },
+          },
+        });
+      } catch (auditErr: unknown) {
+        this.logger.error(`fare_integrity audit write failed for trip=${tripId}`, auditErr);
+      }
+      const blocked = await this.prisma.trip.update({
+        where: { id: tripId },
+        data: { status: TripStatus.completed, completedAt, actualDurationMin },
+      });
+      await this.redis.del(`trip:${tripId}:state`);
+      await this.redis.del(`trip:${tripId}:claimed`);
+      return blocked;
+    }
+
+    const canonicalFare = isBidTrip ? Number(trip.finalFare) : Number(trip.aiFare);
+    const platformFee = canonicalFare * PLATFORM_FEE_RATE;
+    const driverEarnings = canonicalFare - platformFee;
 
     // Enforce earnings floor (absorbs supplement from platform)
     const floorResult = await this.earningsFloor.enforce(trip, driverEarnings, actualDurationMin);
@@ -337,7 +400,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         status: TripStatus.completed,
         completedAt,
         actualDurationMin,
-        finalFare,
+        finalFare: canonicalFare,
         platformFee,
         driverEarnings: floorResult.totalDriverEarnings,
         earningsFloorMet: floorResult.floorMet,
@@ -347,10 +410,15 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
 
     await this.redis.del(`trip:${tripId}:state`);
     await this.redis.del(`trip:${tripId}:claimed`);
-    await this.dispatch.notifyTripCompleted(tripId, finalFare, floorResult);
+    await this.dispatch.notifyTripCompleted(tripId, canonicalFare, floorResult);
 
-    // Fire-and-forget: charge rider for completed trip (non-bid standard trip path)
-    this.chargeRiderForTrip(tripId, trip.riderId, finalFare);
+    // Fire-and-forget: charge rider — STANDARD trips only. Bid trips were
+    // already settled on Stripe when the authorization hold was captured at
+    // the accepted fare (bids.service accept / counter-accept); charging here
+    // again was the double-charge defect this hotfix removes.
+    if (!isBidTrip) {
+      this.chargeRiderForTrip(tripId, trip.riderId, canonicalFare);
+    }
 
     // Fire-and-forget: credit driver wallet with take-home earnings
     this.creditDriverWalletForTrip(trip.driverId, tripId, floorResult.totalDriverEarnings);
@@ -359,7 +427,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     this.scheduleTrustRefresh(trip.riderId, trip.driverId);
 
     // Fire-and-forget: record bid outcome for AI training data pipeline
-    this.recordBidOutcome(trip, finalFare, floorResult.totalDriverEarnings, platformFee);
+    this.recordBidOutcome(trip, canonicalFare, floorResult.totalDriverEarnings, platformFee);
 
     return updated;
   }

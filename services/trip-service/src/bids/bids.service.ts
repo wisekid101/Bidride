@@ -257,7 +257,7 @@ export class BidsService implements OnModuleInit {
       });
     });
 
-    await this.captureStripeHold(bidId, finalFare);
+    await this.captureStripeHold(bidId, finalFare, bid.tripId, bid.riderId);
     await this.redis.setex(`trip:${bid.tripId}:state`, 7200, TripStatus.accepted);
     await this.dispatch.notifyBidAcceptedByDriver(bid.tripId, bidId, driver, finalFare);
 
@@ -441,7 +441,7 @@ export class BidsService implements OnModuleInit {
       });
     });
 
-    await this.captureStripeHold(bidId, finalFare);
+    await this.captureStripeHold(bidId, finalFare, bid.tripId, bid.riderId);
     await this.redis.setex(`trip:${bid.tripId}:state`, 7200, TripStatus.accepted);
     await this.dispatch.notifyDriverCounterAccepted(bid.tripId, bidId, bid.driverId, finalFare);
 
@@ -655,7 +655,12 @@ export class BidsService implements OnModuleInit {
     return data.paymentIntentId;
   }
 
-  private async captureStripeHold(bidId: string, finalFare: number): Promise<void> {
+  private async captureStripeHold(
+    bidId: string,
+    finalFare: number,
+    tripId: string,
+    riderId: string,
+  ): Promise<void> {
     const piId = await this.redis.get(`bid:${bidId}:pi`);
     if (!piId) {
       this.logger.warn(`No payment intent found for bid ${bidId} — skipping capture`);
@@ -666,7 +671,15 @@ export class BidsService implements OnModuleInit {
     await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
-      body: JSON.stringify({ paymentIntentId: piId, amountCents: Math.round(finalFare * 100) }),
+      // tripId/riderId let payment-service book this capture as the trip's
+      // payment record — the capture IS the ride's charge for offer trips,
+      // and receipts/refunds/analytics must be able to see it.
+      body: JSON.stringify({
+        paymentIntentId: piId,
+        amountCents: Math.round(finalFare * 100),
+        tripId,
+        riderId,
+      }),
     }).catch((e: unknown) => this.logger.error(`Stripe capture failed for bid ${bidId}`, e));
 
     await this.redis.del(`bid:${bidId}:pi`);

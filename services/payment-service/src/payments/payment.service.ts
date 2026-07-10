@@ -2,7 +2,9 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  UnprocessableEntityException,
   Inject,
+  Logger,
 } from '@nestjs/common';
 import Stripe from 'stripe';
 import Redis from 'ioredis';
@@ -20,6 +22,7 @@ const RECENT_EARNINGS_HOLD_HOURS = 2;
 
 @Injectable()
 export class PaymentService {
+  private readonly logger = new Logger(PaymentService.name);
   private readonly stripe: Stripe;
 
   constructor(
@@ -59,6 +62,54 @@ export class PaymentService {
   }
 
   async chargeTrip(tripId: string, riderId: string, amount: number, paymentMethodId: string) {
+    // ── PAYMENT INTEGRITY GUARD ─────────────────────────────────────────────
+    // The trip's canonical fare is authoritative. Never adjust an amount,
+    // never fall back to a different fare, never charge twice — refuse and
+    // preserve the audit trail instead.
+    const trip = await this.prisma.trip.findUnique({
+      where: { id: tripId },
+      select: { bidId: true, finalFare: true },
+    });
+    if (!trip) throw new NotFoundException('Trip not found.');
+
+    if (trip.bidId != null) {
+      // Offer trips are settled on Stripe by capturing the authorization
+      // hold at the accepted fare. A direct charge here is by definition a
+      // double charge.
+      await this.recordFareIntegrityError(tripId, {
+        reason: 'direct charge attempted on bid trip',
+        attemptedAmount: amount,
+        tripFinalFare: trip.finalFare === null ? null : Number(trip.finalFare),
+        bidId: trip.bidId,
+      });
+      throw new UnprocessableEntityException({
+        code: 'FARE_INTEGRITY_ERROR',
+        message: 'Bid trips are settled by hold capture — direct charge refused.',
+      });
+    }
+
+    if (trip.finalFare != null && Math.abs(amount - Number(trip.finalFare)) > 0.005) {
+      await this.recordFareIntegrityError(tripId, {
+        reason: 'charge amount does not match canonical finalFare',
+        attemptedAmount: amount,
+        tripFinalFare: Number(trip.finalFare),
+      });
+      throw new UnprocessableEntityException({
+        code: 'FARE_INTEGRITY_ERROR',
+        message: 'Charge amount does not match the trip canonical fare — payment blocked.',
+      });
+    }
+
+    // Double-charge protection beyond Stripe's idempotency key: a trip with
+    // a succeeded payment is settled, full stop.
+    const existing = await this.prisma.payment.findFirst({
+      where: { tripId, status: 'succeeded' },
+    });
+    if (existing) {
+      this.logger.warn(`chargeTrip: trip ${tripId} already settled (${existing.stripePaymentIntentId}) — returning existing payment`);
+      return { paymentIntentId: existing.stripePaymentIntentId, status: 'succeeded' as const };
+    }
+
     const rider = await this.prisma.rider.findUnique({ where: { id: riderId } });
     if (!rider?.stripeCustomerId) throw new BadRequestException('No payment method on file.');
 
@@ -356,17 +407,89 @@ export class PaymentService {
   async captureAuthorizationHold(
     paymentIntentId: string,
     amountCents: number,
+    tripId?: string,
+    riderId?: string,
   ): Promise<{ status: string }> {
     const pi = await this.stripe.paymentIntents.capture(paymentIntentId, {
       amount_to_capture: amountCents,
     }, { idempotencyKey: `capture_${paymentIntentId}` });
 
-    await this.prisma.payment.updateMany({
-      where: { stripePaymentIntentId: paymentIntentId },
-      data: { status: 'succeeded' },
-    });
+    const amount = Math.round(amountCents) / 100;
+
+    if (tripId && riderId) {
+      // The capture IS the ride's charge for offer trips — book it so
+      // receipts, refunds, and analytics can see the real Stripe movement.
+      // (Holds are created without a payments row, so this is usually a
+      // create; updateMany covers any legacy row keyed to the same intent.)
+      const updated = await this.prisma.payment.updateMany({
+        where: { stripePaymentIntentId: paymentIntentId },
+        data: { amount, status: 'succeeded' },
+      });
+      let firstBooking = updated.count === 0;
+      if (firstBooking) {
+        try {
+          await this.prisma.payment.create({
+            data: {
+              tripId,
+              riderId,
+              stripePaymentIntentId: paymentIntentId,
+              amount,
+              status: 'succeeded',
+            },
+          });
+        } catch (e: unknown) {
+          // Unique violation (tripId / intent id): a concurrent or retried
+          // capture already booked this — treat as settled, don't 500 and
+          // don't double-book the ledger below.
+          firstBooking = false;
+          this.logger.warn(
+            `captureAuthorizationHold: payment row for ${paymentIntentId} already booked — skipping duplicate booking`,
+          );
+        }
+      }
+
+      // Ledger + reconciliation ONLY on first booking: LedgerService has no
+      // idempotency of its own, so a retried capture (Stripe capture itself
+      // is idempotent) must not write a second debit/credit pair.
+      if (firstBooking) {
+        void this.ledger?.recordRiderPayment({
+          tripId,
+          riderId,
+          amount,
+          commission: Math.round(amount * 0.20 * 100) / 100,
+          correlationId: `capture:${tripId}`,
+        }).catch(() => {});
+        void this.reconciliation?.reconcilePaymentIntent({
+          stripeId: paymentIntentId,
+          stripeAmountCents: Math.round(amountCents),
+          stripeStatus: pi.status,
+        }).catch(() => {});
+      }
+    } else {
+      // Legacy path: no attribution supplied.
+      await this.prisma.payment.updateMany({
+        where: { stripePaymentIntentId: paymentIntentId },
+        data: { status: 'succeeded' },
+      });
+    }
 
     return { status: pi.status };
+  }
+
+  // Fare integrity violations block money movement but must never lose the
+  // evidence: persist a trip event with the amounts involved.
+  private async recordFareIntegrityError(
+    tripId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    this.logger.error(`FARE INTEGRITY ERROR trip=${tripId}: ${JSON.stringify(metadata)}`);
+    try {
+      await this.prisma.tripEvent.create({
+        data: { tripId, eventType: 'fare_integrity_error', metadata: metadata as object },
+      });
+    } catch (e) {
+      this.logger.error(`Failed to persist fare_integrity_error for trip ${tripId}`, e as Error);
+    }
   }
 
   async voidAuthorizationHold(paymentIntentId: string): Promise<{ status: string }> {

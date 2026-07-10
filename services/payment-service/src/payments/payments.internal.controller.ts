@@ -7,7 +7,7 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import { IsString, Min, IsInt, IsNumber } from 'class-validator';
+import { IsString, Min, IsInt, IsNumber, IsOptional } from 'class-validator';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
 
@@ -30,6 +30,16 @@ class CaptureHoldDto {
   @IsInt()
   @Min(100)
   amountCents: number;
+
+  // Optional attribution: when present the capture is booked as the trip's
+  // payment record (offer trips settle via capture, not charge-trip).
+  @IsOptional()
+  @IsString()
+  tripId?: string;
+
+  @IsOptional()
+  @IsString()
+  riderId?: string;
 }
 
 class VoidHoldDto {
@@ -84,7 +94,12 @@ export class PaymentsInternalController {
   @Post('capture')
   @HttpCode(HttpStatus.OK)
   capture(@Body() dto: CaptureHoldDto) {
-    return this.payments.captureAuthorizationHold(dto.paymentIntentId, dto.amountCents);
+    return this.payments.captureAuthorizationHold(
+      dto.paymentIntentId,
+      dto.amountCents,
+      dto.tripId,
+      dto.riderId,
+    );
   }
 
   @Post('void')
