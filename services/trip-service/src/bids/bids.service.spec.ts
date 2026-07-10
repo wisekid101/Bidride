@@ -530,6 +530,16 @@ describe('BidsService', () => {
 
       // Only pi_test_hold payment intent get calls; location gets handled by key mock
       redis.get = jest.fn().mockResolvedValue('pi_test');
+
+      // The eligibility filter queries Postgres for the geo-matched userIds —
+      // these geo tests assume every nearby driver is available + approved,
+      // so echo the queried ids back as eligible. (Calls with other where
+      // shapes, e.g. the EWR-queue id lookup, keep returning [].)
+      prisma.driver.findMany = jest.fn().mockImplementation(({ where }: any) =>
+        Promise.resolve(
+          ((where?.userId?.in as string[] | undefined) ?? []).map((userId) => ({ userId })),
+        ),
+      );
     }
 
     it('broadcasts only to drivers within the 5-mile primary radius', async () => {
@@ -774,7 +784,9 @@ describe('BidsService', () => {
         aiFare: 20.00,
         lat: 40.6895,
         lng: -74.1745,
-        isAirport: false,
+        // Fixture pickup is EWR center (40.6895,-74.1745): coordinate-first
+        // detection correctly flags it — the old string matcher missed it.
+        isAirport: true,
         availableDriversInZone: 0,
       }));
     });
@@ -852,6 +864,8 @@ describe('BidsService', () => {
       redis.keys = jest.fn().mockResolvedValue(['driver:user-gps-1:location']);
       redis.get = jest.fn().mockResolvedValue(driverLocation);
       redis.zrange = jest.fn().mockResolvedValue([]);
+      // Eligibility filter: the geo-matched driver is available + approved
+      prisma.driver.findMany = jest.fn().mockResolvedValue([{ userId: 'user-gps-1' }]);
 
       let rankingBody: { candidates: Array<{ driverUserId: string; distanceMiles: number }> } | undefined;
       global.fetch = jest.fn().mockImplementation((url: string, options: RequestInit) => {
@@ -877,5 +891,43 @@ describe('BidsService', () => {
       expect(rankingBody).toBeDefined();
       expect(rankingBody!.candidates[0].distanceMiles).toBeGreaterThan(0);
     });
+  });
+});
+
+// ─── findNearbyDriverUserIds eligibility filter ──────────────────────────────
+
+describe('BidsService — nearby driver eligibility filter', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('drops drivers who are not available/approved even if a location key lingers', async () => {
+    const { service, prisma, redis } = await buildService();
+    // Two drivers with live Redis location keys near the pickup
+    redis.keys = jest.fn().mockResolvedValue([
+      'driver:user-online:location',
+      'driver:user-offline:location',
+    ]);
+    redis.get = jest.fn().mockResolvedValue(JSON.stringify({ lat: 40.7357, lng: -74.1724 }));
+    // Postgres says only one of them is actually available + approved
+    prisma.driver.findMany = jest.fn().mockResolvedValue([{ userId: 'user-online' }]);
+
+    const result = await (service as any).findNearbyDriverUserIds(40.7357, -74.1724, false);
+
+    expect(result).toEqual(['user-online']);
+    expect(prisma.driver.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ isAvailable: true, status: 'approved' }),
+      }),
+    );
+  });
+
+  it('returns empty without querying Postgres when nobody is nearby', async () => {
+    const { service, prisma, redis } = await buildService();
+    redis.keys = jest.fn().mockResolvedValue([]);
+    prisma.driver.findMany = jest.fn();
+
+    const result = await (service as any).findNearbyDriverUserIds(40.7357, -74.1724, false);
+
+    expect(result).toEqual([]);
+    expect(prisma.driver.findMany).not.toHaveBeenCalled();
   });
 });

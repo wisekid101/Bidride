@@ -11,6 +11,15 @@ import {
 } from './dto';
 import { CheckrService } from './checkr.service';
 
+// driver:{userId}:location is shared with the auth-service gateway, which
+// refreshes it on every GPS emit / heartbeat with the SAME env-driven TTL —
+// two writers with different TTLs would make the retention bound meaningless.
+// Malformed env falls back; never NaN into SETEX.
+const DRIVER_LOCATION_TTL_SEC = (() => {
+  const parsed = Number(process.env.LOCATION_TTL_SECONDS ?? 180);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 180;
+})();
+
 @Injectable()
 export class DriversService {
   private prisma = new PrismaClient();
@@ -170,7 +179,7 @@ export class DriversService {
       // Store initial location for dispatch matching
       await this.redis.setex(
         `driver:${userId}:location`,
-        300,
+        DRIVER_LOCATION_TTL_SEC,
         JSON.stringify({ lat: parseFloat(dto.currentLat), lng: parseFloat(dto.currentLng) }),
       );
       await this.redis.geoadd(

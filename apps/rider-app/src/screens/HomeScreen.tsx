@@ -18,17 +18,21 @@ import { useTripStore } from '../store/trip.store';
 import { useAddressStore } from '../store/address.store';
 import { RiderBookingSheet, BookingFareEstimate } from '../components/RiderBookingSheet';
 import { EwrTerminalPicker } from '../components/EwrTerminalPicker';
-import { detectEwrAddress, EWR_TERMINALS, AirportTerminal } from '../constants/airports';
+import { detectEwrAddress, EWR_TERMINALS, AirportTerminal, isNearEwr } from '../constants/airports';
 
-// BYTE-EXACT mirror of the server's airport detection (trip-service
-// detectAirportTrip) — the quoted fare must include the airport premium
-// exactly when the created trip will be charged it. Any asymmetry (broader
-// regexes, word boundaries, case-insensitivity) opens a quote≠charge gap:
-// e.g. "1200 Terminal Ave" matches the server's 'Terminal A' substring but
-// not /terminal [abc]\b/. Keep in lockstep with trips.service.ts.
-const SERVER_AIRPORT_TERMS = ['EWR', 'Newark Airport', 'Newark Liberty', 'Terminal A', 'Terminal B', 'Terminal C'];
-function isAirportAddress(address: string): boolean {
-  return SERVER_AIRPORT_TERMS.some((term) => address.includes(term));
+// Mirror of the server's airport detection (trip-service detectAirportTrip):
+// coordinate-first — the endpoint's resolved coords inside the EWR geofence —
+// with the same STRICT name fallback trio for geocoder coordinate drift.
+// No 'Terminal X' substring patterns ("Terminal Ave" street addresses must
+// never be classified as airports). The quoted fare must include the airport
+// premium exactly when the created trip will be charged it: keep this in
+// lockstep with trips.service.ts.
+const AIRPORT_NAME_FALLBACK = [/\bEWR\b/, /Newark Liberty/i, /Newark Airport/i];
+function isAirportEndpoint(addr: ResolvedAddress): boolean {
+  return (
+    isNearEwr(addr.lat, addr.lng) ||
+    AIRPORT_NAME_FALLBACK.some((re) => re.test(addr.formattedAddress))
+  );
 }
 
 interface PaymentMethodSummary {
@@ -125,9 +129,7 @@ export function HomeScreen() {
         dropoffLng: dropoff.lng,
         // Mirrors the server-side airport detection so the quote matches
         // the fare the trip will be created with.
-        isAirportTrip:
-          isAirportAddress(pickup.formattedAddress) ||
-          isAirportAddress(dropoff.formattedAddress),
+        isAirportTrip: isAirportEndpoint(pickup) || isAirportEndpoint(dropoff),
       });
       setFareEstimate(estimate);
     } catch {
@@ -245,21 +247,22 @@ export function HomeScreen() {
   const isAirportTrip = useMemo(
     () =>
       Boolean(
-        (pickupResolved && isAirportAddress(pickupResolved.formattedAddress)) ||
-          (dropoffResolved && isAirportAddress(dropoffResolved.formattedAddress)),
+        (pickupResolved && isAirportEndpoint(pickupResolved)) ||
+          (dropoffResolved && isAirportEndpoint(dropoffResolved)),
       ),
     [pickupResolved, dropoffResolved],
   );
 
   // Terminal-aware pickup info: surfaced when either endpoint is a picked
-  // EWR terminal (the picker writes the terminal name into the address).
+  // EWR terminal. Match the picker's structured placeId ('EWR-A/B/C'), not
+  // a bare `includes(t.name)` — "Terminal Ave, Clark" contains "Terminal A"
+  // and must never grow a terminal row. Gated on isAirportTrip for the same
+  // reason.
   const terminal: AirportTerminal | null = useMemo(() => {
-    const addresses = [pickupResolved?.formattedAddress, dropoffResolved?.formattedAddress];
-    for (const t of EWR_TERMINALS) {
-      if (addresses.some((a) => a?.includes(t.name))) return t;
-    }
-    return null;
-  }, [pickupResolved, dropoffResolved]);
+    if (!isAirportTrip) return null;
+    const placeIds = [pickupResolved?.placeId, dropoffResolved?.placeId];
+    return EWR_TERMINALS.find((t) => placeIds.includes(t.id)) ?? null;
+  }, [isAirportTrip, pickupResolved, dropoffResolved]);
 
   const shortcuts: { label: string; addr: ResolvedAddress }[] = [
     ...(homeAddress ? [{ label: '🏠 Home', addr: homeAddress }] : []),

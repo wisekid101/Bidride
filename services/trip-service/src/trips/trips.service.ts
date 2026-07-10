@@ -18,6 +18,19 @@ import { REDIS_CLIENT } from '../redis/redis.module';
 
 const PLATFORM_FEE_RATE = 0.20;
 const NO_SHOW_WAIT_MINUTES = 5;
+
+// EWR geofence for airport-trip detection. 1930m ≈ 1.2mi — validated against
+// real coordinates: terminals ≤0.26mi and the cell lot 0.74mi from center
+// (inside); Port Newark Marine Terminal 1.59mi and "Terminal Ave" Elizabeth
+// 2.19mi (outside). MUST stay in lockstep with rider-app
+// src/constants/airports.ts EWR_RADIUS_METERS or quotes diverge from charges.
+const EWR_CENTER = { lat: 40.6895, lng: -74.1745 };
+// Malformed env must fall back, never yield NaN (which would silently
+// disable the geofence and drop the airport premium from real EWR trips).
+const AIRPORT_RADIUS_METERS = (() => {
+  const parsed = Number(process.env.AIRPORT_RADIUS_METERS ?? 1930);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1930;
+})();
 const DROPOFF_LOCK_RADIUS_MILES = 0.2;
 const SURGE_COUNTER_TTL_SEC = 600; // 10-minute rolling window
 
@@ -32,6 +45,43 @@ const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL ?? 'http://localhost
 
 function getZoneKey(lat: number, lng: number): string {
   return `${Math.floor(lat / 0.018)}:${Math.floor(lng / 0.022)}`;
+}
+
+// CANONICAL airport-trip detection for this service — coordinate-first
+// (either endpoint inside the EWR geofence) with a STRICT name fallback for
+// geocoder coordinate drift. Deliberately NO 'Terminal X' substring patterns:
+// 'Terminal A'.includes matched "Terminal Ave"/"Marine Terminal" street
+// addresses and charged them the airport premium. Exported so bids.service
+// prices offers with the SAME rule — two detectors already diverged once.
+// Keep in lockstep with rider-app constants/airports.ts (isNearEwr + trio).
+const AIRPORT_NAME_FALLBACK = [/\bEWR\b/, /Newark Liberty/i, /Newark Airport/i];
+
+function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function detectAirportTripFromEndpoints(dto: {
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  pickupAddress: string;
+  dropoffAddress: string;
+}): boolean {
+  const inGeofence =
+    distanceMeters(dto.pickupLat, dto.pickupLng, EWR_CENTER.lat, EWR_CENTER.lng) <= AIRPORT_RADIUS_METERS ||
+    distanceMeters(dto.dropoffLat, dto.dropoffLng, EWR_CENTER.lat, EWR_CENTER.lng) <= AIRPORT_RADIUS_METERS;
+  if (inGeofence) return true;
+
+  return AIRPORT_NAME_FALLBACK.some(
+    (re) => re.test(dto.pickupAddress) || re.test(dto.dropoffAddress),
+  );
 }
 
 @Injectable()
@@ -73,7 +123,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
 
     // Airport detection feeds both the trip record and the fare quote — the
     // pricing engine's airport premium only applies when this flag reaches it.
-    const isAirportTrip = this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress);
+    const isAirportTrip = this.detectAirportTrip(dto);
 
     // Get AI fare from pricing service (internal HTTP call)
     const aiFare = await this.getPricingEstimate(dto, riderTrustScore, rider.totalTrips, isAirportTrip);
@@ -721,11 +771,22 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => {});
   }
 
-  private detectAirportTrip(pickup: string, dropoff: string): boolean {
-    const airportTerms = ['EWR', 'Newark Airport', 'Newark Liberty', 'Terminal A', 'Terminal B', 'Terminal C'];
-    return airportTerms.some(
-      (term) => pickup.includes(term) || dropoff.includes(term),
-    );
+  // Coordinate-first airport detection. A trip is an airport trip iff either
+  // endpoint sits inside the EWR geofence, with a STRICT name fallback for
+  // geocoder coordinate drift. Deliberately NO 'Terminal X' substring
+  // patterns: 'Terminal A'.includes matched "Terminal Ave"/"Marine Terminal"
+  // street addresses and charged them the airport premium.
+  // Keep rule + constants in lockstep with rider-app constants/airports.ts
+  // (isNearEwr + fallback trio) or quoted fares diverge from charged fares.
+  private detectAirportTrip(dto: {
+    pickupLat: number;
+    pickupLng: number;
+    dropoffLat: number;
+    dropoffLng: number;
+    pickupAddress: string;
+    dropoffAddress: string;
+  }): boolean {
+    return detectAirportTripFromEndpoints(dto);
   }
 
   // ─── Standard-ride redispatch / no-drivers timeout ───────────────────────

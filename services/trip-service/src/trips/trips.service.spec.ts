@@ -507,3 +507,45 @@ describe('TripsService — fraud hold: acceptTrip blocked', () => {
     await expect(service.acceptTrip('trip-1', 'user-1')).resolves.toBeDefined();
   });
 });
+
+// ─── detectAirportTrip (coordinate-first geofence) ───────────────────────────
+
+describe('TripsService — detectAirportTrip', () => {
+  const base = {
+    pickupAddress: '171 Market St, Newark, NJ 07102, USA',
+    pickupLat: 40.7357, pickupLng: -74.1724,
+    dropoffAddress: '744 Broad St, Newark, NJ 07102, USA',
+    dropoffLat: 40.7368, dropoffLng: -74.1707,
+  };
+  const detect = async (dto: object) =>
+    (await buildService() as any).detectAirportTrip({ ...base, ...dto });
+
+  it('flags a trip to an EWR terminal by coordinates', async () => {
+    expect(await detect({ dropoffAddress: 'Newark Liberty Intl – Terminal B', dropoffLat: 40.6913, dropoffLng: -74.1746 })).toBe(true);
+  });
+
+  it('flags an EWR pickup by coordinates', async () => {
+    expect(await detect({ pickupAddress: 'Terminal C Arrivals', pickupLat: 40.6929, pickupLng: -74.1764 })).toBe(true);
+  });
+
+  it('does NOT flag a "Terminal Ave" street address with non-airport coords', async () => {
+    expect(await detect({ dropoffAddress: '1200 Terminal Ave, Elizabeth, NJ', dropoffLat: 40.6600, dropoffLng: -74.1900 })).toBe(false);
+  });
+
+  it('does NOT flag Port Newark Marine Terminal', async () => {
+    expect(await detect({ dropoffAddress: 'Marine Terminal A, Port Newark, NJ', dropoffLat: 40.6840, dropoffLng: -74.1450 })).toBe(false);
+  });
+
+  it('does NOT flag an ordinary downtown trip', async () => {
+    expect(await detect({})).toBe(false);
+  });
+
+  it('name fallback: flags "Newark Liberty" even with drifted coords', async () => {
+    expect(await detect({ dropoffAddress: 'Newark Liberty International Airport', dropoffLat: 40.7000, dropoffLng: -74.2100 })).toBe(true);
+  });
+
+  it('name fallback: strict word-bounded EWR only', async () => {
+    expect(await detect({ dropoffAddress: 'EWR Cell Lot', dropoffLat: 40.7100, dropoffLng: -74.2200 })).toBe(true);
+    expect(await detect({ dropoffAddress: 'Brewery District, Newark', dropoffLat: 40.7300, dropoffLng: -74.1800 })).toBe(false);
+  });
+});

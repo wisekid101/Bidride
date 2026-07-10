@@ -18,6 +18,17 @@ import { PrismaService } from '../prisma/prisma.service';
 const DRIVER_SESSION_TTL_SEC = 86400; // 24h max session key lifetime
 const DRIVER_ZONE_TTL_SEC = 30;       // Zone key heartbeat — removed on disconnect
 
+// Offer matching reads driver:{userId}:location — this TTL bounds location
+// retention (privacy: at most this long after the last signal) and MUST stay
+// greater than 2× the driver app's heartbeat interval
+// (EXPO_PUBLIC_LOCATION_HEARTBEAT_SECONDS, default 60s) or parked drivers
+// fall out of matching between beats.
+// Malformed env must fall back to the default, never feed NaN into SETEX.
+const DRIVER_LOCATION_TTL_SEC = (() => {
+  const parsed = Number(process.env.LOCATION_TTL_SECONDS ?? 180);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 180;
+})();
+
 function getZoneKey(lat: number, lng: number): string {
   return `${Math.floor(lat / 0.018)}:${Math.floor(lng / 0.022)}`;
 }
@@ -100,7 +111,9 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
       this.userSockets.set(userId, sockets);
     }
 
-    // Close driver session log and remove from surge:drivers zone
+    // Close driver session log and remove from surge:drivers zone.
+    // Each step is isolated: a Postgres blip closing the session log must
+    // never block the location/geo privacy cleanup below.
     if (socket.data.role === 'driver') {
       void (async () => {
         try {
@@ -108,26 +121,40 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
             this.redis.get(`driver:${userId}:session_log_id`),
             this.redis.get(`driver:${userId}:zone`),
           ]);
-          if (logId) {
-            const endedAt = new Date();
-            const log = await this.prisma.driverSessionLog.findUnique({
-              where: { id: logId },
-              select: { startedAt: true },
-            });
-            await this.prisma.driverSessionLog.update({
-              where: { id: logId },
-              data: {
-                endedAt,
-                durationSec: log
-                  ? Math.round((endedAt.getTime() - log.startedAt.getTime()) / 1000)
-                  : null,
-              },
-            });
-            await this.redis.del(`driver:${userId}:session_log_id`);
-          }
-          if (zone) {
-            await this.redis.srem(`surge:drivers:${zone}`, userId);
-            await this.redis.del(`driver:${userId}:zone`);
+          try {
+            if (logId) {
+              const endedAt = new Date();
+              const log = await this.prisma.driverSessionLog.findUnique({
+                where: { id: logId },
+                select: { startedAt: true },
+              });
+              await this.prisma.driverSessionLog.update({
+                where: { id: logId },
+                data: {
+                  endedAt,
+                  durationSec: log
+                    ? Math.round((endedAt.getTime() - log.startedAt.getTime()) / 1000)
+                    : null,
+                },
+              });
+              await this.redis.del(`driver:${userId}:session_log_id`);
+            }
+          } catch {}
+          try {
+            if (zone) {
+              await this.redis.srem(`surge:drivers:${zone}`, userId);
+              await this.redis.del(`driver:${userId}:zone`);
+            }
+          } catch {}
+          // Sign-out / crash must remove the driver from matching NOW, not
+          // when the TTL lapses — and drivers:geo has no TTL at all, so
+          // without this zrem a signed-out driver's coordinates would be
+          // retained permanently (privacy rule: no permanent retention).
+          // Gated on the LAST socket closing: a reconnect race or second
+          // device must not evict a still-online driver from matching.
+          if (sockets.length === 0) {
+            await this.redis.del(`driver:${userId}:location`);
+            await this.redis.zrem('drivers:geo', userId);
           }
         } catch {}
       })();
@@ -146,17 +173,43 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
   @SubscribeMessage('driver:location')
   handleDriverLocation(
     @ConnectedSocket() socket: Socket,
-    @MessageBody() data: { lat: number; lng: number; heading?: number; tripId?: string },
+    @MessageBody() data: {
+      lat: number;
+      lng: number;
+      heading?: number;
+      tripId?: string;
+      // Extended fields — prepared for future AI dispatch. Stored as-is
+      // (write-only): nothing reads them yet; do not build logic on them.
+      ts?: number;
+      source?: string;
+      speed?: number | null;
+      available?: boolean;
+      rideEligibility?: string[];
+      vehicleClass?: string;
+    },
   ) {
     const userId = socket.data.userId as string;
     if (socket.data.role !== 'driver') return;
 
-    // Cache driver location in Redis (TTL 10s)
+    // Cache driver location in Redis. TTL is config-driven and bounded —
+    // see DRIVER_LOCATION_TTL_SEC. GPS emits and heartbeats share this key.
     this.redis.setex(
       `driver:${userId}:location`,
-      10,
-      JSON.stringify({ lat: data.lat, lng: data.lng, heading: data.heading, ts: Date.now() }),
-    );
+      DRIVER_LOCATION_TTL_SEC,
+      JSON.stringify({
+        lat: data.lat,
+        lng: data.lng,
+        heading: data.heading,
+        ts: data.ts ?? Date.now(),
+        source: data.source,
+        speed: data.speed,
+        available: data.available,
+        rideEligibility: data.rideEligibility,
+        vehicleClass: data.vehicleClass,
+      }),
+      // Fire-and-forget: a Redis hiccup on one ping must not become an
+      // unhandled rejection (this call is deliberately not awaited).
+    ).catch(() => {});
 
     // Maintain surge:drivers:{zone} Set for AI demand/supply tracking
     void (async () => {

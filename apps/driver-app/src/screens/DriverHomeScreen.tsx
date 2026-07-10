@@ -94,23 +94,65 @@ export function DriverHomeScreen() {
   }, [counterResult]);
 
   useEffect(() => {
+    let cancelled = false;
+    let subscription: Location.LocationSubscription | null = null;
+
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
 
-      const loc = await Location.getCurrentPositionAsync({});
-      setCurrentLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      // A transient CoreLocation error (kCLErrorDomain on simulators) must
+      // not abort the effect — the movement watch below can still start.
+      try {
+        const loc = await Location.getCurrentPositionAsync({});
+        if (!cancelled) {
+          setCurrentLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          if (isOnline) {
+            // Seed lastFix immediately: a parked driver produces no movement
+            // events, so without this the heartbeat has nothing to send and
+            // the driver stays invisible to offer matching until they move.
+            // emitLocation caches the fix even mid-handshake — the heartbeat
+            // delivers it on the next beat.
+            emitLocation(
+              loc.coords.latitude,
+              loc.coords.longitude,
+              loc.coords.heading ?? undefined,
+            );
+          }
+        }
+      } catch {}
 
-      if (isOnline) {
-        // Stream GPS via WebSocket — updates Redis and notifies active trip riders
-        await Location.watchPositionAsync(
+      if (isOnline && !cancelled) {
+        // Stream GPS via WebSocket — updates Redis and notifies active trip
+        // riders. Settings stay movement-aware (no extra GPS polling); the
+        // heartbeat below re-sends the cached fix so a PARKED driver stays
+        // eligible for offers.
+        const sub = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 10 },
           (position) => {
-            emitLocation(position.coords.latitude, position.coords.longitude);
+            emitLocation(
+              position.coords.latitude,
+              position.coords.longitude,
+              position.coords.heading ?? undefined,
+            );
           },
         );
+        // Effect may have been cleaned up while the watch was starting.
+        if (cancelled) {
+          sub.remove();
+          return;
+        }
+        subscription = sub;
+        useDriverSocketStore.getState().startHeartbeat();
       }
     })();
+
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+      subscription = null;
+      useDriverSocketStore.getState().stopHeartbeat();
+    };
   }, [isOnline]);
 
   const toggleOnline = async () => {

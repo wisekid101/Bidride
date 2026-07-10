@@ -1,4 +1,4 @@
-import { detectEwrAddress, EWR_TERMINALS } from '../constants/airports';
+import { detectEwrAddress, EWR_TERMINALS, isNearEwr, EWR_RADIUS_METERS } from '../constants/airports';
 
 describe('detectEwrAddress', () => {
   it('detects "Newark Liberty International Airport"', () => {
@@ -44,5 +44,36 @@ describe('EWR_TERMINALS', () => {
     const coords = EWR_TERMINALS.map((t) => `${t.lat},${t.lng}`);
     const unique = new Set(coords);
     expect(unique.size).toBe(3);
+  });
+});
+
+describe('isNearEwr (airport geofence)', () => {
+  it('includes every EWR terminal', () => {
+    for (const t of EWR_TERMINALS) {
+      expect(isNearEwr(t.lat, t.lng)).toBe(true);
+    }
+  });
+
+  it('includes the EWR cell phone lot (~0.74 mi from center)', () => {
+    expect(isNearEwr(40.6990, -74.1810)).toBe(true);
+  });
+
+  it('excludes Port Newark Marine Terminal (~1.59 mi)', () => {
+    expect(isNearEwr(40.6840, -74.1450)).toBe(false);
+  });
+
+  it('excludes Terminal Ave in Elizabeth (~2.19 mi)', () => {
+    expect(isNearEwr(40.6600, -74.1900)).toBe(false);
+  });
+
+  it('excludes downtown Newark (~3.2 mi)', () => {
+    expect(isNearEwr(40.7357, -74.1724)).toBe(false);
+  });
+
+  it('radius default keeps the false-positive margin (inside 1.2mi ≈ 1930m)', () => {
+    // The nearest known false positive (Port Newark, ~2560m) must stay
+    // outside even if the radius is tuned up moderately.
+    expect(EWR_RADIUS_METERS).toBeLessThan(2500);
+    expect(EWR_RADIUS_METERS).toBeGreaterThan(500);
   });
 });

@@ -11,6 +11,7 @@ import { BidStatus, TripStatus, RideType } from '@bidride/database/generated/cli
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { DispatchService } from '../trips/dispatch.service';
+import { detectAirportTripFromEndpoints } from '../trips/trips.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { SubmitBidDto, CounterBidDto } from './bids.dto';
 import {
@@ -68,7 +69,7 @@ export class BidsService implements OnModuleInit {
 
     const expiresAt = new Date(Date.now() + BID_TTL_SECONDS * 1000);
     const now = new Date();
-    const isAirportTrip = this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress);
+    const isAirportTrip = detectAirportTripFromEndpoints(dto);
 
     // Create Stripe authorization hold for the full standard fare amount so any
     // accepted outcome (bid or counter up to standard fare) is covered.
@@ -698,7 +699,7 @@ export class BidsService implements OnModuleInit {
         dropoffLat: dto.dropoffLat,
         dropoffLng: dto.dropoffLng,
         rideType: 'bid',
-        isAirportTrip: this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress),
+        isAirportTrip: detectAirportTripFromEndpoints(dto),
       }),
     });
 
@@ -783,7 +784,19 @@ export class BidsService implements OnModuleInit {
       }
     }
 
-    return matched;
+    if (matched.length === 0) return matched;
+
+    // A Redis location key alone is NOT eligibility — availability and
+    // approval are authoritative in Postgres. This closes the hole where an
+    // offline or suspended driver with a lingering location key (leaked
+    // watcher, TTL not yet lapsed) would still receive offers. Applies to
+    // geo-matched and EWR-queue-injected drivers alike.
+    const eligible = await this.prisma.driver.findMany({
+      where: { userId: { in: matched }, isAvailable: true, status: 'approved' },
+      select: { userId: true },
+    });
+    const eligibleSet = new Set(eligible.map((d) => d.userId));
+    return matched.filter((userId) => eligibleSet.has(userId));
   }
 
   private async rankDriversWithFallback(
@@ -862,11 +875,6 @@ export class BidsService implements OnModuleInit {
       Math.sin(dLat / 2) ** 2 +
       Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
     return parseFloat((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2));
-  }
-
-  private detectAirportTrip(pickup: string, dropoff: string): boolean {
-    const terms = ['EWR', 'Newark Airport', 'Newark Liberty', 'Terminal A', 'Terminal B', 'Terminal C'];
-    return terms.some((t) => pickup.includes(t) || dropoff.includes(t));
   }
 
   private isNightRide(date: Date): boolean {
