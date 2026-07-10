@@ -71,8 +71,12 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     });
     const riderTrustScore = trustRecord?.trustScore ?? 500;
 
+    // Airport detection feeds both the trip record and the fare quote — the
+    // pricing engine's airport premium only applies when this flag reaches it.
+    const isAirportTrip = this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress);
+
     // Get AI fare from pricing service (internal HTTP call)
-    const aiFare = await this.getPricingEstimate(dto, riderTrustScore, rider.totalTrips);
+    const aiFare = await this.getPricingEstimate(dto, riderTrustScore, rider.totalTrips, isAirportTrip);
     const now = new Date();
 
     const trip = await this.prisma.trip.create({
@@ -88,11 +92,11 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         dropoffLng: dto.dropoffLng,
         aiFare,
         isNightRide: isNightRide(now),
-        isAirportTrip: this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress),
+        isAirportTrip,
         safetySession: {
           create: {
             isNightRide: isNightRide(now),
-            isAirportTrip: this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress),
+            isAirportTrip,
             checkInStatus: isNightRide(now) ? 'pending' : 'not_required',
           },
         },
@@ -608,6 +612,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     dto: CreateTripDto,
     riderTrustScore: number,
     riderTotalTrips: number,
+    isAirportTrip: boolean,
   ): Promise<number> {
     const PRICING_SERVICE_URL = process.env.PRICING_SERVICE_URL ?? 'http://localhost:3005';
     const response = await fetch(`${PRICING_SERVICE_URL}/pricing/estimate`, {
@@ -619,6 +624,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         dropoffLat: dto.dropoffLat,
         dropoffLng: dto.dropoffLng,
         rideType: dto.rideType ?? 'standard',
+        isAirportTrip,
         riderTrustScore,
         riderTotalTrips,
       }),
