@@ -9,6 +9,7 @@ import { EarningsOptimizerService } from './earnings-optimizer.service';
 import { MarketplaceController } from './marketplace.controller';
 import { PrismaService } from '../prisma/prisma.service';
 import { InferenceLogService } from '../services/inference-log.service';
+import { ShadowModeService } from '../shadow/shadow-mode.service';
 
 // RedisModule is @Global() — no explicit import needed
 
@@ -17,6 +18,7 @@ import { InferenceLogService } from '../services/inference-log.service';
   providers: [
     PrismaService,
     InferenceLogService,
+    ShadowModeService,
     DriverRankingEngine,
     DriverRankingService,
     DispatchSimulatorService,

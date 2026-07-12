@@ -9,6 +9,8 @@ import { FeatureService } from '../services/feature.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisModule } from '../redis/redis.module';
 import { BidPredictionModule } from '../bid-prediction/bid-prediction.module';
+import { FareAdjustmentEngine } from './fare-adjustment.engine';
+import { ShadowModeService } from '../shadow/shadow-mode.service';
 
 @Module({
   imports: [RedisModule, BidPredictionModule],
@@ -19,6 +21,8 @@ import { BidPredictionModule } from '../bid-prediction/bid-prediction.module';
     InferenceLogService,
     ModelHealthService,
     FeatureService,
+    FareAdjustmentEngine,
+    ShadowModeService,
     PrismaService,
     InternalKeyGuard,
   ],

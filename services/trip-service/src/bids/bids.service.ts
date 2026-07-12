@@ -617,8 +617,9 @@ export class BidsService implements OnModuleInit {
   }
 
   private recordRejectedBidOutcome(tripId: string, bidId: string): void {
-    const AI_SERVICE_URL = process.env.AI_SERVICE_URL;
-    if (!AI_SERVICE_URL) return;
+    // Same default as every other AI hook: the fetch is fire-and-forget and
+    // tolerates the service being down, so no early return when unset.
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
     void fetch(`${AI_SERVICE_URL}/ai/bid-outcome`, {
       method: 'POST',
       headers: {

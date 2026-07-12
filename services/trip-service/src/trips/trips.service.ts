@@ -810,8 +810,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     driverEarnings: number,
     platformFee: number,
   ): void {
-    const AI_SERVICE_URL = process.env.AI_SERVICE_URL;
-    if (!AI_SERVICE_URL) return;
+    // Same default as every other AI hook: the fetch is fire-and-forget and
+    // tolerates the service being down, so no early return when unset.
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
 
     const pickupLat = Number(trip.pickupLat);
     const pickupLng = Number(trip.pickupLng);
