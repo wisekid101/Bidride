@@ -6,6 +6,8 @@ import { DataQualityModule } from './data-quality/data-quality.module';
 import { FeatureStoreModule } from './feature-store/feature-store.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
 import { DomainsModule } from './domains/domains.module';
+import { FounderModule } from './founder/founder.module';
+import { RetentionModule } from './retention/retention.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { DomainsModule } from './domains/domains.module';
     FeatureStoreModule,
     RecommendationsModule,
     DomainsModule,
+    FounderModule,
+    RetentionModule,
   ],
 })
 export class AppModule {}
