@@ -35,11 +35,21 @@
 
 ### 2.1 Placement
 
-A single new **`services/ai-service`** (NestJS, **port 3012** — next free after
-admin-service 3011). Phase 1 scope: the service SKELETON is designed here but
-**not built** — this document is the blueprint. The platform already calls
-three AI URLs with bounded fallbacks; the AI Core's first job is to answer the
-phones that are already ringing:
+A single **`services/ai-service`** (NestJS, **port 3012** — next free after
+admin-service 3011).
+
+> **CORRECTION (Phase 2, 2026-07-11):** this document originally described
+> ai-service as "new". That was wrong — `services/ai-service` already existed
+> in the repository before Phase 1 (Sprint 2C era: bid-prediction engines,
+> inference controller with SageMaker registry, marketplace intelligence,
+> internal-key guard). The Phase 1 investigation missed it because the
+> CLAUDE.md service list stops at admin-service (3011). **AI Core Phase 2 is
+> an EXTENSION of that existing service**, not a greenfield build: it adds
+> the shadow-mode gate, the transparent fare engine, the data-quality
+> classifier, and the feature-store projections to the modules already there.
+
+The platform already calls three AI URLs with bounded fallbacks; the AI
+Core's first job is to answer the phones that are already ringing:
 
 | Existing hook | Caller | Contract today | Fallback today |
 |---|---|---|---|

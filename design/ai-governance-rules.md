@@ -1,9 +1,15 @@
-# BidiRide — AI Governance Rules v1.0
+# BidiRide — AI Governance Rules v1.1
 
 **Status:** Pending Founder Approval  
 **Author:** Engineering  
-**Date:** 2026-07-02  
+**Date:** 2026-07-02 (v1.0) · 2026-07-11 (v1.1 — AI Core Phase 2 amendments)  
 **Scope:** Non-negotiable rules governing every AI model, feature, and decision in BidiRide
+
+**v1.1 changes:** Rule 3 extended with the trust-score pricing prohibition and
+the enforced pricing-feature allowlist; new Rule 11 (Shadow Mode Is Mandatory)
+and Rule 12 (Internal Authentication); new "AI Core Phase 2 Operational
+Governance" section covering allowed/prohibited pricing features, kill-switch
+behavior, feature-family activation, rollback, and data retention.
 
 These rules are permanent constraints on the AI system. They exist to protect riders, drivers, and the company. They override business pressure, engineering convenience, and model accuracy improvements.
 
@@ -57,6 +63,30 @@ The following characteristics must **never** appear as features, proxies, or der
 - Code review must check any new feature addition against this list.
 - Before any SageMaker model promotion, a disparate impact analysis is required.
 - If a deployed model is found to correlate outputs with a protected characteristic (even via proxy), it must be rolled back immediately, regardless of business impact.
+
+### Rule 3a (v1.1): Trust Scores Are Prohibited Pricing Features
+
+Rider and driver trust scores must **never** be used as fare or pricing
+features — not in fare recommendations, not in pricing model training data,
+not in pricing audit payloads. A trust score is a behavioral-integrity metric;
+letting it move prices is identity-based pricing and is prohibited under this
+rule regardless of predictive value.
+
+**Enforcement (implemented, AI Core Phase 2):**
+- `pickAllowedPricingFeatures()` in `pricing-service/fare-engine.service.ts` is
+  a **code-level allowlist**: only named attributes may enter the AI fare hook
+  request or the `ai_pricing_logs.inputFeatures` audit payload. Unknown or
+  prohibited attributes are dropped, so nothing can be silently added upstream.
+- `trip-service` does not read or transmit trust scores when requesting a quote.
+- `ai-service` `buildFareFeatures()` accepts no trust-score input and emits none
+  into inference logs.
+- Regression tests assert that changing a trust score cannot change a quoted
+  fare, and that smuggled trust attributes never reach audit or the AI hook.
+
+`riderTotalTrips` (a plain trip count) remains an allowed loyalty signal; it is
+not a trust attribute. The bid **win-probability** model (which predicts driver
+acceptance, not price) retains its existing trust inputs — that model's output
+never sets a fare, and its inputs are governed by Rule 4's exposure limits.
 
 ---
 
@@ -153,6 +183,100 @@ The current AI pipeline is predictive (classification, regression). Generative A
 
 ---
 
+## Rule 11: Shadow Mode Is Mandatory (v1.1)
+
+Every AI decision family runs in **shadow mode by default**: the service always
+computes and logs its real recommendation, but **serves the exact neutral value
+the caller's own fallback would produce** (fare adjustment `0`, driver ranking
+in input order with score `50`, win probability `0.5`). Production behavior can
+never change because of the AI while shadowed.
+
+- Global switch: `platform_config.ai_shadow_mode` — **defaults TRUE**.
+- Per-family switches: `ai_fare_enabled`, `ai_ranking_enabled`,
+  `ai_win_probability_enabled` — **default FALSE**.
+- A family is live **only when** `ai_shadow_mode` is false **and** its family
+  switch is true. Any config-read failure forces shadow (fail safe).
+- Shadow recommendations are **non-authoritative by construction**: responses
+  carry `shadow: true` and the real value only under `shadowRecommendation`.
+- **Live activation requires separate, explicit Founder approval** — flipping
+  either switch is a Founder-only decision (see activation procedure below).
+
+---
+
+## Rule 12: Internal Authentication Is Required (v1.1)
+
+The ai-service is internal-only. Every inference, marketplace, data-quality,
+and feature-store endpoint requires the `x-internal-key` header validated
+against `INTERNAL_SERVICE_KEY`. **Production fails closed**: the service
+refuses to start without the key, and the guard rejects all requests if the
+key is somehow absent at runtime. Development/test may run keyless with a loud
+startup warning. Only the read-only `GET /ai/health` probe is public (load
+balancers).
+
+---
+
+## AI Core Phase 2 Operational Governance (v1.1)
+
+### Allowed pricing features (the complete allowlist)
+
+`distanceMiles`, `durationMin`, `surgeZoneScore`, `surgeMultiplier`,
+`isAirport`/`isAirportTrip`, `isNight`, `hourOfDay`, `dayOfWeek`,
+`riderTotalTrips`, `pickupZone`, `dropoffZone`, `vehicleClass`.
+
+Adding an attribute to this list requires Eng Lead approval **and** a Rule 3
+anti-discrimination check; trust scores and identity attributes can never be
+added (Rule 3a).
+
+### Prohibited pricing features
+
+Trust scores (rider or driver), user/rider/driver identifiers, names, phone
+numbers, emails, payment details, device fingerprints, raw GPS coordinates
+(zone keys are the finest allowed location granularity), and every Rule 3
+protected characteristic or proxy.
+
+### Kill-switch behavior
+
+- `ai_shadow_mode = true` (or unreadable config): every family serves neutral
+  fallback values immediately; recommendations continue to be computed and
+  logged for evaluation.
+- Switches are read with a 30-second cache: a flip takes effect within 30s on
+  every ai-service instance, no restart or deploy required.
+- The callers' own timeouts and fallbacks (±$2 clamp + 3s timeout, 300ms
+  ranking timeout, static 0.5 probability) remain in place *underneath* the
+  kill switches — turning the ai-service off entirely is always safe.
+
+### Feature-family activation procedure (requires Founder approval)
+
+1. Founder reviews the family's shadow-mode evaluation report (logged
+   recommendations vs. actual outcomes over an agreed window).
+2. Founder approves activation of ONE named family in writing.
+3. Set the family switch (e.g. `ai_fare_enabled = true`) — family still
+   shadowed while `ai_shadow_mode` is true.
+4. Set `ai_shadow_mode = false` during a monitored window.
+5. Monitor the family's inference logs and business invariants (fare
+   integrity, earnings floor) for the agreed soak period.
+
+### Rollback procedure
+
+Set `ai_shadow_mode = true` (single config write, effective ≤30s, no deploy).
+For a single family, set its `ai_<family>_enabled = false` instead. If
+platform_config itself is unreachable, the service already fails safe to
+shadow. Full-service rollback: stop ai-service — every caller degrades to its
+built-in fallback with zero customer impact (the marketplace runs correctly
+with the AI Core offline).
+
+### Data retention
+
+- **Redis feature store** (`ai:feature:*`): every key written with a 180s TTL
+  — bounded retention by construction; nothing accumulates.
+- **`ai_pricing_logs`, `ai_inference_logs`, `bid_outcomes`**: TRAINING-class
+  data, 1-year retention per the Event Catalog; never financial truth
+  (`trips.finalFare` is canonical).
+- **`data_quality_classified` trip events**: audit-class, retained with the
+  trip record; superseded assessments are appended, never rewritten.
+
+---
+
 ## Decision Authority Matrix
 
 | Decision | Engineering | Eng Lead | Founder |
@@ -168,6 +292,7 @@ The current AI pipeline is predictive (classification, regression). Generative A
 | Retire a model version | — | ✅ | — |
 | Deploy SageMaker endpoint | — | ✅ | — |
 | Enable live A/B testing (split production traffic) | — | — | ✅ |
+| Activate an AI family live (`ai_shadow_mode` / `ai_<family>_enabled`) | — | — | ✅ |
 | Add new data source to feature pipeline | — | ✅ | — |
 | Use protected characteristic as feature | — | — | **Prohibited** |
 | Expose AI data to third parties | — | — | ✅ + Legal |
