@@ -312,7 +312,10 @@ describe('TripsService — createTrip trust score', () => {
     mockRedis.setex.mockResolvedValue('OK');
   });
 
-  it('passes real trust score to pricing-service when one exists', async () => {
+  // Founder rule (AI Core Phase 2): trust scores are PROHIBITED pricing
+  // features — the quote request must never carry them, even when a trust
+  // record exists (anti-discrimination rule, design/ai-governance-rules.md).
+  it('never transmits trust scores to pricing-service', async () => {
     const service = await buildService();
     mockPrisma.trustScore.findUnique.mockResolvedValue({ trustScore: 780 });
 
@@ -323,13 +326,13 @@ describe('TripsService — createTrip trust score', () => {
     });
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.riderTrustScore).toBe(780);
+    expect(body).not.toHaveProperty('riderTrustScore');
+    expect(body).not.toHaveProperty('driverTrustScore');
     expect(body.riderTotalTrips).toBe(10);
   });
 
-  it('defaults trust score to 500 when rider has no trust record yet', async () => {
+  it('does not read the trust score at all when quoting a fare', async () => {
     const service = await buildService();
-    mockPrisma.trustScore.findUnique.mockResolvedValue(null);
 
     await service.createTrip('user-1', {
       pickupAddress: 'A', pickupLat: 40.7, pickupLng: -74.1,
@@ -337,8 +340,7 @@ describe('TripsService — createTrip trust score', () => {
       rideType: 'standard' as any,
     });
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.riderTrustScore).toBe(500);
+    expect(mockPrisma.trustScore.findUnique).not.toHaveBeenCalled();
   });
 });
 

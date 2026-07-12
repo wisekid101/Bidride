@@ -10,6 +10,9 @@ class EstimateFareDto {
   @IsNumber() @Min(-180) @Max(180) dropoffLng: number;
   @IsString() @IsOptional() rideType?: string;
   @IsBoolean() @IsOptional() isAirportTrip?: boolean;
+  // Loyalty signal (plain trip count) — an allowlisted pricing feature.
+  // Trust scores are prohibited here and deliberately have no DTO field.
+  @IsNumber() @Min(0) @IsOptional() riderTotalTrips?: number;
 }
 
 @Controller('pricing')
@@ -25,6 +28,7 @@ export class PricingController {
       dropoffLng: dto.dropoffLng,
       rideType: dto.rideType ?? 'standard',
       isAirportTrip: dto.isAirportTrip,
+      riderTotalTrips: dto.riderTotalTrips,
       requestedAt: new Date(),
     });
   }

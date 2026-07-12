@@ -116,19 +116,14 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
 
     await this.assertNoActiveFraudHold(userId);
 
-    // Fetch real trust score — used as a pricing feature. Default 500 for brand-new users only.
-    const trustRecord = await this.prisma.trustScore.findUnique({
-      where: { userId },
-      select: { trustScore: true },
-    });
-    const riderTrustScore = trustRecord?.trustScore ?? 500;
-
     // Airport detection feeds both the trip record and the fare quote — the
     // pricing engine's airport premium only applies when this flag reaches it.
     const isAirportTrip = this.detectAirportTrip(dto);
 
-    // Get AI fare from pricing service (internal HTTP call)
-    const aiFare = await this.getPricingEstimate(dto, riderTrustScore, rider.totalTrips, isAirportTrip);
+    // Get AI fare from pricing service (internal HTTP call). Trust scores are
+    // deliberately NOT sent: they are prohibited as pricing features
+    // (anti-discrimination rule — see design/ai-governance-rules.md).
+    const aiFare = await this.getPricingEstimate(dto, rider.totalTrips, isAirportTrip);
     const now = new Date();
 
     const trip = await this.prisma.trip.create({
@@ -728,7 +723,6 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
 
   private async getPricingEstimate(
     dto: CreateTripDto,
-    riderTrustScore: number,
     riderTotalTrips: number,
     isAirportTrip: boolean,
   ): Promise<number> {
@@ -743,7 +737,6 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         dropoffLng: dto.dropoffLng,
         rideType: dto.rideType ?? 'standard',
         isAirportTrip,
-        riderTrustScore,
         riderTotalTrips,
       }),
     });

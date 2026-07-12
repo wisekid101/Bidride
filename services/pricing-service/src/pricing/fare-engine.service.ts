@@ -1,4 +1,5 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
@@ -11,8 +12,40 @@ interface FareInput {
   rideType: string;
   requestedAt?: Date;
   isAirportTrip?: boolean;
-  riderTrustScore?: number;
   riderTotalTrips?: number;
+}
+
+// ── PRICING FEATURE ALLOWLIST (AI Core Phase 2 — Founder rule) ──────────────
+// Every attribute sent to the AI fare hook or written into pricing audit
+// inputFeatures MUST be named here. Anything else — trust scores, identity
+// attributes, raw coordinates, contact details — is silently dropped, so a
+// prohibited attribute can never ride into training or audit payloads by
+// being added upstream. Trust scores are explicitly prohibited as pricing
+// features (anti-discrimination rule, design/ai-governance-rules.md).
+const ALLOWED_PRICING_FEATURES = new Set([
+  'distanceMiles',
+  'durationMin',
+  'surgeZoneScore',
+  'surgeMultiplier',
+  'isAirport',
+  'isAirportTrip',
+  'isNight',
+  'hourOfDay',
+  'dayOfWeek',
+  'riderTotalTrips', // trip count only — loyalty signal, NOT a trust attribute
+  'pickupZone',
+  'dropoffZone',
+  'vehicleClass',
+]);
+
+export function pickAllowedPricingFeatures(
+  candidate: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(candidate)) {
+    if (ALLOWED_PRICING_FEATURES.has(key)) out[key] = value;
+  }
+  return out;
 }
 
 export interface FareEstimate {
@@ -30,6 +63,10 @@ export interface FareEstimate {
     aiAdjustment: number;
   };
   modelVersion: string;
+  // Optional AI passthrough (present only when the AI service supplied them).
+  // Additive fields — existing consumers are unaffected.
+  aiConfidence?: number;
+  aiExplanation?: string;
 }
 
 const BASE_FARE = 2.50;
@@ -45,6 +82,13 @@ interface AiAdjustmentResult {
   adjustment: number;
   modelVersion: string;
   fallbackUsed: boolean;
+  // True when the AI served a neutral shadow value (its real recommendation
+  // was not applied). Shadow explainability must never reach responses.
+  shadow: boolean;
+  // Optional explainability payload from the shadow AI service.
+  confidence?: number;
+  explanation?: string;
+  factors?: unknown[];
 }
 
 @Injectable()
@@ -77,7 +121,9 @@ export class FareEngineService {
 
     const rawFare = (BASE_FARE + distanceComponent + durationComponent + airportComponent + nightComponent) * surgeMultiplier;
 
-    const aiResult = await this.getAiAdjustment({
+    // The single feature payload for BOTH the AI hook and the audit row —
+    // filtered through the allowlist so prohibited attributes cannot enter.
+    const pricingFeatures = pickAllowedPricingFeatures({
       distanceMiles,
       durationMin,
       surgeZoneScore,
@@ -85,13 +131,14 @@ export class FareEngineService {
       isNight,
       hourOfDay: now.getHours(),
       dayOfWeek: now.getDay(),
-      riderTrustScore: input.riderTrustScore ?? 500,
       riderTotalTrips: input.riderTotalTrips ?? 0,
     });
 
+    const aiResult = await this.getAiAdjustment(pricingFeatures);
+
     const fare = Math.max(rawFare + aiResult.adjustment, MINIMUM_FARE);
 
-    return {
+    const estimate: FareEstimate = {
       fare: Math.round(fare * 100) / 100,
       distanceMiles: Math.round(distanceMiles * 100) / 100,
       durationMin,
@@ -106,13 +153,69 @@ export class FareEngineService {
         aiAdjustment: Math.round(aiResult.adjustment * 100) / 100,
       },
       modelVersion: aiResult.modelVersion,
+      // Explainability passthrough ONLY when the AI's recommendation was
+      // actually applied (live). While shadowed, the estimate payload must be
+      // byte-identical to the fallback payload — the real recommendation's
+      // explanation must never leak to riders through /pricing/estimate.
+      ...(!aiResult.shadow && aiResult.confidence != null && { aiConfidence: aiResult.confidence }),
+      ...(!aiResult.shadow && aiResult.explanation != null && { aiExplanation: aiResult.explanation }),
     };
+
+    // ── PRICING AUDIT (AI Core Phase 2) ────────────────────────────────────
+    // One AiPricingLog row per quote, strictly fire-and-forget: an audit
+    // failure must NEVER block or slow a fare quote. THIS TABLE IS AUDIT,
+    // NEVER FINANCIAL TRUTH — trips.finalFare is the canonical money value.
+    // The schema's tripId column is required but quotes precede trips, so
+    // pre-trip quotes store a synthetic quoteId there; the requestId linkage
+    // lives inside inputFeatures.
+    const quoteId = randomUUID();
+    try {
+      void this.prisma.aiPricingLog.create({
+        data: {
+          tripId: quoteId,
+          inputFeatures: {
+            requestId: randomUUID(),
+            quoteId,
+            // Feature attributes pass the allowlist — prohibited attributes
+            // (trust scores, identity) can never be persisted here.
+            ...pickAllowedPricingFeatures({
+              ...pricingFeatures,
+              pickupZone: this.getZoneKey(input.pickupLat, input.pickupLng),
+              dropoffZone: this.getZoneKey(input.dropoffLat, input.dropoffLng),
+              vehicleClass: input.rideType,
+              distanceMiles: estimate.distanceMiles,
+              isAirportTrip: isAirport,
+              surgeMultiplier: estimate.surgeMultiplier,
+            }),
+            schemaVersion: 2, // v2: trust scores removed, allowlist enforced
+            // Free-form fields from the AI response are sanitized (coerced to
+            // bounded strings) so this channel cannot smuggle structured data
+            // past the feature allowlist into the audit trail.
+            audit: {
+              explanation: aiResult.explanation != null ? String(aiResult.explanation).slice(0, 300) : null,
+              factors: Array.isArray(aiResult.factors)
+                ? aiResult.factors.slice(0, 10).map((f) => (typeof f === 'string' ? f : JSON.stringify(f)).slice(0, 120))
+                : null,
+              fallbackUsed: aiResult.fallbackUsed,
+              shadow: aiResult.shadow,
+            },
+          },
+          rawFare: Math.round(rawFare * 100) / 100,
+          aiAdjustment: Math.round(aiResult.adjustment * 100) / 100,
+          finalFare: estimate.fare,
+          modelVersion: aiResult.modelVersion,
+          confidenceScore: aiResult.confidence ?? 0,
+        },
+      }).catch(() => {});
+    } catch { /* audit must never affect quotes */ }
+
+    return estimate;
   }
 
   private async getAiAdjustment(features: object): Promise<AiAdjustmentResult> {
     const aiServiceUrl = process.env.AI_SERVICE_URL;
     if (!aiServiceUrl) {
-      return { adjustment: 0, modelVersion: 'fallback-v1', fallbackUsed: true };
+      return { adjustment: 0, modelVersion: 'fallback-v1', fallbackUsed: true, shadow: true };
     }
 
     try {
@@ -125,14 +228,35 @@ export class FareEngineService {
 
       if (!res.ok) throw new Error(`ai-service returned ${res.status}`);
 
-      const envelope = await res.json() as { data: { adjustment: number }; modelVersion: string; fallbackUsed: boolean };
+      const envelope = await res.json() as {
+        data: {
+          adjustment: number;
+          // Optional shadow/explainability fields supplied by the AI service.
+          shadow?: boolean;
+          confidence?: number;
+          explanation?: string;
+          factors?: unknown[];
+        };
+        modelVersion: string;
+        fallbackUsed: boolean;
+      };
+      // Sanitize before clamping: a non-numeric adjustment (NaN survives
+      // min/max clamping!) must degrade to 0, never into the fare.
+      const raw = Number(envelope.data.adjustment);
+      const sanitized = Number.isFinite(raw) ? raw : 0;
       return {
-        adjustment: Math.max(-AI_ADJUSTMENT_CAP, Math.min(AI_ADJUSTMENT_CAP, envelope.data.adjustment)),
+        adjustment: Math.max(-AI_ADJUSTMENT_CAP, Math.min(AI_ADJUSTMENT_CAP, sanitized)),
         modelVersion: envelope.modelVersion,
         fallbackUsed: envelope.fallbackUsed,
+        // Unless the AI explicitly says the value was served live, treat it
+        // as shadowed — fail safe for the explainability passthrough.
+        shadow: envelope.data.shadow !== false,
+        confidence: envelope.data.confidence,
+        explanation: envelope.data.explanation,
+        factors: envelope.data.factors,
       };
     } catch {
-      return { adjustment: 0, modelVersion: 'fallback-v1', fallbackUsed: true };
+      return { adjustment: 0, modelVersion: 'fallback-v1', fallbackUsed: true, shadow: true };
     }
   }
 
