@@ -1,0 +1,17 @@
+# DEV-ONLY: open the destination field, pick RECENT #0 (a standard non-airport
+# trip), wait for the AI fare, and request the ride — all by stable testID / text.
+appId: host.exp.Exponent
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    id: "dest-field"
+- tapOn:
+    id: "dest-recent-0"
+- extendedWaitUntil:
+    visible: "Request.*"
+    timeout: 25000
+- takeScreenshot: .maestro-artifacts/rider-fare
+- tapOn:
+    text: "Request .*"
+- takeScreenshot: .maestro-artifacts/rider-requested

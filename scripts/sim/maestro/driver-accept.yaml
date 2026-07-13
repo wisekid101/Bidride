@@ -1,0 +1,8 @@
+# DEV-ONLY: driver accepts the incoming request.
+appId: host.exp.Exponent
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    text: "Accept.*"
+- takeScreenshot: .maestro-artifacts/driver-accepted

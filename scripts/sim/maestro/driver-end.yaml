@@ -1,0 +1,9 @@
+# DEV-ONLY: driver taps "End Trip". Run `gps-harness await-at-dropoff` FIRST so
+# the backend-ingested driver location is confirmed within the 0.2 mi radius.
+appId: host.exp.Exponent
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    text: "End Trip"
+- takeScreenshot: .maestro-artifacts/driver-ended
