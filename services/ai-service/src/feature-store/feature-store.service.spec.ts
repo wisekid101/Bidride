@@ -17,6 +17,16 @@ const mockPrisma = {
 
 let service: FeatureStoreService;
 
+let trustedIds = new Set<string>();
+const mockQuality = {
+  classesFor: jest.fn(async (ids: string[]) => {
+    const map = new Map<string, string>();
+    for (const id of ids) if (trustedIds.has(id)) map.set(id, 'trusted');
+    return map;
+  }),
+  reset: jest.fn(),
+} as any;
+
 // setex calls keyed by feature name for readable assertions.
 const written = (): Record<string, { ttl: number; value: unknown }> => {
   const out: Record<string, { ttl: number; value: unknown }> = {};
@@ -28,7 +38,8 @@ const written = (): Record<string, { ttl: number; value: unknown }> => {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  service = new FeatureStoreService(mockPrisma, mockRedis);
+  trustedIds = new Set();
+  service = new FeatureStoreService(mockPrisma, mockQuality, mockRedis);
   mockRedis.keys.mockResolvedValue([]);
   mockRedis.get.mockResolvedValue(null);
   mockRedis.scard.mockResolvedValue(0);
@@ -135,10 +146,9 @@ describe('FeatureStoreService — projections', () => {
 // ─── Quality gate: only Trusted trips feed monetary features ─────────────────
 
 describe('FeatureStoreService — monetary quality gate', () => {
-  const trusted = (tripIds: string[]) =>
-    mockPrisma.tripEvent.findMany.mockResolvedValue(
-      tripIds.map((id) => ({ tripId: id, metadata: { class: 'trusted' } })),
-    );
+  const trusted = (tripIds: string[]) => {
+    trustedIds = new Set(tripIds);
+  };
 
   it('customer_savings sums aiFare − finalFare over TRUSTED bid trips only', async () => {
     trusted(['t-good']);
@@ -157,10 +167,7 @@ describe('FeatureStoreService — monetary quality gate', () => {
   });
 
   it('a trip whose latest classification downgraded from trusted no longer contributes', async () => {
-    mockPrisma.tripEvent.findMany.mockResolvedValue([
-      { tripId: 't-1', metadata: { class: 'trusted' } },
-      { tripId: 't-1', metadata: { class: 'excluded' } }, // later verdict wins
-    ]);
+    trustedIds = new Set(); // latest verdict (excluded) resolved by QualityClassService
     mockPrisma.trip.findMany.mockImplementation(async (args: any) =>
       args?.where?.bidId ? [{ id: 't-1', aiFare: 20, finalFare: 10 }] : [],
     );
@@ -225,7 +232,7 @@ describe('FeatureStoreService — Redis behavior', () => {
   });
 
   it('without a Redis client the projection job is disabled, not crashing', async () => {
-    const noRedis = new FeatureStoreService(mockPrisma, undefined);
+    const noRedis = new FeatureStoreService(mockPrisma, mockQuality, undefined);
 
     noRedis.onModuleInit(); // logs a warning, starts no timer
     await expect(noRedis.projectAll()).resolves.toBeUndefined();

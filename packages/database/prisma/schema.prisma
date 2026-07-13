@@ -503,6 +503,7 @@ model Trip {
   @@index([driverId, status])
   @@index([riderId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
+  @@index([status, completedAt])
   @@map("trips")
 }
 
@@ -557,6 +558,8 @@ model TripEvent {
 
   trip Trip @relation(fields: [tripId], references: [id])
 
+  @@index([eventType, tripId])
+  @@index([eventType, createdAt])
   @@map("trip_events")
 }
 

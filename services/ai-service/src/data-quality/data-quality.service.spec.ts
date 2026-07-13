@@ -7,7 +7,8 @@ const mockPrisma = {
   payment: { count: jest.fn(), findMany: jest.fn() },
 } as any;
 
-const service = new DataQualityService(mockPrisma);
+const mockQuality = { reset: jest.fn() } as any;
+const service = new DataQualityService(mockPrisma, mockQuality);
 
 // Route the two tripEvent.findMany call shapes: per-trip integrity lookups vs
 // the summary's classification scan.
@@ -128,6 +129,11 @@ describe('DataQualityService — C1..C5 verdicts', () => {
 
     expect(res.counts.trusted).toBe(1);
     expect(writtenMetadata().evidence.c5_integrityEvents).toBe(1);
+  });
+
+  it('invalidates the shared quality-class cache after every classify run', async () => {
+    await classifySingle(oneTrip());
+    expect(mockQuality.reset).toHaveBeenCalledTimes(1);
   });
 
   it('a fully reconciled trip is Trusted', async () => {

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { QualityClassService } from '../quality/quality-class.service';
 
 // Deterministic training-data classification (AI Core Phase 2, Phase 4).
 // Runs the C1–C5 contamination checks from design/ai-core-data-readiness.md
@@ -34,7 +35,10 @@ interface CompletedTripRow {
 export class DataQualityService {
   private readonly logger = new Logger(DataQualityService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly quality: QualityClassService,
+  ) {}
 
   async classifyAll(): Promise<{ classified: number; changed: number; counts: Record<QualityClass, number> }> {
     const trips = (await this.prisma.trip.findMany({
@@ -51,6 +55,9 @@ export class DataQualityService {
       const wrote = await this.persist(c);
       if (wrote) changed += 1;
     }
+
+    // New verdicts exist — invalidate the shared quality-class cache.
+    this.quality.reset();
 
     this.logger.log(
       `data-quality classify: ${trips.length} trips → ` +

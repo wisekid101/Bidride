@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
+import { QualityClassService } from '../quality/quality-class.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import {
   FEATURE_REGISTRY,
@@ -25,6 +26,7 @@ export class FeatureStoreService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly quality: QualityClassService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
   ) {}
 
@@ -47,7 +49,6 @@ export class FeatureStoreService implements OnModuleInit, OnModuleDestroy {
   async projectAll(): Promise<void> {
     if (!this.redis) return;
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 3600 * 1000);
-    const trustedIds = await this.trustedTripIds();
 
     await Promise.all([
       this.projectZoned('demand', 'surge:requests:*'),
@@ -56,24 +57,18 @@ export class FeatureStoreService implements OnModuleInit, OnModuleDestroy {
       this.projectCancellationRate(since),
       this.projectDriverUtilization(),
       this.projectAirportDemand(),
-      this.projectCustomerSavings(since, trustedIds),
-      this.projectMoneyAverages(since, trustedIds),
+      this.projectCustomerSavings(since),
+      this.projectMoneyAverages(since),
     ]);
   }
 
-  /** Trips whose LATEST data_quality_classified event says 'trusted'. */
-  private async trustedTripIds(): Promise<Set<string>> {
-    const events = await this.prisma.tripEvent.findMany({
-      where: { eventType: 'data_quality_classified' },
-      orderBy: { createdAt: 'asc' },
-      select: { tripId: true, metadata: true },
-    });
-    const latest = new Map<string, string>();
-    for (const e of events) {
-      const cls = (e.metadata as { class?: string } | null)?.class;
-      if (cls) latest.set(e.tripId, cls);
-    }
-    return new Set([...latest.entries()].filter(([, c]) => c === 'trusted').map(([id]) => id));
+  /**
+   * Trusted-only gate for monetary features, read via the shared bounded
+   * QualityClassService (never a full classification-history scan).
+   */
+  private async trustedSubset(tripIds: string[]): Promise<Set<string>> {
+    const classes = await this.quality.classesFor(tripIds);
+    return new Set([...classes.entries()].filter(([, c]) => c === 'trusted').map(([id]) => id));
   }
 
   private async write(name: string, value: unknown, zone?: string): Promise<void> {
@@ -133,11 +128,12 @@ export class FeatureStoreService implements OnModuleInit, OnModuleDestroy {
     await this.write('airport_demand', raw ? parseInt(raw, 10) : 0);
   }
 
-  private async projectCustomerSavings(since: Date, trusted: Set<string>): Promise<void> {
+  private async projectCustomerSavings(since: Date): Promise<void> {
     const bidTrips = await this.prisma.trip.findMany({
       where: { status: 'completed', bidId: { not: null }, completedAt: { gte: since } },
       select: { id: true, aiFare: true, finalFare: true },
     });
+    const trusted = await this.trustedSubset(bidTrips.map((t) => t.id));
     let savings = 0;
     for (const t of bidTrips) {
       if (!trusted.has(t.id) || t.finalFare == null) continue; // quality gate
@@ -146,11 +142,12 @@ export class FeatureStoreService implements OnModuleInit, OnModuleDestroy {
     await this.write('customer_savings', round2(Math.max(0, savings)));
   }
 
-  private async projectMoneyAverages(since: Date, trusted: Set<string>): Promise<void> {
+  private async projectMoneyAverages(since: Date): Promise<void> {
     const trips = await this.prisma.trip.findMany({
       where: { status: 'completed', completedAt: { gte: since } },
       select: { id: true, finalFare: true, driverEarnings: true },
     });
+    const trusted = await this.trustedSubset(trips.map((t) => t.id));
     const gated = trips.filter((t) => trusted.has(t.id) && t.finalFare != null);
     if (gated.length >= MIN_SAMPLE) {
       const avgFare = gated.reduce((s, t) => s + Number(t.finalFare), 0) / gated.length;

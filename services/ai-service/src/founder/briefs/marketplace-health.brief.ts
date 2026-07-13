@@ -4,8 +4,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { REDIS_CLIENT } from '../../redis/redis.module';
 import { BriefSection, FounderBrief } from './brief.types';
 import {
-  BRIEFS_SOURCE_VERSION, briefWindow, changePct, latestQualityClasses, metric, moneyEligible, round2, zoneKey,
+  BRIEFS_SOURCE_VERSION, briefWindow, changePct, metric, moneyEligible, round2, zoneKey,
 } from './brief-helpers';
+import { QualityClassService } from '../../quality/quality-class.service';
 import { MIN_SAMPLE_SIZE } from '../../recommendations/recommendation.types';
 
 // ─── BRIEF 1 — Marketplace Health ─────────────────────────────────────────────
@@ -16,6 +17,7 @@ import { MIN_SAMPLE_SIZE } from '../../recommendations/recommendation.types';
 export class MarketplaceHealthBrief {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly quality: QualityClassService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
   ) {}
 
@@ -23,7 +25,7 @@ export class MarketplaceHealthBrief {
     const w = briefWindow(7, now);
     const insufficient: string[] = [];
 
-    const [completed, completedPrev, cancelled, cancelledPrev, qualityClasses] = await Promise.all([
+    const [completed, completedPrev, cancelled, cancelledPrev] = await Promise.all([
       this.prisma.trip.findMany({
         where: { status: 'completed', completedAt: { gte: w.start, lte: w.end } },
         select: { id: true, finalFare: true, driverEarnings: true, earningsSupplement: true, pickupLat: true, pickupLng: true, isAirportTrip: true, createdAt: true, acceptedAt: true },
@@ -31,8 +33,9 @@ export class MarketplaceHealthBrief {
       this.prisma.trip.count({ where: { status: 'completed', completedAt: { gte: w.prevStart, lt: w.prevEnd } } }),
       this.prisma.trip.count({ where: { status: 'cancelled', cancelledAt: { gte: w.start, lte: w.end } } }),
       this.prisma.trip.count({ where: { status: 'cancelled', cancelledAt: { gte: w.prevStart, lt: w.prevEnd } } }),
-      latestQualityClasses(this.prisma),
     ]);
+    // Bounded quality read: only the completed trips in this window.
+    const qualityClasses = await this.quality.classesFor(completed.map((t) => t.id));
 
     const terminal = completed.length + cancelled;
     const completionRate = terminal > 0 ? round2((completed.length / terminal) * 100) : null;

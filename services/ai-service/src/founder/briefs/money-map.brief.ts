@@ -2,8 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BriefSection, BriefZoneRow, FounderBrief } from './brief.types';
 import {
-  BRIEFS_SOURCE_VERSION, briefWindow, changePct, latestQualityClasses, metric, moneyEligible, round2, zoneKey,
+  BRIEFS_SOURCE_VERSION, briefWindow, changePct, metric, moneyEligible, round2, zoneKey,
 } from './brief-helpers';
+import { QualityClassService } from '../../quality/quality-class.service';
 import { MIN_SAMPLE_SIZE } from '../../recommendations/recommendation.types';
 
 // ─── BRIEF 2 — Money Map ──────────────────────────────────────────────────────
@@ -14,13 +15,16 @@ import { MIN_SAMPLE_SIZE } from '../../recommendations/recommendation.types';
 
 @Injectable()
 export class MoneyMapBrief {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly quality: QualityClassService,
+  ) {}
 
   async generate(now = new Date()): Promise<FounderBrief> {
     const w = briefWindow(7, now);
     const insufficient: string[] = [];
 
-    const [trips, prevTrips, qualityClasses, refunds, paymentsSucceeded, paymentsFailed] = await Promise.all([
+    const [trips, prevTrips, refunds, paymentsSucceeded, paymentsFailed] = await Promise.all([
       this.prisma.trip.findMany({
         where: { status: 'completed', completedAt: { gte: w.start, lte: w.end } },
         select: {
@@ -33,7 +37,6 @@ export class MoneyMapBrief {
         where: { status: 'completed', completedAt: { gte: w.prevStart, lt: w.prevEnd } },
         select: { id: true, finalFare: true },
       }),
-      latestQualityClasses(this.prisma),
       this.prisma.refund.aggregate({
         where: { createdAt: { gte: w.start, lte: w.end } },
         _sum: { amount: true }, _count: true,
@@ -42,6 +45,8 @@ export class MoneyMapBrief {
       this.prisma.payment.count({ where: { status: 'failed', createdAt: { gte: w.start, lte: w.end } } }),
     ]);
 
+    // Bounded quality read: only this window's and the comparison window's trips.
+    const qualityClasses = await this.quality.classesFor([...trips.map((t) => t.id), ...prevTrips.map((t) => t.id)]);
     const money = trips.filter((t) => moneyEligible(qualityClasses, t.id) && t.finalFare != null);
     const prevMoney = prevTrips.filter((t) => moneyEligible(qualityClasses, t.id) && t.finalFare != null);
 
