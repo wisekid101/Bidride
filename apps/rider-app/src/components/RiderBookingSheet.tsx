@@ -328,6 +328,7 @@ export function RiderBookingSheet({
               recentAddresses={recentAddresses}
               showRecents
               onAddressResolved={onDropoffResolved}
+              triggerTestID="dest-field"
             />
           </View>
 

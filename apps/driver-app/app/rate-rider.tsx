@@ -61,6 +61,9 @@ export default function RateRiderScreen() {
             key={star}
             onPress={() => setRating(star)}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+            testID={`rate-star-${star}`}
+            accessibilityRole="button"
+            accessibilityLabel={`${star} star${star > 1 ? 's' : ''}`}
           >
             <Text style={[styles.star, star <= rating && styles.starSelected]}>★</Text>
           </TouchableOpacity>
@@ -89,6 +92,8 @@ export default function RateRiderScreen() {
           onValueChange={setFlagRider}
           trackColor={{ false: Colors.border, true: Colors.safety }}
           thumbColor={Colors.text}
+          testID="rate-safety-toggle"
+          accessibilityLabel="Report a safety concern"
         />
       </View>
       {flagRider ? (
@@ -102,6 +107,9 @@ export default function RateRiderScreen() {
         style={[styles.submitBtn, (rating === 0 || submitting) && styles.submitBtnDisabled]}
         onPress={submit}
         disabled={rating === 0 || submitting}
+        testID="rate-submit"
+        accessibilityRole="button"
+        accessibilityLabel="Submit rating"
       >
         {submitting ? (
           <ActivityIndicator color={Colors.primaryText} />
@@ -110,7 +118,7 @@ export default function RateRiderScreen() {
         )}
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={skip} style={styles.skipBtn}>
+      <TouchableOpacity onPress={skip} style={styles.skipBtn} testID="rate-skip" accessibilityRole="button" accessibilityLabel="Skip rating">
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
     </ScrollView>

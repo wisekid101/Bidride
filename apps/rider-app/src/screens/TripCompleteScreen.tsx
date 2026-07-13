@@ -104,7 +104,13 @@ export default function TripCompleteScreen() {
             <Text style={styles.ratingTitle}>How was {driverName}?</Text>
             <View style={styles.stars}>
               {[1, 2, 3, 4, 5].map((star) => (
-                <TouchableOpacity key={star} onPress={() => setRating(star)}>
+                <TouchableOpacity
+                  key={star}
+                  onPress={() => setRating(star)}
+                  testID={`rate-star-${star}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${star} star${star > 1 ? 's' : ''}`}
+                >
                   <Star
                     size={40}
                     color={star <= rating ? Colors.gold : Colors.border}
@@ -130,6 +136,9 @@ export default function TripCompleteScreen() {
               style={[styles.ratingBtn, (rating === 0 || submitting) && styles.ratingBtnDisabled]}
               onPress={submitRating}
               disabled={rating === 0 || submitting}
+              testID="rate-submit"
+              accessibilityRole="button"
+              accessibilityLabel="Submit rating"
             >
               <Text style={styles.ratingBtnText}>
                 {submitting ? 'Submitting…' : 'Submit Rating'}
