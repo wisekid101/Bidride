@@ -17,6 +17,9 @@ import * as Location from 'expo-location';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { useDriverSocketStore } from '../store/socket.store';
+import { useFollowCamera } from '../hooks/useFollowCamera';
+import { RecenterButton } from '../components/RecenterButton';
+import { isAlreadyAdvancedError } from '../utils/tripErrors';
 
 interface InTripProps {
   tripId: string;
@@ -37,6 +40,7 @@ export function InTripScreen({
   initialPhase,
 }: InTripProps) {
   const mapRef = useRef<MapView>(null);
+  const { following, follow, onUserGesture, recenter } = useFollowCamera(mapRef);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [elapsedMin, setElapsedMin] = useState(0);
   // Trip runs driver_arrived -> in_progress (POST /start) -> completed (POST /end);
@@ -70,6 +74,7 @@ export function InTripScreen({
         { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 15 },
         (pos) => {
           setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          follow({ lat: pos.coords.latitude, lng: pos.coords.longitude }, pos.coords.heading ?? undefined);
           useDriverSocketStore.getState().emitLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.heading ?? undefined, tripId);
         },
       );
@@ -110,7 +115,7 @@ export function InTripScreen({
       setElapsedMin(0);
       setPhase('in_progress');
     } catch (err: any) {
-      if (err.code === 'TRIP_INVALID_TRANSITION') {
+      if (isAlreadyAdvancedError(err)) {
         // Already started (e.g. after an app reload) — just advance the UI.
         setPhase('in_progress');
       } else {
@@ -158,6 +163,7 @@ export function InTripScreen({
             longitudeDelta: 0.03,
           }}
           customMapStyle={darkMapStyle}
+          onPanDrag={onUserGesture}
         >
           <Marker coordinate={{ latitude: currentLocation.lat, longitude: currentLocation.lng }}>
             <View style={styles.carMarker}>
@@ -166,6 +172,8 @@ export function InTripScreen({
           </Marker>
         </MapView>
       )}
+
+      <RecenterButton visible={!following} onPress={recenter} style={styles.recenter} />
 
       {/* Top bar: SOS always top-right, shield center */}
       <View style={styles.topBar}>
@@ -281,6 +289,11 @@ const styles = StyleSheet.create({
   carMarker: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center',
+  },
+  recenter: {
+    position: 'absolute',
+    bottom: 210,
+    right: Spacing.base,
   },
   bottomBar: {
     position: 'absolute',

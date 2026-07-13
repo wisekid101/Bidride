@@ -17,6 +17,8 @@ import { useTripStore } from '../store/trip.store';
 import { useSocketStore } from '../store/socket.store';
 import CounterOfferModal from './CounterOfferModal';
 import { api } from '../api/client';
+import { useFollowCamera } from '../hooks/useFollowCamera';
+import { RecenterButton } from '../components/RecenterButton';
 
 const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
@@ -58,6 +60,7 @@ export function TrackingScreen() {
   const { activeTrip, completedTrip, pendingCounter, setActiveTrip } = useTripStore();
   const { subscribeToTrip } = useSocketStore();
   const mapRef = useRef<MapView>(null);
+  const { following, follow, onUserGesture, recenter } = useFollowCamera(mapRef);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [routeCoords, setRouteCoords] = useState<Array<{ latitude: number; longitude: number }>>([]);
   const [localEta, setLocalEta] = useState<string | null>(null);
@@ -130,6 +133,12 @@ export function TrackingScreen() {
       .catch(() => {});
   }, [activeTrip?.status, activeTrip?.driverLocation]);
 
+  // Follow the driver marker as its live location updates (matched + in-trip).
+  useEffect(() => {
+    const dl = activeTrip?.driverLocation as { lat: number; lng: number; heading?: number } | undefined;
+    if (dl) follow({ lat: dl.lat, lng: dl.lng }, dl.heading);
+  }, [activeTrip?.driverLocation, follow]);
+
   const handleCancelRide = async () => {
     if (!activeTrip?.id || cancelling) return;
     setCancelling(true);
@@ -172,6 +181,7 @@ export function TrackingScreen() {
               }
             : undefined
         }
+        onPanDrag={onUserGesture}
       >
         {driverLocation && (
           <Marker
@@ -191,6 +201,10 @@ export function TrackingScreen() {
           />
         )}
       </MapView>
+
+      {driverLocation && (
+        <RecenterButton visible={!following} onPress={recenter} style={styles.recenter} />
+      )}
 
       {/* Status Bar */}
       <View style={styles.statusBar}>
@@ -465,6 +479,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  recenter: {
+    position: 'absolute',
+    bottom: 200,
+    right: Spacing.base,
   },
 });
 

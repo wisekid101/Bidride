@@ -16,6 +16,9 @@ import * as Location from 'expo-location';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { useDriverSocketStore } from '../store/socket.store';
+import { useFollowCamera } from '../hooks/useFollowCamera';
+import { RecenterButton } from '../components/RecenterButton';
+import { isAlreadyAdvancedError } from '../utils/tripErrors';
 
 interface NavigatingToPickupProps {
   tripId: string;
@@ -31,6 +34,7 @@ export function NavigatingToPickupScreen({
   driverTakeHome,
 }: NavigatingToPickupProps) {
   const mapRef = useRef<MapView>(null);
+  const { following, follow, onUserGesture, recenter } = useFollowCamera(mapRef);
   const [marking, setMarking] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
 
@@ -54,6 +58,7 @@ export function NavigatingToPickupScreen({
         { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 15 },
         (pos) => {
           setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          follow({ lat: pos.coords.latitude, lng: pos.coords.longitude }, pos.coords.heading ?? undefined);
           useDriverSocketStore.getState().emitLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.heading ?? undefined, tripId);
         },
       );
@@ -72,7 +77,7 @@ export function NavigatingToPickupScreen({
         params: { tripId, dropoffAddress, driverTakeHome: driverTakeHome.toString(), riderName: 'Rider', earningsFloorAmount: '0' },
       });
     } catch (err: any) {
-      if (err.code === 'TRIP_INVALID_TRANSITION') {
+      if (isAlreadyAdvancedError(err)) {
         Alert.alert('Already marked', 'Trip status was already updated.');
         router.replace({
           pathname: '/in-trip',
@@ -104,6 +109,7 @@ export function NavigatingToPickupScreen({
             : undefined
         }
         key={currentLocation ? 'located' : 'waiting'}
+        onPanDrag={onUserGesture}
       >
         {currentLocation && (
           <Marker coordinate={{ latitude: currentLocation.lat, longitude: currentLocation.lng }}>
@@ -113,6 +119,8 @@ export function NavigatingToPickupScreen({
           </Marker>
         )}
       </MapView>
+
+      <RecenterButton visible={!following} onPress={recenter} style={styles.recenter} />
 
       {/* Top bar */}
       <View style={styles.topBar}>
@@ -162,6 +170,11 @@ const styles = StyleSheet.create({
   carMarker: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center',
+  },
+  recenter: {
+    position: 'absolute',
+    bottom: 240,
+    right: Spacing.base,
   },
   topBar: {
     position: 'absolute',
