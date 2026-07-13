@@ -54,3 +54,8 @@ infrastructure/terraform/.terraform/
 infrastructure/terraform/.terraform.lock.hcl
 infrastructure/terraform/terraform.tfvars
 infrastructure/terraform/bidride.tfplan
+
+# Dev-only acceptance harness: runtime artifacts + Founder portal creds (never committed)
+.dev-artifacts/
+.maestro-artifacts/
+.env.founder.local
