@@ -6,23 +6,31 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { BriefView, ErrorState, FounderBrief, LoadingState, fetchJson } from './components';
 
+interface BriefEnvelope {
+  brief: FounderBrief | null;
+  generatedAt: string | null;
+  stale: boolean;
+  slaMinutes: number;
+}
+
 // Shared page body for the three Founder briefs.
 export function BriefPage({ type, title, icon }: { type: string; title: string; icon: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
-  const { data, isLoading, isError, error } = useQuery<FounderBrief>({
+  // Read-only GET: { brief, generatedAt, stale, slaMinutes } — never generates.
+  const { data, isLoading, isError, error } = useQuery<BriefEnvelope>({
     queryKey: ['intelligence-brief', type],
-    queryFn: () => fetchJson<FounderBrief>(`/api/admin/intelligence/briefs/${type}`),
+    queryFn: () => fetchJson<BriefEnvelope>(`/api/admin/intelligence/briefs/${type}`),
   });
 
   const refresh = async () => {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      const fresh = await fetchJson<FounderBrief>(`/api/admin/intelligence/briefs/${type}?refresh=true`);
-      queryClient.setQueryData(['intelligence-brief', type], fresh);
+      await fetchJson<FounderBrief>(`/api/admin/intelligence/briefs/${type}/generate`, { method: 'POST' });
+      await queryClient.invalidateQueries({ queryKey: ['intelligence-brief', type] });
     } catch (e) {
       setRefreshError((e as Error).message ?? 'Regenerate failed');
     } finally {
@@ -50,7 +58,18 @@ export function BriefPage({ type, title, icon }: { type: string; title: string; 
       {refreshError && <ErrorState label={`Regenerate failed: ${refreshError}`} />}
       {isLoading && <LoadingState label={`Loading ${title}…`} />}
       {isError && <ErrorState label={(error as Error)?.message ?? 'Failed to load brief'} />}
-      {data && <BriefView brief={data} />}
+      {data && data.stale && data.brief && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs text-yellow-200/90">
+          STALE: generated {data.generatedAt ? new Date(data.generatedAt).toLocaleString() : 'never'} — outside its
+          {' '}{Math.round(data.slaMinutes / 60)}h freshness SLA. The scheduler may be down; Regenerate for a fresh read.
+        </div>
+      )}
+      {data && !data.brief && (
+        <p className="text-sm text-muted-foreground italic">
+          This brief has never been generated. The scheduler will produce it on its next cycle, or press Regenerate.
+        </p>
+      )}
+      {data?.brief && <BriefView brief={data.brief} />}
     </div>
   );
 }

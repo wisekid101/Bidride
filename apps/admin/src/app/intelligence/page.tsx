@@ -2,11 +2,11 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Activity, Gauge, Inbox, Lightbulb, Map, Sparkles } from 'lucide-react';
+import { Activity, Crosshair, Gauge, Inbox, Lightbulb, Map, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { ErrorState, LoadingState, StatusBadge, fetchJson } from './components';
 
-interface BriefOverview { briefType: string; generatedAt: string | null }
+interface BriefOverview { briefType: string; generatedAt: string | null; stale: boolean; slaMinutes: number }
 interface RecSummary {
   id: string; domain: string; family: string; title: string; status: string;
   confidence: string | number; sampleSize: number; createdAt: string;
@@ -14,6 +14,7 @@ interface RecSummary {
 interface RecList { items: RecSummary[]; total: number }
 
 const BRIEF_CARDS = [
+  { type: 'focus', title: 'Weekly Focus', href: '/intelligence/focus', icon: Crosshair, tint: 'text-teal-300' },
   { type: 'marketplace_health', title: 'Marketplace Health', href: '/intelligence/marketplace-health', icon: Activity, tint: 'text-teal-400' },
   { type: 'money_map', title: 'Money Map', href: '/intelligence/money-map', icon: Map, tint: 'text-yellow-400' },
   { type: 'ai_performance', title: 'AI Performance', href: '/intelligence/ai-performance', icon: Gauge, tint: 'text-purple-400' },
@@ -53,7 +54,7 @@ export default function IntelligenceOverviewPage() {
   if (briefs.isLoading) return <LoadingState label="Loading Intelligence overview…" />;
   if (briefs.isError) return <ErrorState label={(briefs.error as Error)?.message ?? 'Intelligence unavailable'} />;
 
-  const generatedAt = (type: string) => briefs.data?.find((b) => b.briefType === type)?.generatedAt ?? null;
+  const overviewFor = (type: string) => briefs.data?.find((b) => b.briefType === type);
 
   return (
     <div className="p-6 space-y-6">
@@ -68,12 +69,15 @@ export default function IntelligenceOverviewPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         {BRIEF_CARDS.map(({ type, title, href, icon: Icon, tint }) => (
           <Link key={type} href={href} className="bg-card rounded-xl border border-border p-4 hover:bg-secondary/50 transition">
             <p className="flex items-center gap-2 text-white font-semibold text-sm"><Icon className={`w-4 h-4 ${tint}`} /> {title}</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {generatedAt(type) ? `last generated ${new Date(generatedAt(type)!).toLocaleString()}` : 'not yet generated — open to generate'}
+              {overviewFor(type)?.generatedAt
+                ? `last generated ${new Date(overviewFor(type)!.generatedAt!).toLocaleString()}`
+                : 'not yet generated — the scheduler will produce it'}
+              {overviewFor(type)?.stale && <span className="ml-1.5 text-yellow-400 font-medium">STALE</span>}
             </p>
           </Link>
         ))}

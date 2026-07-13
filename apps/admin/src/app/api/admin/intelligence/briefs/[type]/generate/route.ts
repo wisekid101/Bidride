@@ -3,17 +3,17 @@ import { NextRequest, NextResponse } from 'next/server';
 const ADMIN_API = process.env.ADMIN_SERVICE_URL ?? 'http://localhost:3011';
 const BRIEF_TYPES = new Set(['marketplace_health', 'money_map', 'ai_performance', 'focus']);
 
-export async function GET(req: NextRequest, { params }: { params: { type: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { type: string } }) {
   if (!BRIEF_TYPES.has(params.type)) {
     return NextResponse.json({ message: 'Unknown brief type' }, { status: 404 });
   }
-  const refresh = req.nextUrl.searchParams.get('refresh') === 'true' ? '?refresh=true' : '';
   let upstream: Response;
   try {
-    upstream = await fetch(`${ADMIN_API}/admin/intelligence/briefs/${params.type}${refresh}`, {
+    upstream = await fetch(`${ADMIN_API}/admin/intelligence/briefs/${params.type}/generate`, {
+      method: 'POST',
       headers: { cookie: req.headers.get('cookie') ?? '' },
       cache: 'no-store',
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(30000),
     });
   } catch {
     return NextResponse.json({ message: 'Intelligence service unreachable' }, { status: 503 });

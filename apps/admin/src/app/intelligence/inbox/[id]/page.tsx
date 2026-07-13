@@ -8,11 +8,21 @@ import { useEffect, useState } from 'react';
 import { ConstitutionTags, ErrorState, LoadingState, QualityBadge, StatusBadge, fetchJson } from '../../components';
 
 interface EvidenceItem { source: string; metric: string; value: string | number | boolean | null; window?: string; sampleSize?: number; asOf: string }
+interface OutcomeMetric {
+  metric: string; source: string; before: number | null; after: number | null; delta: number | null;
+  sampleSizeBefore: number; sampleSizeAfter: number; qualityLabel: string; betterWhen: 'up' | 'down';
+}
+interface OutcomeEvidence {
+  measuredAt: string; horizon: string;
+  window: { before: string; after: string; horizonElapsed: boolean };
+  metrics: OutcomeMetric[]; suggestedScore: number | null; suggestedScoreBasis: string;
+  insufficientEvidence: boolean; sourceVersion: string;
+}
 interface LedgerEvent { actor: string; actorRole: string; action: string; previousStatus: string | null; newStatus: string; reason: string | null; createdAt: string }
 interface RecommendationDetail {
   id: string; domain: string; family: string; title: string; status: string;
   confidence: string | number; sampleSize: number; constitutionTags: string[];
-  outcomeScore: string | number | null; outcomeNotes: string | null;
+  outcomeScore: string | number | null; outcomeNotes: string | null; outcomeEvidence: OutcomeEvidence | null;
   createdAt: string; expiresAt: string | null;
   payload: {
     summary: string;
@@ -33,6 +43,9 @@ export default function RecommendationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [reason, setReason] = useState('');
+  const [outcomeScore, setOutcomeScore] = useState('');
+  const [outcomeNotes, setOutcomeNotes] = useState('');
+  const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
 
   const { data, isLoading, isError, error } = useQuery<RecommendationDetail>({
@@ -65,6 +78,24 @@ export default function RecommendationDetailPage() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['intelligence-rec', id] }),
     onError: (e) => setDecisionError((e as Error).message),
+  });
+
+  const recordOutcome = useMutation({
+    mutationFn: async () => {
+      setOutcomeError(null);
+      const score = Number(outcomeScore);
+      const res = await fetch(`/api/admin/intelligence/recommendations/${id}/outcome`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score, notes: outcomeNotes }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message ?? 'recording outcome failed');
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['intelligence-rec', id] }),
+    onError: (e) => setOutcomeError((e as Error).message),
   });
 
   if (isLoading) return <LoadingState label="Loading recommendation…" />;
@@ -185,6 +216,82 @@ export default function RecommendationDetailPage() {
               <X className="w-3.5 h-3.5" /> Dismiss (records decision only)
             </button>
           </div>
+        </section>
+      )}
+
+      {data.outcomeEvidence && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-white">Outcome evidence (measurement — not causation)</h2>
+          <p className="text-[11px] text-muted-foreground">
+            {data.outcomeEvidence.horizon} · before {data.outcomeEvidence.window.before} vs after {data.outcomeEvidence.window.after}
+            {!data.outcomeEvidence.window.horizonElapsed && ' · horizon not yet elapsed — partial window'}
+            {' '}· measured {new Date(data.outcomeEvidence.measuredAt).toLocaleString()}
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-secondary/50 text-muted-foreground">
+                  {['metric', 'before', 'after', 'delta', 'n before', 'n after', 'quality'].map((h) => (
+                    <th key={h} className="text-left px-3 py-2 font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.outcomeEvidence.metrics.map((m) => (
+                  <tr key={m.metric} className="border-t border-border">
+                    <td className="px-3 py-1.5 text-white/90" title={m.source}>{m.metric.replace(/_/g, ' ')}</td>
+                    <td className="px-3 py-1.5 font-mono text-white/90">{m.before ?? '—'}</td>
+                    <td className="px-3 py-1.5 font-mono text-white/90">{m.after ?? '—'}</td>
+                    <td className={`px-3 py-1.5 font-mono ${m.delta === null ? 'text-white/60' : (m.betterWhen === 'down' ? m.delta <= 0 : m.delta >= 0) ? 'text-teal-400' : 'text-red-400'}`}>{m.delta ?? '—'}</td>
+                    <td className="px-3 py-1.5 font-mono text-white/60">{m.sampleSizeBefore}</td>
+                    <td className="px-3 py-1.5 font-mono text-white/60">{m.sampleSizeAfter}</td>
+                    <td className="px-3 py-1.5"><QualityBadge label={m.qualityLabel} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="bg-card rounded-lg border border-border p-3 text-xs space-y-1">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Suggested score — advisory only, never auto-applied</p>
+            <p className="font-mono text-white">{data.outcomeEvidence.suggestedScore ?? 'none (insufficient evidence)'}</p>
+            <p className="text-muted-foreground">{data.outcomeEvidence.suggestedScoreBasis}</p>
+          </div>
+          {(data.status === 'outcome_pending' || data.status === 'adopted' || data.status === 'dismissed') && (
+            <div className="bg-card rounded-xl border border-border p-4 space-y-3">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Record outcome (Founder judgment — required notes)</p>
+              <div className="flex gap-2 items-center">
+                <input
+                  aria-label="Outcome score from 0 to 1"
+                  value={outcomeScore}
+                  onChange={(e) => setOutcomeScore(e.target.value)}
+                  placeholder="0.00–1.00"
+                  className="w-28 bg-secondary/50 border border-border rounded-lg p-2 text-sm text-white font-mono"
+                />
+                <textarea
+                  aria-label="Outcome notes (required)"
+                  value={outcomeNotes}
+                  onChange={(e) => setOutcomeNotes(e.target.value)}
+                  placeholder="What actually happened, in your judgment?"
+                  className="flex-1 h-16 bg-secondary/50 border border-border rounded-lg p-2 text-sm text-white placeholder:text-muted-foreground/60"
+                  maxLength={2000}
+                />
+              </div>
+              {outcomeError && <p className="text-xs text-red-400">{outcomeError}</p>}
+              <button
+                onClick={() => recordOutcome.mutate()}
+                disabled={recordOutcome.isPending || outcomeNotes.trim().length < 3 || Number.isNaN(Number(outcomeScore)) || outcomeScore.trim() === '' || Number(outcomeScore) < 0 || Number(outcomeScore) > 1}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 disabled:opacity-40"
+              >
+                <Check className="w-3.5 h-3.5" /> Record outcome (records judgment only)
+              </button>
+            </div>
+          )}
+          {data.status === 'outcome_scored' && (
+            <p className="text-xs text-emerald-300">
+              Founder outcome recorded: <span className="font-mono">{Number(data.outcomeScore).toFixed(2)}</span>
+              {data.outcomeNotes && <> — “{data.outcomeNotes}”</>}
+            </p>
+          )}
         </section>
       )}
 

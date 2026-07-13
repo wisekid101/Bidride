@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const ADMIN_API = process.env.ADMIN_SERVICE_URL ?? 'http://localhost:3011';
-const ALLOWED_PARAMS = new Set(['domain', 'status', 'constitutionTag', 'from', 'to', 'page', 'limit']);
+const ALLOWED_PARAMS = new Set(['domain', 'status', 'constitutionTag', 'from', 'to', 'cursor', 'limit']);
 
 export async function GET(req: NextRequest) {
   const params = new URLSearchParams();

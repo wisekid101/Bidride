@@ -3,7 +3,7 @@ import {
   Post, Query, Req, UseGuards,
 } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import { IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsISO8601, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AdminSessionGuard } from '../auth/admin-session.guard';
 import { FounderGuard } from '../auth/founder.guard';
@@ -18,7 +18,7 @@ import { AuditService } from '../audit/audit.service';
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
 const UPSTREAM_TIMEOUT_MS = 15_000; // brief generation scans real tables
 
-const BRIEF_TYPES = ['marketplace_health', 'money_map', 'ai_performance'] as const;
+const BRIEF_TYPES = ['marketplace_health', 'money_map', 'ai_performance', 'focus'] as const;
 const STATUSES = ['proposed', 'viewed', 'adopted', 'dismissed', 'expired', 'outcome_pending', 'outcome_scored'] as const;
 
 class ListRecommendationsDto {
@@ -27,12 +27,17 @@ class ListRecommendationsDto {
   @IsOptional() @IsString() @MaxLength(30) constitutionTag?: string;
   @IsOptional() @IsISO8601() from?: string;
   @IsOptional() @IsISO8601() to?: string;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(10_000) page?: number;
+  @IsOptional() @IsString() @MaxLength(200) cursor?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
 }
 
 class DecisionDto {
   @IsString() @IsNotEmpty() @MaxLength(2000) reason: string;
+}
+
+class OutcomeDto {
+  @IsNumber() @Min(0) @Max(1) score: number;
+  @IsString() @IsNotEmpty() @MaxLength(2000) notes: string;
 }
 
 @UseGuards(AdminSessionGuard, FounderGuard, ThrottlerGuard)
@@ -47,12 +52,24 @@ export class IntelligenceController {
   }
 
   @Get('briefs/:type')
-  brief(@Param('type') type: string, @Query('refresh') refresh?: string) {
+  brief(@Param('type') type: string) {
     if (!(BRIEF_TYPES as readonly string[]).includes(type)) {
       // Bounded param — never forward arbitrary strings upstream.
       throw new BadGatewayException(`Unknown brief type: ${type}`);
     }
-    return this.upstream('GET', `/ai/founder/briefs/${type}${refresh === 'true' ? '?refresh=true' : ''}`);
+    // Pure read: { brief, generatedAt, stale, slaMinutes } — never generates.
+    return this.upstream('GET', `/ai/founder/briefs/${type}`);
+  }
+
+  @Post('briefs/:type/generate')
+  @HttpCode(HttpStatus.OK)
+  async generateBrief(@Param('type') type: string, @Req() req: any) {
+    if (!(BRIEF_TYPES as readonly string[]).includes(type)) {
+      throw new BadGatewayException(`Unknown brief type: ${type}`);
+    }
+    const result = await this.upstream('POST', `/ai/founder/briefs/${type}/generate`);
+    await this.auditDecision(req, 'intelligence.brief.generate', type);
+    return result;
   }
 
   @Post('opportunity/generate')
@@ -91,6 +108,18 @@ export class IntelligenceController {
     // Records the decision ONLY. Any execution is a separate approved workflow.
     const result = await this.upstream('POST', `/ai/recommendations/${id}/adopt`, { ...this.actor(req), reason: body.reason });
     await this.auditDecision(req, 'intelligence.recommendation.adopt', id, body.reason);
+    return result;
+  }
+
+  @Post('recommendations/:id/outcome')
+  @HttpCode(HttpStatus.OK)
+  async outcome(@Param('id', ParseUUIDPipe) id: string, @Body() body: OutcomeDto, @Req() req: any) {
+    // Records the Founder's outcome judgment ONLY — the suggested score is
+    // advisory and nothing executes; no financial or product write occurs.
+    const result = await this.upstream('POST', `/ai/recommendations/${id}/outcome`, {
+      ...this.actor(req), score: body.score, notes: body.notes,
+    });
+    await this.auditDecision(req, 'intelligence.recommendation.outcome', id, `score=${body.score}: ${body.notes}`);
     return result;
   }
 

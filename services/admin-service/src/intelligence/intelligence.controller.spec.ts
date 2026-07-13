@@ -58,16 +58,16 @@ describe('IntelligenceController — upstream proxying', () => {
   });
 
   it('rejects unknown brief types before anything reaches upstream', () => {
-    expect(() => controller.brief('drop_table', undefined)).toThrow(BadGatewayException);
+    expect(() => controller.brief('drop_table')).toThrow(BadGatewayException);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('passes only allowlisted, validated filters to the ledger', async () => {
-    await controller.list({ domain: 'opportunity', status: 'proposed', page: 2, limit: 10 } as any);
+  it('passes only allowlisted, validated filters to the ledger, including the keyset cursor', async () => {
+    await controller.list({ domain: 'opportunity', status: 'proposed', cursor: 'abc123', limit: 10 } as any);
     const url: string = mockFetch.mock.calls[0][0];
     expect(url).toContain('domain=opportunity');
     expect(url).toContain('status=proposed');
-    expect(url).toContain('page=2');
+    expect(url).toContain('cursor=abc123');
   });
 
   it('passes upstream client errors through with their REAL status, message only', async () => {
@@ -122,6 +122,17 @@ describe('IntelligenceController — decisions record, audit, and never execute'
     );
   });
 
+  it('outcome records the Founder judgment with bounds, audit, and no execution', async () => {
+    await controller.outcome(ID, { score: 0.8, notes: 'zone completion recovered on real riders' } as any, founderReq);
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toContain(`/ai/recommendations/${ID}/outcome`);
+    expect(JSON.parse(init.body)).toMatchObject({ score: 0.8, notes: 'zone completion recovered on real riders', actorRole: 'founder' });
+    expect(mockAudit.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'intelligence.recommendation.outcome' }),
+    );
+  });
+
   it('dismiss audits with its reason', async () => {
     await controller.dismiss(ID, { reason: 'Not a priority this week.' } as any, founderReq);
     expect(mockAudit.createLog).toHaveBeenCalledWith(
@@ -137,7 +148,7 @@ describe('IntelligenceController — decisions record, audit, and never execute'
   it('the controller has no route that executes product changes', () => {
     const members = Object.getOwnPropertyNames(Object.getPrototypeOf(controller)).sort();
     expect(members).toEqual(
-      ['actor', 'adopt', 'auditDecision', 'brief', 'briefs', 'constructor', 'dismiss', 'generateOpportunity', 'get', 'list', 'upstream', 'view'].sort(),
+      ['actor', 'adopt', 'auditDecision', 'brief', 'briefs', 'constructor', 'dismiss', 'generateBrief', 'generateOpportunity', 'get', 'list', 'outcome', 'upstream', 'view'].sort(),
     );
   });
 });

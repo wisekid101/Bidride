@@ -10,24 +10,27 @@ interface RecSummary {
   id: string; domain: string; family: string; recommendationType: string; title: string; status: string;
   confidence: string | number; sampleSize: number; constitutionTags: string[]; createdAt: string; expiresAt: string | null;
 }
-interface RecList { items: RecSummary[]; total: number; page: number; limit: number }
+interface RecList { items: RecSummary[]; total: number; limit: number; nextCursor: string | null }
 
 const STATUS_FILTERS = ['all', 'proposed', 'viewed', 'adopted', 'dismissed', 'expired', 'outcome_pending', 'outcome_scored'] as const;
 const PAGE_SIZE = 25;
 
 export default function InboxPage() {
   const [status, setStatus] = useState<string>('all');
-  const [page, setPage] = useState(1);
+  // Stable keyset pagination: a stack of cursors, one per page visited.
+  const [cursors, setCursors] = useState<string[]>([]);
 
-  const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+  const cursor = cursors[cursors.length - 1];
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (status !== 'all') params.set('status', status);
+  if (cursor) params.set('cursor', cursor);
+
+  const resetTo = (s: string) => { setStatus(s); setCursors([]); };
 
   const { data, isLoading, isError, error } = useQuery<RecList>({
-    queryKey: ['intelligence-inbox', status, page],
+    queryKey: ['intelligence-inbox', status, cursor ?? 'first'],
     queryFn: () => fetchJson(`/api/admin/intelligence/recommendations?${params.toString()}`),
   });
-
-  const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   return (
     <div className="p-6 space-y-6">
@@ -40,7 +43,7 @@ export default function InboxPage() {
         {STATUS_FILTERS.map((s) => (
           <button
             key={s}
-            onClick={() => { setStatus(s); setPage(1); }}
+            onClick={() => resetTo(s)}
             className={`text-xs px-2.5 py-1 rounded-lg border ${status === s ? 'bg-teal-500/20 border-teal-500/40 text-teal-300' : 'bg-card border-border text-muted-foreground hover:text-white'}`}
           >
             {s.replace(/_/g, ' ')}
@@ -70,11 +73,19 @@ export default function InboxPage() {
         </div>
       )}
 
-      {data && pages > 1 && (
+      {data && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="px-2 py-1 rounded border border-border disabled:opacity-40">← prev</button>
-          page {page} / {pages} · {data.total} total
-          <button disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="px-2 py-1 rounded border border-border disabled:opacity-40">next →</button>
+          <button
+            disabled={cursors.length === 0}
+            onClick={() => setCursors((c) => c.slice(0, -1))}
+            className="px-2 py-1 rounded border border-border disabled:opacity-40"
+          >← prev</button>
+          <span>{data.total} total · showing {data.items.length}</span>
+          <button
+            disabled={!data.nextCursor}
+            onClick={() => data.nextCursor && setCursors((c) => [...c, data.nextCursor!])}
+            className="px-2 py-1 rounded border border-border disabled:opacity-40"
+          >next →</button>
         </div>
       )}
     </div>

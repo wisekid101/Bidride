@@ -138,15 +138,8 @@ export function DataTable({ columns, rows }: { columns: string[]; rows: Array<Re
 }
 
 export function BriefView({ brief }: { brief: FounderBrief }) {
-  const ageMin = Math.round((Date.now() - new Date(brief.generatedAt).getTime()) / 60000);
   return (
     <div className="space-y-6">
-      {ageMin > 60 && (
-        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs text-yellow-200/90">
-          This brief was generated {ageMin >= 120 ? `${Math.round(ageMin / 60)} hours` : `${ageMin} minutes`} ago and may not
-          reflect current data — use Regenerate for a fresh read.
-        </div>
-      )}
       <p className="text-xs text-muted-foreground">
         window {brief.windowStart.slice(0, 10)} → {brief.windowEnd.slice(0, 10)} · compared to{' '}
         {brief.comparisonWindowStart.slice(0, 10)} → {brief.comparisonWindowEnd.slice(0, 10)} · generated{' '}
