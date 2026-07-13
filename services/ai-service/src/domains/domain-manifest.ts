@@ -194,6 +194,23 @@ export const DOMAIN_REGISTRY: DomainManifest[] = [
   })),
 ];
 
+// Inference-log model names → owning domain (reporting linkage now; the
+// serving path keeps its existing per-family kill switches — no new
+// autonomous behavior is introduced by this mapping).
+export const MODEL_TO_DOMAIN: Record<string, string> = {
+  'fare-adjustment': 'pricing',
+  'bid-win-probability': 'pricing',
+  'driver-ranking': 'marketplace',
+  'dispatch-simulator': 'marketplace',
+  'surge-forecast': 'marketplace',
+  'driver-earnings': 'driver_success',
+  'fraud-score': 'integrity',
+};
+
+export function domainForModel(modelName: string): string {
+  return MODEL_TO_DOMAIN[modelName] ?? 'unmapped';
+}
+
 export function getDomain(name: string): DomainManifest | undefined {
   return DOMAIN_REGISTRY.find((d) => d.domain === name);
 }

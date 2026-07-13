@@ -20,7 +20,17 @@ const mockLedger = {
   }),
 } as any;
 
-const analyzer = new OpportunityAnalyzer(mockPrisma, mockLedger);
+let trustedIds = new Set<string>();
+const mockQuality = {
+  classesFor: jest.fn(async (ids: string[]) => {
+    const map = new Map<string, string>();
+    for (const id of ids) if (trustedIds.has(id)) map.set(id, 'trusted');
+    return map;
+  }),
+  reset: jest.fn(),
+} as any;
+
+const analyzer = new OpportunityAnalyzer(mockPrisma, mockLedger, mockQuality);
 const NOW = new Date('2026-07-11T12:00:00Z');
 const IN_WINDOW = new Date('2026-07-09T12:00:00Z');
 
@@ -36,6 +46,7 @@ beforeEach(() => {
   mockPrisma.trip.findMany.mockResolvedValue([]);
   mockPrisma.aiRecommendation.findFirst.mockResolvedValue(null);
   mockPrisma.tripEvent.findMany.mockResolvedValue([]);
+  trustedIds = new Set();
   mockPrisma.bidOutcome.findMany.mockResolvedValue([]);
 });
 
@@ -58,7 +69,7 @@ describe('OpportunityAnalyzer', () => {
     mockPrisma.trip.findMany.mockImplementation(async (args: any) =>
       args?.where?.createdAt?.lte ? trips : [],
     );
-    mockPrisma.tripEvent.findMany.mockResolvedValue(trips.map((t) => ({ tripId: t.id, metadata: { class: 'trusted' } })));
+    trustedIds = new Set(trips.map((t) => t.id));
 
     const res = await analyzer.generate(NOW);
 
@@ -95,7 +106,7 @@ describe('OpportunityAnalyzer', () => {
     mockPrisma.trip.findMany.mockImplementation(async (args: any) =>
       args?.where?.createdAt?.lte ? trips : [],
     );
-    mockPrisma.tripEvent.findMany.mockResolvedValue(trips.map((t) => ({ tripId: t.id, metadata: { class: 'trusted' } })));
+    trustedIds = new Set(trips.map((t) => t.id));
 
     const res = await analyzer.generate(NOW);
 
@@ -121,7 +132,7 @@ describe('OpportunityAnalyzer', () => {
     mockPrisma.trip.findMany.mockImplementation(async (args: any) =>
       args?.where?.createdAt?.lte ? trips : [],
     );
-    mockPrisma.tripEvent.findMany.mockResolvedValue(trips.map((t) => ({ tripId: t.id, metadata: { class: 'trusted' } })));
+    trustedIds = new Set(trips.map((t) => t.id));
 
     const res = await analyzer.generate(NOW);
     expect(res.kind).toBe('no_actionable_gap');

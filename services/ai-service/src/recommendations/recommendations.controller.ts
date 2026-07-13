@@ -16,7 +16,7 @@ class ListQueryDto {
   @IsOptional() @IsString() @MaxLength(30) constitutionTag?: string;
   @IsOptional() @IsISO8601() from?: string;
   @IsOptional() @IsISO8601() to?: string;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(10_000) page = 1;
+  @IsOptional() @IsString() @MaxLength(200) cursor?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 25;
 }
 
@@ -53,7 +53,7 @@ export class RecommendationsController {
       constitutionTag: q.constitutionTag,
       from: q.from ? new Date(q.from) : undefined,
       to: q.to ? new Date(q.to) : undefined,
-      page: q.page,
+      cursor: q.cursor,
       limit: q.limit,
     });
   }

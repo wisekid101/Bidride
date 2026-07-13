@@ -4,7 +4,8 @@ import { RecommendationLedgerService } from '../recommendations/recommendation-l
 import {
   EvidenceItem, INSUFFICIENT_EVIDENCE, MIN_SAMPLE_SIZE, UniversalRecommendation,
 } from '../recommendations/recommendation.types';
-import { briefWindow, changePct, latestQualityClasses, moneyEligible, round2, zoneKey } from './briefs/brief-helpers';
+import { briefWindow, changePct, moneyEligible, round2, zoneKey } from './briefs/brief-helpers';
+import { QualityClassService } from '../quality/quality-class.service';
 
 // ─── Opportunity Intelligence v1 (Founder-facing ONLY) ───────────────────────
 // Answers one question with evidence: "where is there a measurable
@@ -19,7 +20,7 @@ export const OPPORTUNITY_RULES_VERSION = 'opportunity-v1';
 const DRIVER_EARNINGS_TARGET_PER_TRIP = 10.0;
 const RECOMMENDATION_TTL_DAYS = 7;
 
-interface ZoneStats {
+export interface ZoneStats {
   zone: string;
   trips: number;
   prevTrips: number;
@@ -35,7 +36,7 @@ interface ZoneStats {
   distinctDrivers: number;
 }
 
-interface Opportunity {
+export interface Opportunity {
   kind: string;
   zone: string;
   score: number;
@@ -49,7 +50,22 @@ export class OpportunityAnalyzer {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: RecommendationLedgerService,
+    private readonly quality: QualityClassService,
   ) {}
+
+  /** Zone analysis WITHOUT ledger writes — shared with the Focus brief. */
+  async analyze(now = new Date()): Promise<{
+    evidenced: ZoneStats[];
+    thin: ZoneStats[];
+    candidates: Opportunity[];
+    windowLabel: string;
+  }> {
+    const stats = await this.zoneStats(now);
+    const evidenced = stats.filter((z) => z.trips >= MIN_SAMPLE_SIZE);
+    const thin = stats.filter((z) => z.trips < MIN_SAMPLE_SIZE);
+    const w = briefWindow(7, now);
+    return { evidenced, thin, candidates: this.rankCandidates(evidenced), windowLabel: w.label };
+  }
 
   /** Analyze and write ONE standing recommendation to the ledger. */
   async generate(now = new Date()): Promise<{ id: string; kind: string; zone?: string; deduplicated?: boolean }> {
@@ -90,7 +106,7 @@ export class OpportunityAnalyzer {
 
   private async zoneStats(now: Date): Promise<ZoneStats[]> {
     const w = briefWindow(7, now);
-    const [trips, prevTrips, qualityClasses, outcomes] = await Promise.all([
+    const [trips, prevTrips, outcomes] = await Promise.all([
       this.prisma.trip.findMany({
         where: { createdAt: { gte: w.start, lte: w.end } },
         select: { id: true, status: true, pickupLat: true, pickupLng: true, driverEarnings: true, earningsSupplement: true, driverId: true, finalFare: true },
@@ -99,12 +115,14 @@ export class OpportunityAnalyzer {
         where: { createdAt: { gte: w.prevStart, lt: w.prevEnd } },
         select: { pickupLat: true, pickupLng: true },
       }),
-      latestQualityClasses(this.prisma),
       this.prisma.bidOutcome.findMany({
         where: { createdAt: { gte: w.start, lte: w.end }, zoneKey: { not: null } },
         select: { zoneKey: true, wasAccepted: true },
       }),
     ]);
+
+    // Bounded quality read: only this window's trips.
+    const qualityClasses = await this.quality.classesFor(trips.map((t) => t.id));
 
     const prevByZone = new Map<string, number>();
     for (const t of prevTrips) {
@@ -169,6 +187,22 @@ export class OpportunityAnalyzer {
   }
 
   private pickBest(zones: ZoneStats[]): Opportunity {
+    const candidates = this.rankCandidates(zones);
+    if (candidates.length === 0) {
+      // Evidenced zones exist but nothing crosses a threshold — report the busiest zone honestly as "healthy".
+      const busiest = [...zones].sort((a, b) => b.trips - a.trips)[0];
+      return {
+        kind: 'no_actionable_gap', zone: busiest.zone, score: 0,
+        headline: 'No measurable marketplace gap crossed its threshold this window',
+        detail: `Busiest zone ${busiest.zone} (${busiest.trips} requests) shows no shortage, churn, or earnings gap.`,
+        stats: busiest,
+      };
+    }
+    return candidates[0];
+  }
+
+  /** All threshold-crossing candidates, best first. */
+  private rankCandidates(zones: ZoneStats[]): Opportunity[] {
     const candidates: Opportunity[] = [];
     for (const z of zones) {
       // Supply shortage: demand present, very few distinct drivers serving it.
@@ -217,17 +251,7 @@ export class OpportunityAnalyzer {
         });
       }
     }
-    if (candidates.length === 0) {
-      // Evidenced zones exist but nothing crosses a threshold — report the busiest zone honestly as "healthy".
-      const busiest = [...zones].sort((a, b) => b.trips - a.trips)[0];
-      return {
-        kind: 'no_actionable_gap', zone: busiest.zone, score: 0,
-        headline: 'No measurable marketplace gap crossed its threshold this window',
-        detail: `Busiest zone ${busiest.zone} (${busiest.trips} requests) shows no shortage, churn, or earnings gap.`,
-        stats: busiest,
-      };
-    }
-    return candidates.sort((a, b) => b.score - a.score)[0];
+    return candidates.sort((a, b) => b.score - a.score);
   }
 
   private toRecommendation(opp: Opportunity, thinZones: string[], window: string, now: Date): UniversalRecommendation {

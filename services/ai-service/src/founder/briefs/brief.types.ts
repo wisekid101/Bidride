@@ -3,7 +3,7 @@
 // label. A brief that cannot evidence a number says "insufficient_evidence" —
 // it never invents one.
 
-export type BriefType = 'marketplace_health' | 'money_map' | 'ai_performance';
+export type BriefType = 'marketplace_health' | 'money_map' | 'ai_performance' | 'focus';
 
 export type QualityLabel =
   | 'canonical_trusted'        // canonical money tables, Trusted/Reconciled classes only

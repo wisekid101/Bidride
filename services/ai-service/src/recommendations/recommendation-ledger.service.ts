@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertDomainActive } from '../domains/domain-manifest';
@@ -27,30 +27,43 @@ export interface ListFilters {
   constitutionTag?: string;
   from?: Date;
   to?: Date;
-  page: number;
+  /** opaque keyset cursor from a prior page's nextCursor (stable pagination) */
+  cursor?: string;
   limit: number;
 }
 
 const MAX_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 25;
 const MAX_WINDOW_DAYS = 366;
-const EXPIRE_SWEEP_INTERVAL_MS = 6 * 3600 * 1000;
 
+interface Keyset {
+  createdAt: Date;
+  id: string;
+}
+
+// Cursor = base64("<createdAt ISO>|<id>"). Opaque to callers, stable across
+// inserts: keyset over (createdAt DESC, id DESC) so equal-timestamp rows never
+// duplicate or skip between pages.
+export function encodeCursor(k: Keyset): string {
+  return Buffer.from(`${k.createdAt.toISOString()}|${k.id}`, 'utf8').toString('base64url');
+}
+
+export function decodeCursor(cursor: string): Keyset {
+  const raw = Buffer.from(cursor, 'base64url').toString('utf8');
+  const sep = raw.lastIndexOf('|');
+  const iso = raw.slice(0, sep);
+  const id = raw.slice(sep + 1);
+  const createdAt = new Date(iso);
+  if (sep < 0 || Number.isNaN(createdAt.getTime()) || !id) {
+    throw new BadRequestException('invalid pagination cursor');
+  }
+  return { createdAt, id };
+}
+// Expiry scheduling moved to the leader-locked SchedulerService (Phase 3.2)
+// — one sweep per window across all replicas.
 @Injectable()
-export class RecommendationLedgerService implements OnModuleInit, OnModuleDestroy {
-  private sweepTimer: ReturnType<typeof setInterval> | null = null;
-
+export class RecommendationLedgerService {
   constructor(private readonly prisma: PrismaService) {}
-
-  onModuleInit(): void {
-    // Expiry runs on a schedule (plus the internal endpoint for manual runs);
-    // first sweep shortly after boot so short-lived deploys still expire.
-    this.sweepTimer = setInterval(() => void this.expireSweep().catch(() => {}), EXPIRE_SWEEP_INTERVAL_MS);
-    setTimeout(() => void this.expireSweep().catch(() => {}), 30_000);
-  }
-
-  onModuleDestroy(): void {
-    if (this.sweepTimer) clearInterval(this.sweepTimer);
-  }
 
   async create(rec: UniversalRecommendation): Promise<{ id: string }> {
     const errors = validateRecommendation(rec);
@@ -105,8 +118,7 @@ export class RecommendationLedgerService implements OnModuleInit, OnModuleDestro
   }
 
   async list(filters: ListFilters) {
-    const limit = Math.min(Math.max(1, filters.limit), MAX_PAGE_SIZE);
-    const page = Math.max(1, filters.page);
+    const limit = Math.min(Math.max(1, filters.limit || DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
     if (filters.from && filters.to) {
       const days = (filters.to.getTime() - filters.from.getTime()) / 86_400_000;
       if (days < 0 || days > MAX_WINDOW_DAYS) {
@@ -114,7 +126,7 @@ export class RecommendationLedgerService implements OnModuleInit, OnModuleDestro
       }
     }
 
-    const where: Prisma.AiRecommendationWhereInput = {
+    const filterWhere: Prisma.AiRecommendationWhereInput = {
       ...(filters.domain && { domain: filters.domain }),
       ...(filters.status && { status: filters.status }),
       ...(filters.constitutionTag && { constitutionTags: { has: filters.constitutionTag } }),
@@ -123,21 +135,45 @@ export class RecommendationLedgerService implements OnModuleInit, OnModuleDestro
       }),
     };
 
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.aiRecommendation.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        select: {
-          id: true, domain: true, family: true, recommendationType: true, title: true,
-          status: true, confidence: true, sampleSize: true, constitutionTags: true,
-          outcomeScore: true, createdAt: true, expiresAt: true,
-        },
-      }),
-      this.prisma.aiRecommendation.count({ where }),
-    ]);
-    return { items, total, page, limit };
+    // Keyset predicate: everything strictly "after" the cursor in
+    // (createdAt DESC, id DESC) order. Equal timestamps are broken by id, so
+    // no row is duplicated or skipped between pages.
+    const keyset = filters.cursor ? decodeCursor(filters.cursor) : null;
+    const where: Prisma.AiRecommendationWhereInput = keyset
+      ? {
+          AND: [
+            filterWhere,
+            {
+              OR: [
+                { createdAt: { lt: keyset.createdAt } },
+                { createdAt: keyset.createdAt, id: { lt: keyset.id } },
+              ],
+            },
+          ],
+        }
+      : filterWhere;
+
+    // Fetch one extra to detect a next page without a second query.
+    const rows = await this.prisma.aiRecommendation.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      select: {
+        id: true, domain: true, family: true, recommendationType: true, title: true,
+        status: true, confidence: true, sampleSize: true, constitutionTags: true,
+        outcomeScore: true, createdAt: true, expiresAt: true,
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const last = items[items.length - 1];
+    const nextCursor = hasMore && last ? encodeCursor({ createdAt: last.createdAt, id: last.id }) : null;
+
+    // `total` is filter-scoped (not cursor-scoped) so the inbox can show a
+    // meaningful count; it is a plain count, never a keyset offset.
+    const total = await this.prisma.aiRecommendation.count({ where: filterWhere });
+    return { items, total, limit, nextCursor };
   }
 
   async get(id: string) {

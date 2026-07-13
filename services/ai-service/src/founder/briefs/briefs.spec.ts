@@ -11,11 +11,27 @@ const mockPrisma = {
   bidOutcome: { count: jest.fn(), findMany: jest.fn() },
   refund: { aggregate: jest.fn() },
   payment: { count: jest.fn() },
-  aiRecommendation: { groupBy: jest.fn() },
+  aiRecommendation: { groupBy: jest.fn(), findMany: jest.fn() },
   aiInferenceLog: { findMany: jest.fn() },
 } as any;
 
 const mockRedis = { keys: jest.fn().mockResolvedValue([]), get: jest.fn(), scard: jest.fn() } as any;
+
+// Shared quality-class stub: tests declare trusted ids; classesFor answers
+// only for the ids asked (mirroring the bounded real service).
+let trustedIds = new Set<string>();
+const mockQuality = {
+  classesFor: jest.fn(async (ids: string[]) => {
+    const map = new Map<string, string>();
+    for (const id of ids) if (trustedIds.has(id)) map.set(id, 'trusted');
+    return map;
+  }),
+  latestClassCounts: jest.fn(async () => {
+    const counts = { trusted: trustedIds.size, reconciled: 0, suspect: 0, excluded: 0 };
+    return { counts, total: trustedIds.size };
+  }),
+  reset: jest.fn(),
+} as any;
 
 const NOW = new Date('2026-07-11T12:00:00Z');
 const IN_WINDOW = new Date('2026-07-09T12:00:00Z');
@@ -24,22 +40,23 @@ const allMetrics = (brief: FounderBrief): BriefMetric[] => brief.sections.flatMa
 const findMetric = (brief: FounderBrief, name: string): BriefMetric =>
   allMetrics(brief).find((m) => m.name === name)!;
 
-const trusted = (tripIds: string[]) =>
-  mockPrisma.tripEvent.findMany.mockResolvedValue(
-    tripIds.map((id) => ({ tripId: id, metadata: { class: 'trusted' } })),
-  );
+const trusted = (tripIds: string[]) => {
+  trustedIds = new Set(tripIds);
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockPrisma.trip.findMany.mockResolvedValue([]);
   mockPrisma.trip.count.mockResolvedValue(0);
   mockPrisma.tripEvent.findMany.mockResolvedValue([]);
+  trustedIds = new Set();
   mockPrisma.bid.findMany.mockResolvedValue([]);
   mockPrisma.bidOutcome.count.mockResolvedValue(0);
   mockPrisma.bidOutcome.findMany.mockResolvedValue([]);
   mockPrisma.refund.aggregate.mockResolvedValue({ _sum: { amount: null }, _count: 0 });
   mockPrisma.payment.count.mockResolvedValue(0);
   mockPrisma.aiRecommendation.groupBy.mockResolvedValue([]);
+  mockPrisma.aiRecommendation.findMany.mockResolvedValue([]);
   mockPrisma.aiInferenceLog.findMany.mockResolvedValue([]);
   mockRedis.keys.mockResolvedValue([]);
 });
@@ -47,7 +64,7 @@ beforeEach(() => {
 // ─── Marketplace Health ───────────────────────────────────────────────────────
 
 describe('MarketplaceHealthBrief', () => {
-  const brief = new MarketplaceHealthBrief(mockPrisma, mockRedis);
+  const brief = new MarketplaceHealthBrief(mockPrisma, mockQuality, mockRedis);
 
   it('every metric declares window, sample size, source, and a quality label', async () => {
     const result = await brief.generate(NOW);
@@ -105,7 +122,7 @@ describe('MarketplaceHealthBrief', () => {
 // ─── Money Map ────────────────────────────────────────────────────────────────
 
 describe('MoneyMapBrief', () => {
-  const brief = new MoneyMapBrief(mockPrisma);
+  const brief = new MoneyMapBrief(mockPrisma, mockQuality);
   const mk = (id: string, over: Partial<Record<string, unknown>> = {}) => ({
     id, finalFare: 20, driverEarnings: 16, platformFee: 4, earningsSupplement: 0,
     pickupLat: 40.7, pickupLng: -74.1, isAirportTrip: false, bidId: null, ...over,
@@ -160,7 +177,7 @@ describe('MoneyMapBrief', () => {
 // ─── AI Performance ───────────────────────────────────────────────────────────
 
 describe('AiPerformanceBrief', () => {
-  const brief = new AiPerformanceBrief(mockPrisma);
+  const brief = new AiPerformanceBrief(mockPrisma, mockQuality);
 
   it('reports ledger lifecycle counts', async () => {
     mockPrisma.aiRecommendation.groupBy.mockResolvedValue([
@@ -206,5 +223,41 @@ describe('AiPerformanceBrief', () => {
     const high = table.rows.find((r) => r.bucket === '0.75–1.00')!;
     expect(high.n).toBe(2);
     expect(high.actualAcceptance).toBe(0.5);
+  });
+
+  it('tags each inference family with its owning domain (reporting linkage)', async () => {
+    mockPrisma.aiInferenceLog.findMany.mockResolvedValue([
+      { modelName: 'fare-adjustment', modelVersion: 'v1', fallbackUsed: false, latencyMs: 10 },
+    ]);
+    const result = await brief.generate(NOW);
+    const table = result.sections.find((s) => s.title.includes('Inference health'))!.zoneTable!;
+    expect(table.rows[0].domain).toBe('pricing');
+  });
+
+  it('family outcome calibration stays insufficient_evidence below 20 scored outcomes; regret is generated vs scored', async () => {
+    // 3 scored + 1 dismissed-then-regret for zone-opportunity.
+    mockPrisma.aiRecommendation.findMany.mockImplementation(async (args: any) => {
+      if (args?.where?.status === 'outcome_scored') {
+        return Array.from({ length: 3 }, (_, i) => ({
+          family: 'zone-opportunity', status: 'outcome_scored', confidence: 0.6, outcomeScore: 0.8,
+          outcomeEvidence: { insufficientEvidence: false },
+        }));
+      }
+      if (args?.where?.status === 'dismissed') {
+        return [{ family: 'zone-opportunity', outcomeScore: 0.9 }]; // regret: dismissed but scored high
+      }
+      return [];
+    });
+    mockPrisma.aiRecommendation.groupBy.mockImplementation(async (args: any) =>
+      args?.where?.status === 'dismissed' ? [{ family: 'zone-opportunity', _count: { _all: 2 } }] : [],
+    );
+
+    const result = await brief.generate(NOW);
+    const table = result.sections.find((s) => s.title.includes('family performance'))!.zoneTable!;
+    const row = table.rows.find((r) => r.family === 'zone-opportunity')!;
+    expect(row.scoredOutcomes).toBe(3);
+    expect(row.evidence).toContain('insufficient_evidence (3 < 20)');
+    expect(row.meanOutcomeScore).toBeNull(); // not shown below the floor
+    expect(row.dismissalRegret).toBe('1/2');
   });
 });

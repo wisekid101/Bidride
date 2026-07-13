@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BriefSection, BriefZoneRow, FounderBrief } from './brief.types';
-import { BRIEFS_SOURCE_VERSION, briefWindow, latestQualityClasses, metric, round2 } from './brief-helpers';
+import { BRIEFS_SOURCE_VERSION, briefWindow, metric, round2 } from './brief-helpers';
+import { QualityClassService } from '../../quality/quality-class.service';
+import { domainForModel } from '../../domains/domain-manifest';
 
 // ─── BRIEF 3 — AI Performance ─────────────────────────────────────────────────
 // How the AI itself is doing: ledger lifecycle counts, per-family inference
@@ -20,7 +22,10 @@ const MIN_OUTCOME_EVIDENCE = 20;
 
 @Injectable()
 export class AiPerformanceBrief {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly quality: QualityClassService,
+  ) {}
 
   async generate(now = new Date()): Promise<FounderBrief> {
     const w = briefWindow(7, now);
@@ -53,6 +58,7 @@ export class AiPerformanceBrief {
       const p95 = sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : null;
       return {
         family,
+        domain: domainForModel(family),
         inferences: f.total,
         fallbackRatePct: f.total ? round2((f.fallbacks / f.total) * 100) : null,
         overBudgetRatePct: f.total ? round2((f.overBudget / f.total) * 100) : null,
@@ -80,11 +86,61 @@ export class AiPerformanceBrief {
       };
     });
 
-    // Data-quality gate (shared helper — one readout of the classifier).
-    const latest = await latestQualityClasses(this.prisma);
-    const dqCounts = { trusted: 0, reconciled: 0, suspect: 0, excluded: 0 } as Record<string, number>;
-    for (const cls of latest.values()) dqCounts[cls] = (dqCounts[cls] ?? 0) + 1;
-    const dqTotal = latest.size;
+    // Ledger outcome performance by recommendation family (Founder-scored).
+    const scored = await this.prisma.aiRecommendation.findMany({
+      where: { status: 'outcome_scored' },
+      select: { family: true, status: true, confidence: true, outcomeScore: true, outcomeEvidence: true },
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+    });
+    const regretDismissed = await this.prisma.aiRecommendation.findMany({
+      where: { status: 'dismissed', outcomeScore: { not: null } },
+      select: { family: true, outcomeScore: true },
+      take: 1000,
+    });
+    const dismissedByFamily = new Map<string, { total: number; regret: number }>();
+    // Dismissal counts (for regret rate) need dismissed totals incl. unscored:
+    const dismissedTotals = await this.prisma.aiRecommendation.groupBy({
+      by: ['family'], where: { status: 'dismissed' }, _count: { _all: true },
+    });
+    for (const row of dismissedTotals) dismissedByFamily.set(row.family, { total: row._count._all, regret: 0 });
+    for (const r of regretDismissed) {
+      if (Number(r.outcomeScore) >= 0.7) {
+        const agg = dismissedByFamily.get(r.family) ?? { total: 0, regret: 0 };
+        agg.regret += 1;
+        dismissedByFamily.set(r.family, agg);
+      }
+    }
+    const ledgerFamilies = new Map<string, Array<{ confidence: number; score: number; sufficient: boolean }>>();
+    for (const r of scored) {
+      const list = ledgerFamilies.get(r.family) ?? [];
+      list.push({
+        confidence: Number(r.confidence),
+        score: Number(r.outcomeScore),
+        sufficient: !(r.outcomeEvidence as { insufficientEvidence?: boolean } | null)?.insufficientEvidence,
+      });
+      ledgerFamilies.set(r.family, list);
+    }
+    const calibrationRows: BriefZoneRow[] = [...ledgerFamilies.entries()].map(([family, rows]) => {
+      const n = rows.length;
+      const meanConfidence = round2(rows.reduce((s, r) => s + r.confidence, 0) / n);
+      const meanScore = round2(rows.reduce((s, r) => s + r.score, 0) / n);
+      const brier = round2(rows.reduce((s, r) => s + (r.confidence - r.score) ** 2, 0) / n);
+      const dismissed = dismissedByFamily.get(family);
+      return {
+        family,
+        scoredOutcomes: n,
+        meanConfidence: n >= MIN_OUTCOME_EVIDENCE ? meanConfidence : null,
+        meanOutcomeScore: n >= MIN_OUTCOME_EVIDENCE ? meanScore : null,
+        brierMse: n >= MIN_OUTCOME_EVIDENCE ? brier : null,
+        dismissalRegret: dismissed ? `${dismissed.regret}/${dismissed.total}` : '0/0',
+        evidence: n >= MIN_OUTCOME_EVIDENCE ? 'reviewable' : `insufficient_evidence (${n} < ${MIN_OUTCOME_EVIDENCE})`,
+      };
+    });
+
+    // Data-quality gate — latest-per-trip resolved in SQL (DISTINCT ON),
+    // never rescanned in memory.
+    const { counts: dqCounts, total: dqTotal } = await this.quality.latestClassCounts();
     const dqRejectionRate = dqTotal ? round2(((dqCounts.suspect + dqCounts.excluded) / dqTotal) * 100) : null;
 
     // Activation advice: outcome evidence or stay shadowed. No exceptions.
@@ -107,7 +163,7 @@ export class AiPerformanceBrief {
         metrics: [
           metric({ name: 'inferences_total', value: inferences.length, window: w.label, sampleSize: inferences.length, source: 'ai_inference_logs (operational)', qualityLabel: 'operational', isCount: true }),
         ],
-        zoneTable: { columns: ['family', 'inferences', 'fallbackRatePct', 'overBudgetRatePct', 'p95LatencyMs'], rows: familyRows },
+        zoneTable: { columns: ['family', 'domain', 'inferences', 'fallbackRatePct', 'overBudgetRatePct', 'p95LatencyMs'], rows: familyRows },
         notes: ['overBudgetRatePct estimates timeout exposure: ai-service latency above the caller\'s own timeout budget'],
       },
       {
@@ -117,6 +173,21 @@ export class AiPerformanceBrief {
         ],
         zoneTable: { columns: ['bucket', 'n', 'predictedMean', 'actualAcceptance'], rows: buckets },
         notes: ['predictions are the REAL shadow values (never the served neutral 0.5)'],
+      },
+      {
+        title: 'Recommendation family performance (Founder-scored outcomes)',
+        metrics: [
+          metric({ name: 'scored_outcomes_total', value: scored.length, window: 'all time', sampleSize: scored.length, source: 'ai_recommendations (operational)', qualityLabel: 'operational', isCount: true }),
+        ],
+        zoneTable: {
+          columns: ['family', 'scoredOutcomes', 'meanConfidence', 'meanOutcomeScore', 'brierMse', 'dismissalRegret', 'evidence'],
+          rows: calibrationRows,
+        },
+        notes: [
+          `calibration statistics render only at ${MIN_OUTCOME_EVIDENCE}+ scored outcomes per family — immature calibration is never presented as reliable`,
+          'generated ≠ scored: only Founder-scored outcomes count as evidence; adoption rate is NOT recommendation quality',
+          'dismissal regret = dismissed recommendations later scored ≥ 0.7',
+        ],
       },
       {
         title: 'Data-quality gate',

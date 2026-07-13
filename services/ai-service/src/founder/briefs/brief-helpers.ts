@@ -1,4 +1,3 @@
-import { PrismaService } from '../../prisma/prisma.service';
 import { BriefMetric, QualityLabel } from './brief.types';
 import { MIN_SAMPLE_SIZE } from '../../recommendations/recommendation.types';
 
@@ -23,7 +22,16 @@ export function briefWindow(days = WINDOW_DAYS, now = new Date()): BriefWindow {
   return { start, end, prevStart, prevEnd, label: `${d(start)}..${d(end)}`, prevLabel: `${d(prevStart)}..${d(prevEnd)}` };
 }
 
-/** 2km grid — the platform-wide zone convention (finest allowed location granularity). */
+/**
+ * 2km grid — the platform-wide zone convention (finest allowed location
+ * granularity).
+ *
+ * PHASE 3.3 SCALING THRESHOLD: brief/opportunity zone rollups group trips by
+ * this key IN MEMORY. That is correct and bounded at alpha/launch volume, but
+ * once a weekly window exceeds ~50k trip rows the per-zone aggregation must
+ * move to a read-only SQL `GROUP BY` on the zone expression (or a projected
+ * feature-store rollup). Deferred deliberately — do NOT pre-build it.
+ */
 export function zoneKey(lat: number, lng: number): string {
   return `${Math.floor(lat / 0.018)}:${Math.floor(lng / 0.022)}`;
 }
@@ -33,24 +41,6 @@ export function round2(n: number): number { return Math.round(n * 100) / 100; }
 export function changePct(current: number, previous: number): number | null {
   if (!Number.isFinite(previous) || previous === 0) return null;
   return round2(((current - previous) / previous) * 100);
-}
-
-/**
- * Latest data-quality class per trip (from the C1–C5 classifier's audited
- * trip_events). Monetary metrics use Trusted + Reconciled ONLY.
- */
-export async function latestQualityClasses(prisma: PrismaService): Promise<Map<string, string>> {
-  const events = await prisma.tripEvent.findMany({
-    where: { eventType: 'data_quality_classified' },
-    orderBy: { createdAt: 'asc' },
-    select: { tripId: true, metadata: true },
-  });
-  const latest = new Map<string, string>();
-  for (const e of events) {
-    const cls = (e.metadata as { class?: string } | null)?.class;
-    if (cls) latest.set(e.tripId, cls);
-  }
-  return latest;
 }
 
 export function moneyEligible(classes: Map<string, string>, tripId: string): boolean {

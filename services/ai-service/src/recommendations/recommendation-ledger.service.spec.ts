@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, UnprocessableEntityException } from '@nestjs/common';
-import { RecommendationLedgerService } from './recommendation-ledger.service';
+import { RecommendationLedgerService, encodeCursor, decodeCursor } from './recommendation-ledger.service';
 import { INSUFFICIENT_EVIDENCE, UniversalRecommendation } from './recommendation.types';
 
 const mockTx = {
@@ -137,31 +137,82 @@ describe('ledger — lifecycle transitions', () => {
   });
 });
 
-describe('ledger — listing bounds', () => {
+describe('ledger — cursor pagination', () => {
+  const row = (id: string, iso: string) => ({
+    id, createdAt: new Date(iso), domain: 'opportunity', family: 'zone-opportunity',
+    recommendationType: 't', title: 't', status: 'proposed', confidence: 0.5, sampleSize: 5,
+    constitutionTags: [], outcomeScore: null, expiresAt: null,
+  });
+
   beforeEach(() => {
     mockPrisma.aiRecommendation.findMany.mockResolvedValue([]);
     mockPrisma.aiRecommendation.count.mockResolvedValue(0);
   });
 
-  it('caps page size at 100', async () => {
-    await service.list({ page: 1, limit: 5000 });
-    expect(mockPrisma.aiRecommendation.findMany.mock.calls[0][0].take).toBe(100);
+  it('caps page size at 100 and over-fetches one to detect a next page', async () => {
+    await service.list({ limit: 5000 });
+    expect(mockPrisma.aiRecommendation.findMany.mock.calls[0][0].take).toBe(101); // 100 + 1
+  });
+
+  it('orders by (createdAt desc, id desc) for stable keyset pagination', async () => {
+    await service.list({ limit: 10 });
+    expect(mockPrisma.aiRecommendation.findMany.mock.calls[0][0].orderBy).toEqual([
+      { createdAt: 'desc' }, { id: 'desc' },
+    ]);
+  });
+
+  it('returns a nextCursor only when more rows exist, and never returns the extra row', async () => {
+    // limit 2, but 3 rows returned → hasMore
+    mockPrisma.aiRecommendation.findMany.mockResolvedValue([
+      row('c', '2026-07-03T00:00:00Z'), row('b', '2026-07-02T00:00:00Z'), row('a', '2026-07-01T00:00:00Z'),
+    ]);
+    const res = await service.list({ limit: 2 });
+    expect(res.items.map((i) => i.id)).toEqual(['c', 'b']); // extra 'a' withheld
+    expect(res.nextCursor).toBeTruthy();
+  });
+
+  it('no nextCursor on the last page', async () => {
+    mockPrisma.aiRecommendation.findMany.mockResolvedValue([row('b', '2026-07-02T00:00:00Z')]);
+    const res = await service.list({ limit: 2 });
+    expect(res.nextCursor).toBeNull();
+  });
+
+  it('a next-page cursor produces a keyset predicate that breaks ties by id (no dup/skip on equal timestamps)', async () => {
+    const cursor = encodeCursor({ createdAt: new Date('2026-07-02T00:00:00Z'), id: 'b' });
+    await service.list({ limit: 10, cursor });
+    const where = mockPrisma.aiRecommendation.findMany.mock.calls[0][0].where;
+    // AND[filters, OR[ createdAt<cursor, (createdAt=cursor AND id<cursorId) ]]
+    const or = where.AND[1].OR;
+    expect(or[0]).toEqual({ createdAt: { lt: new Date('2026-07-02T00:00:00Z') } });
+    expect(or[1]).toEqual({ createdAt: new Date('2026-07-02T00:00:00Z'), id: { lt: 'b' } });
+  });
+
+  it('rejects a malformed cursor', async () => {
+    await expect(service.list({ limit: 10, cursor: 'not-a-real-cursor!!' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects date ranges wider than a year', async () => {
     await expect(
-      service.list({ page: 1, limit: 10, from: new Date('2020-01-01'), to: new Date('2026-01-01') }),
+      service.list({ limit: 10, from: new Date('2020-01-01'), to: new Date('2026-01-01') }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('filters by domain, status, and constitution tag', async () => {
-    await service.list({ page: 1, limit: 10, domain: 'opportunity', status: 'proposed', constitutionTag: 'meaningful_ai' });
-    const where = mockPrisma.aiRecommendation.findMany.mock.calls[0][0].where;
-    expect(where).toMatchObject({
-      domain: 'opportunity',
-      status: 'proposed',
-      constitutionTags: { has: 'meaningful_ai' },
-    });
+  it('filters by domain, status, and constitution tag (total is filter-scoped)', async () => {
+    await service.list({ limit: 10, domain: 'opportunity', status: 'proposed', constitutionTag: 'meaningful_ai' });
+    const findWhere = mockPrisma.aiRecommendation.findMany.mock.calls[0][0].where;
+    expect(findWhere).toMatchObject({ domain: 'opportunity', status: 'proposed', constitutionTags: { has: 'meaningful_ai' } });
+    // count uses the same filter (no keyset), so the total is meaningful
+    expect(mockPrisma.aiRecommendation.count.mock.calls[0][0].where).toMatchObject({ domain: 'opportunity' });
+  });
+});
+
+describe('cursor encode/decode round-trips', () => {
+  it('round-trips createdAt + id and rejects garbage', () => {
+    const k = { createdAt: new Date('2026-07-02T03:04:05.678Z'), id: 'abc-123' };
+    const decoded = decodeCursor(encodeCursor(k));
+    expect(decoded.createdAt.toISOString()).toBe(k.createdAt.toISOString());
+    expect(decoded.id).toBe('abc-123');
+    expect(() => decodeCursor('###')).toThrow();
   });
 });
 

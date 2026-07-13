@@ -1,9 +1,20 @@
 # BidRide — Intelligence Layer Architecture v1.0 (AI Core Phase 3)
 
-**Status:** Pending Founder Approval — DESIGN ONLY, no code
+**Status:** Phases 3.1 and 3.2 IMPLEMENTED (Founder-approved); this document is the architecture of record. Later phases remain design-only.
 **Author:** Engineering
-**Date:** 2026-07-11
+**Date:** 2026-07-11 (architecture) · 2026-07-12 (Phase 3.1 + 3.2 shipped)
 **Scope:** The AI Operating System every current and future BidRide product consumes
+
+> **Shipped delta (Phase 3.2 — Close the Learning Loop):** the loop now runs
+> end to end — outcome-evidence snapshots (before/after canonical metrics,
+> Trusted/Reconciled-gated, advisory suggested score never auto-applied),
+> Founder-only outcome scoring, per-family calibration (Brier + dismissal
+> regret behind a 20-scored-outcome floor), the weekly Focus brief (seven
+> sections, governed top-3 priorities), a leader-locked Redis scheduler that
+> owns all recurring jobs (briefs, opportunity, outcome snapshots, expiry
+> sweep, retention — replacing the old per-replica timers), read-only brief
+> GETs with staleness SLAs, a bounded shared QualityClassService, and stable
+> keyset cursor pagination. AI remains advisory/shadow-only throughout.
 **Builds on:** `ai-core-architecture.md` (Phase 1), the Phase 2 shadow AI foundation (uncommitted, approved), `ai-governance-rules.md` v1.1, `ai-core-data-readiness.md`, and the 2026-07-02 suite (event catalog, feature registry, model registry, versioning)
 
 > Positioning: Phase 1 designed the AI Core. Phase 2 built its foundation —
@@ -269,10 +280,10 @@ first domain to run un-shadowed (§11).
 |---|---|---|
 | **Marketplace health** (daily) | feature store, bid_outcomes, session logs | supply/demand balance by zone, acceptance, cancellation, wait — "what neighborhoods are growing" (zone trip growth), n-stated |
 | **Money map** (daily) | trips.finalFare, financial_ledger, earnings supplements (Trusted only) | "where are we losing money" — per-zone contribution incl. floor supplements the platform absorbed |
-| **Churn signals** (weekly) | driver_session_logs decay, rider trip recency, ratings | "why are drivers leaving / riders cancelling" — cohort curves + top correlated factors (cancellation reasons from trip_events) |
-| **AI performance review** (weekly) | ledger + inference/outcome joins + calibration | "which AI recommendations produce results, which fail" — per family: calibration, adopt rate, outcome score, clamp saturation |
-| **Trust map** (weekly) | ratings, integrity events, refunds, fraud alerts, ticket categories | "where are we earning/losing trust" |
-| **Focus brief** (daily) | all of the above, ranked by expectedValue × confidence | "what should I focus on tomorrow" — top 3 standing recommendations with full format |
+| **Churn signals** (weekly) — *DEFERRED, not shipped in 3.2* | driver_session_logs decay, rider trip recency, ratings | "why are drivers leaving / riders cancelling" — cohort curves + top correlated factors (cancellation reasons from trip_events) |
+| **AI performance review** (SHIPPED — **daily**) | ledger + inference/outcome joins + calibration | "which AI recommendations produce results, which fail" — per family: calibration (Brier, dismissal regret, 20-scored floor), outcome score |
+| **Trust map** (weekly) — *DEFERRED, not shipped in 3.2* | ratings, integrity events, refunds, fraud alerts, ticket categories | "where are we earning/losing trust" |
+| **Focus brief** (SHIPPED — **weekly**, per Founder directive) | all of the above, ranked by expectedValue × confidence | "what should I focus on this week" — top 3 standing recommendations with full format |
 
 "Which cities are ready for launch" and "what businesses should we recruit"
 require data BidRide doesn't collect yet (external market data, merchant
