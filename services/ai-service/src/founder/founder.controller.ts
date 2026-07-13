@@ -1,8 +1,9 @@
-import { Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { InternalKeyGuard } from '../internal-key.guard';
 import { FounderService, parseBriefType } from './founder.service';
 import { OpportunityAnalyzer } from './opportunity.analyzer';
 import { DomainSwitchService } from '../domains/domain-switch.service';
+import { OutcomeSnapshotService } from './outcome-snapshot.service';
 import { getDomain } from '../domains/domain-manifest';
 
 // Internal-only. The admin-service Founder proxy is the sole intended caller.
@@ -19,6 +20,7 @@ export class FounderController {
     private readonly founder: FounderService,
     private readonly opportunity: OpportunityAnalyzer,
     private readonly switches: DomainSwitchService,
+    private readonly outcomes: OutcomeSnapshotService,
   ) {}
 
   @Get('briefs')
@@ -28,9 +30,11 @@ export class FounderController {
   }
 
   @Get('briefs/:type')
-  async latest(@Param('type') type: string, @Query('refresh') refresh?: string) {
+  async latest(@Param('type') type: string) {
+    // Pure read: returns { brief, generatedAt, stale, slaMinutes } and NEVER
+    // generates. Missing briefs are represented honestly (brief: null).
     await this.switches.assertEnabled(FOUNDER_SWITCH, 'Founder Intelligence');
-    return this.founder.latest(parseBriefType(type), refresh === 'true');
+    return this.founder.latestWithFreshness(parseBriefType(type));
   }
 
   @Post('briefs/:type/generate')
@@ -45,5 +49,20 @@ export class FounderController {
   async generateOpportunity() {
     await this.switches.assertEnabled(OPPORTUNITY_SWITCH, 'Opportunity Intelligence');
     return this.opportunity.generate();
+  }
+
+  // Outcome evidence snapshots — measurement only; the Founder scores.
+  @Post('outcome-snapshots/run')
+  @HttpCode(HttpStatus.OK)
+  async runOutcomeSnapshots() {
+    await this.switches.assertEnabled(FOUNDER_SWITCH, 'Founder Intelligence');
+    return this.outcomes.snapshotDue();
+  }
+
+  @Post('outcome-snapshots/:id')
+  @HttpCode(HttpStatus.OK)
+  async snapshotOne(@Param('id', ParseUUIDPipe) id: string) {
+    await this.switches.assertEnabled(FOUNDER_SWITCH, 'Founder Intelligence');
+    return this.outcomes.snapshotOne(id);
   }
 }

@@ -1479,6 +1479,7 @@ model AiRecommendation {
   canonicalRefs      Json?     @map("canonical_refs") // references to canonical rows, never money copies
   outcomeScore       Decimal?  @map("outcome_score") @db.Decimal(5, 4)
   outcomeNotes       String?   @map("outcome_notes")
+  outcomeEvidence    Json?     @map("outcome_evidence") // before/after measurement snapshot — explicitly non-authoritative
   createdAt          DateTime  @default(now()) @map("created_at")
   expiresAt          DateTime? @map("expires_at")
 
