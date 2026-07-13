@@ -8,6 +8,8 @@ import { RecommendationsModule } from './recommendations/recommendations.module'
 import { DomainsModule } from './domains/domains.module';
 import { FounderModule } from './founder/founder.module';
 import { RetentionModule } from './retention/retention.module';
+import { QualityModule } from './quality/quality.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { RetentionModule } from './retention/retention.module';
     DomainsModule,
     FounderModule,
     RetentionModule,
+    QualityModule,
+    SchedulerModule,
   ],
 })
 export class AppModule {}

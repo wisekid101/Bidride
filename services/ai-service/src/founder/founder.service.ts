@@ -4,10 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MarketplaceHealthBrief } from './briefs/marketplace-health.brief';
 import { MoneyMapBrief } from './briefs/money-map.brief';
 import { AiPerformanceBrief } from './briefs/ai-performance.brief';
+import { FocusBrief } from './briefs/focus.brief';
 import { BriefType, FounderBrief } from './briefs/brief.types';
 import { BRIEFS_SOURCE_VERSION } from './briefs/brief-helpers';
+import { slaMinutesFor } from '../scheduler/job-config';
 
-export const BRIEF_TYPES: BriefType[] = ['marketplace_health', 'money_map', 'ai_performance'];
+export const BRIEF_TYPES: BriefType[] = ['marketplace_health', 'money_map', 'ai_performance', 'focus'];
 
 @Injectable()
 export class FounderService {
@@ -16,6 +18,7 @@ export class FounderService {
     private readonly marketplaceHealth: MarketplaceHealthBrief,
     private readonly moneyMap: MoneyMapBrief,
     private readonly aiPerformance: AiPerformanceBrief,
+    private readonly focus: FocusBrief,
   ) {}
 
   async generate(type: BriefType): Promise<FounderBrief> {
@@ -32,28 +35,38 @@ export class FounderService {
     return brief;
   }
 
-  /** Latest stored brief of a type; generates one if none exists (or refresh requested). */
-  async latest(type: BriefType, refresh = false): Promise<FounderBrief> {
-    if (!refresh) {
-      const row = await this.prisma.aiBrief.findFirst({
-        where: { briefType: type },
-        orderBy: { generatedAt: 'desc' },
-      });
-      if (row) return row.payload as unknown as FounderBrief;
-    }
-    return this.generate(type);
+  /**
+   * READ-ONLY latest brief + freshness. GET never generates — the scheduler
+   * (or an explicit POST generate) is the only writer, so a scheduler or
+   * Redis failure makes briefs visibly stale instead of silently regenerated.
+   */
+  async latestWithFreshness(type: BriefType, now = new Date()): Promise<{
+    brief: FounderBrief | null;
+    generatedAt: string | null;
+    stale: boolean;
+    slaMinutes: number;
+  }> {
+    const slaMinutes = await slaMinutesFor(this.prisma, type);
+    const row = await this.prisma.aiBrief.findFirst({
+      where: { briefType: type },
+      orderBy: { generatedAt: 'desc' },
+    });
+    if (!row) return { brief: null, generatedAt: null, stale: true, slaMinutes };
+    const ageMin = (now.getTime() - row.generatedAt.getTime()) / 60_000;
+    return {
+      brief: row.payload as unknown as FounderBrief,
+      generatedAt: row.generatedAt.toISOString(),
+      stale: ageMin > slaMinutes,
+      slaMinutes,
+    };
   }
 
-  /** Overview: the latest generation timestamp per brief type. */
-  async overview(): Promise<Array<{ briefType: BriefType; generatedAt: string | null }>> {
-    const out: Array<{ briefType: BriefType; generatedAt: string | null }> = [];
+  /** Overview: latest generation timestamp + staleness per brief type. */
+  async overview(now = new Date()): Promise<Array<{ briefType: BriefType; generatedAt: string | null; stale: boolean; slaMinutes: number }>> {
+    const out: Array<{ briefType: BriefType; generatedAt: string | null; stale: boolean; slaMinutes: number }> = [];
     for (const type of BRIEF_TYPES) {
-      const row = await this.prisma.aiBrief.findFirst({
-        where: { briefType: type },
-        orderBy: { generatedAt: 'desc' },
-        select: { generatedAt: true },
-      });
-      out.push({ briefType: type, generatedAt: row?.generatedAt.toISOString() ?? null });
+      const { generatedAt, stale, slaMinutes } = await this.latestWithFreshness(type, now);
+      out.push({ briefType: type, generatedAt, stale, slaMinutes });
     }
     return out;
   }
@@ -63,6 +76,7 @@ export class FounderService {
       case 'marketplace_health': return this.marketplaceHealth;
       case 'money_map': return this.moneyMap;
       case 'ai_performance': return this.aiPerformance;
+      case 'focus': return this.focus;
       default: throw new BadRequestException(`Unknown brief type: ${type as string}`);
     }
   }

@@ -7,5 +7,6 @@ import { InternalKeyGuard } from '../internal-key.guard';
 @Module({
   controllers: [RetentionController],
   providers: [RetentionService, PrismaService, InternalKeyGuard],
+  exports: [RetentionService],
 })
 export class RetentionModule {}

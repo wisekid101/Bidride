@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -48,7 +48,6 @@ export interface RetentionRunSummary {
 
 const CONFIG_KEY = 'ai_retention_config';
 const LAST_RUN_KEY = 'ai_retention_last_run';
-const RUN_INTERVAL_MS = 24 * 3600 * 1000;
 
 // Recommendations that represent Founder decisions or scored learning are
 // retained beyond the window — adopted AND dismissed rows are Founder
@@ -56,35 +55,13 @@ const RUN_INTERVAL_MS = 24 * 3600 * 1000;
 // undecided expired proposals are deletable.
 const DELETABLE_RECOMMENDATION_STATUSES = ['expired'];
 
+// Scheduling moved to the leader-locked SchedulerService (Phase 3.2) — this
+// service no longer owns a timer, so multiple replicas never sweep twice.
 @Injectable()
-export class RetentionService implements OnModuleInit, OnModuleDestroy {
+export class RetentionService {
   private readonly logger = new Logger(RetentionService.name);
-  private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
-
-  onModuleInit(): void {
-    this.timer = setInterval(() => {
-      void this.scheduledRun();
-    }, RUN_INTERVAL_MS);
-    // Initial run shortly after boot — deploys more frequent than the
-    // interval must not mean retention never executes.
-    setTimeout(() => void this.scheduledRun(), 120_000);
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
-  private async scheduledRun(): Promise<void> {
-    try {
-      const config = await this.loadConfig();
-      if (!config.scheduleEnabled) return;
-      await this.run(false);
-    } catch (e) {
-      this.logger.error('scheduled retention run failed', e as Error);
-    }
-  }
 
   async loadConfig(): Promise<RetentionConfig> {
     try {
