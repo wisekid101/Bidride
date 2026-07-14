@@ -25,6 +25,7 @@ jobs:
           node-version: '${{ env.NODE_VERSION }}'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bidride/database exec prisma generate
       - run: pnpm turbo run lint typecheck
 
   # ─── Unit Tests ────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ jobs:
           node-version: '${{ env.NODE_VERSION }}'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bidride/database exec prisma generate
       - run: pnpm turbo run test --filter='./services/*'
         env:
           NODE_ENV: test
@@ -79,6 +81,7 @@ jobs:
           node-version: '${{ env.NODE_VERSION }}'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bidride/database exec prisma generate
       - name: Run DB migrations
         run: pnpm db:migrate:prod
         env:
