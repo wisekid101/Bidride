@@ -14,6 +14,7 @@ const SENSITIVE_KEYS = new Set([
   'authorization', 'otp', 'pin', 'cvv', 'cardNumber', 'ssn', 'dob',
   'privateKey', 'apiKey', 'webhookSecret', 'stripeKey', 'signingKey',
   'access_token', 'refresh_token', 'card_number', 'api_key', 'webhook_secret',
+  'cookie', 'set-cookie', 'setcookie',
 ]);
 
 function redact(value: unknown, depth = 0): unknown {

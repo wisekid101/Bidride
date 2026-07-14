@@ -9,7 +9,7 @@ interface HistogramEntry {
   labels: Labels;
 }
 
-class Counter {
+export class Counter {
   private readonly entries = new Map<string, CounterEntry>();
 
   constructor(
@@ -37,7 +37,7 @@ class Counter {
   }
 }
 
-class Gauge {
+export class Gauge {
   private readonly entries = new Map<string, GaugeEntry>();
 
   constructor(
@@ -73,7 +73,7 @@ class Gauge {
   }
 }
 
-class Histogram {
+export class Histogram {
   private readonly entries = new Map<string, HistogramEntry>();
   private readonly bounds: number[];
 

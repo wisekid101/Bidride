@@ -1,0 +1,6 @@
+{
+  "name": "@bidride/observability-nest-subpath",
+  "private": true,
+  "main": "../dist/nest/index.js",
+  "types": "../dist/nest/index.d.ts"
+}

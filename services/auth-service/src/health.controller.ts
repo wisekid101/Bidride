@@ -48,7 +48,8 @@ export class HealthController {
     };
   }
 
-  // Full dependency health
+  // Full dependency health (unchanged). Standardized liveness/readiness are
+  // additionally served by the shared adapter at /live and /ready.
   @Get()
   async check() {
     return this.ready();
