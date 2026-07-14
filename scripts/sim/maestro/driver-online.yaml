@@ -1,0 +1,10 @@
+# DEV-ONLY acceptance-harness flow: toggle the driver Online.
+# Runs against Expo Go (host.exp.Exponent). stopApp:false re-foregrounds WITHOUT
+# a JS reload, so the driver socket is preserved (Phase 1 root-cause fix).
+appId: host.exp.Exponent
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    point: "25%,10%"   # Offline/Online toggle switch (Driver Hub top-left)
+- takeScreenshot: .maestro-artifacts/driver-online

@@ -1,116 +1,176 @@
 /**
  * Integration tests for trip service — runs against real PostgreSQL + Redis.
  * Requires TEST_DATABASE_URL and TEST_REDIS_URL environment variables.
+ *
+ * Scope: three DB/Redis-only scenarios that exercise real persistence without
+ * any downstream service (no pricing / payment / ai / trust / safety HTTP):
+ *   1. Earnings floor enforcement (EarningsFloorService.enforce)
+ *   2. Redis NX race / acceptTrip concurrency guard
+ *   3. markNoShow using a TripEvent('driver_arrived') timestamp
+ *
+ * The injected PrismaService reads DATABASE_URL, so we pin it to the test
+ * database here to guarantee every connection targets TEST_DATABASE_URL only.
  */
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@bidride/database';
 import { Redis } from 'ioredis';
 import { TripsService } from './trips.service';
 import { EarningsFloorService } from './earnings-floor.service';
+import { DispatchService } from './dispatch.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { REDIS_CLIENT } from '../redis/redis.module';
 
+// Test-owned client, explicitly pinned to the test database.
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.TEST_DATABASE_URL } },
 });
-const redis = new Redis(process.env.TEST_REDIS_URL ?? 'redis://localhost:6379/1');
+// Single Redis connection shared by the test and the DI container.
+const redis = new Redis(process.env.TEST_REDIS_URL ?? 'redis://localhost:6379');
+
+const RIDER_PHONE = '+19995550001';
+const DRIVER_PHONE = '+19995550002';
+const PHONES = [RIDER_PHONE, DRIVER_PHONE];
+
+/** Delete all rows we could have created, in FK-safe order. Idempotent. */
+async function cleanup() {
+  const users = await prisma.user.findMany({
+    where: { phone: { in: PHONES } },
+    include: { rider: true, driver: true },
+  });
+  const riderIds = users.map((u) => u.rider?.id).filter((id): id is string => !!id);
+  const driverIds = users.map((u) => u.driver?.id).filter((id): id is string => !!id);
+
+  const trips = await prisma.trip.findMany({
+    where: { OR: [{ riderId: { in: riderIds } }, { driverId: { in: driverIds } }] },
+    select: { id: true },
+  });
+  const tripIds = trips.map((t) => t.id);
+  if (tripIds.length) {
+    await prisma.earningsFloorLog.deleteMany({ where: { tripId: { in: tripIds } } });
+    await prisma.tripEvent.deleteMany({ where: { tripId: { in: tripIds } } });
+    await prisma.trip.deleteMany({ where: { id: { in: tripIds } } });
+  }
+  if (driverIds.length) await prisma.driver.deleteMany({ where: { id: { in: driverIds } } });
+  if (riderIds.length) await prisma.rider.deleteMany({ where: { id: { in: riderIds } } });
+  await prisma.user.deleteMany({ where: { phone: { in: PHONES } } });
+}
+
+/** Assert a promise rejects with a BadRequestException carrying `{ code }`. */
+async function expectRejectCode(promise: Promise<unknown>, code: string) {
+  let caught: unknown;
+  try {
+    await promise;
+  } catch (e) {
+    caught = e;
+  }
+  expect(caught).toBeInstanceOf(BadRequestException);
+  expect((caught as BadRequestException).getResponse()).toMatchObject({ code });
+}
 
 describe('TripsService (integration)', () => {
-  let service: TripsService;
-  let floorService: EarningsFloorService;
-  let testRiderId: string;
-  let testDriverId: string;
-  let testTripId: string;
+  let moduleRef: TestingModule;
+  let trips: TripsService;
+  let floor: EarningsFloorService;
+  let servicePrisma: PrismaService;
+
+  let riderId: string; // Rider profile id
+  let driverId: string; // Driver profile id
+  let driverUserId: string; // Driver's User id (what the service APIs expect)
 
   beforeAll(async () => {
-    // Create test user + rider
+    await cleanup(); // clear any residue from a prior interrupted run
+
     const riderUser = await prisma.user.create({
-      data: {
-        phone: '+19995550001',
-        role: 'rider',
-        rider: {
-          create: {
-            stripeCustomerId: 'cus_test_integration',
-          },
-        },
-      },
+      data: { phone: RIDER_PHONE, role: 'rider', rider: { create: {} } },
       include: { rider: true },
     });
-    testRiderId = riderUser.rider!.id;
+    riderId = riderUser.rider!.id;
 
-    // Create test user + driver
     const driverUser = await prisma.user.create({
       data: {
-        phone: '+19995550002',
+        phone: DRIVER_PHONE,
         role: 'driver',
         driver: {
           create: {
             status: 'approved',
             legalFirstName: 'Test',
             legalLastName: 'Driver',
-            stripeAccountId: 'acct_test_integration',
+            dateOfBirth: new Date('1990-01-01'),
           },
         },
       },
       include: { driver: true },
     });
-    testDriverId = driverUser.driver!.id;
+    driverUserId = driverUser.id;
+    driverId = driverUser.driver!.id;
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [TripsService, EarningsFloorService],
+    // `.compile()` without `.init()` wires DI but does NOT fire onModuleInit,
+    // so the dispatch-sweep timer never starts and no background HTTP fires.
+    moduleRef = await Test.createTestingModule({
+      providers: [
+        TripsService,
+        EarningsFloorService,
+        DispatchService,
+        PrismaService,
+        { provide: REDIS_CLIENT, useValue: redis },
+      ],
     }).compile();
 
-    service = module.get(TripsService);
-    floorService = module.get(EarningsFloorService);
+    trips = moduleRef.get(TripsService);
+    floor = moduleRef.get(EarningsFloorService);
+    servicePrisma = moduleRef.get(PrismaService);
   });
 
   afterAll(async () => {
-    // Clean up test data
-    await prisma.trip.deleteMany({ where: { riderId: testRiderId } });
-    await prisma.driver.deleteMany({ where: { id: testDriverId } });
-    await prisma.rider.deleteMany({ where: { id: testRiderId } });
-    await prisma.user.deleteMany({ where: { phone: { in: ['+19995550001', '+19995550002'] } } });
+    await cleanup();
+    await servicePrisma?.$disconnect();
     await prisma.$disconnect();
     await redis.quit();
   });
 
-  describe('requestTrip', () => {
-    it('creates a trip in searching status', async () => {
-      const trip = await service.requestTrip(
-        { id: 'user-rider-1' } as any,
-        {
-          pickupLat: 40.7580,
-          pickupLng: -74.0060,
-          dropoffLat: 40.7128,
-          dropoffLng: -74.0060,
-          pickupAddress: '30 Rockefeller Plaza, New York',
-          dropoffAddress: '1 World Trade Center, New York',
-          vehicleClass: 'standard',
-          paymentMethodId: 'pm_test_card',
-          riderId: testRiderId,
+  describe('earnings floor enforcement', () => {
+    it('writes a supplement log when driver earnings are below the floor', async () => {
+      const trip = await prisma.trip.create({
+        data: {
+          riderId,
+          driverId,
+          status: 'in_progress',
+          pickupAddress: 'A',
+          dropoffAddress: 'B',
+          pickupLat: 40.7128,
+          pickupLng: -74.006,
+          dropoffLat: 40.73,
+          dropoffLng: -74.006,
+          aiFare: 5.5,
+          actualDistanceMiles: 1.2,
         },
+      });
+
+      // Floor (default formula) = 1.2*1.10 + 15*0.22 + 2.50 = 7.12; earnings 1.00 → supplement 6.12.
+      const result = await floor.enforce(
+        { id: trip.id, driverId, actualDistanceMiles: 1.2 },
+        1.0,
+        15,
       );
 
-      testTripId = trip.id;
-      expect(trip.status).toBe('searching');
-      expect(trip.riderId).toBe(testRiderId);
-      expect(trip.driverId).toBeNull();
+      expect(result.floorMet).toBe(false);
+      expect(result.supplement).toBeGreaterThan(0);
+
+      const log = await prisma.earningsFloorLog.findUnique({ where: { tripId: trip.id } });
+      expect(log).not.toBeNull();
+      expect(Number(log!.supplementAmount)).toBeGreaterThan(0);
+      expect(Number(log!.supplementAmount)).toBeCloseTo(result.supplement, 2);
     });
   });
 
-  describe('acceptTrip — race condition prevention', () => {
-    it('only one driver can claim a trip via Redis NX', async () => {
-      // Set up lock as if first driver already claimed
-      await redis.set(`trip:accept:lock:${testTripId}`, testDriverId, 'NX', 'EX', 30);
-
-      await expect(
-        service.acceptTrip(testTripId, 'driver-id-two'),
-      ).rejects.toThrow('TRIP_ALREADY_CLAIMED');
-    });
-
-    it('first driver wins the race', async () => {
-      // Create a fresh trip
+  describe('acceptTrip — Redis NX concurrency guard', () => {
+    it('rejects a second driver when the trip is already claimed', async () => {
       const trip = await prisma.trip.create({
         data: {
-          riderId: testRiderId,
+          riderId,
           status: 'searching',
           pickupAddress: 'A',
           dropoffAddress: 'B',
@@ -118,137 +178,51 @@ describe('TripsService (integration)', () => {
           pickupLng: -74.0,
           dropoffLat: 40.72,
           dropoffLng: -74.01,
-          aiFare: 18.50,
-          vehicleClass: 'standard',
+          aiFare: 18.5,
         },
       });
 
-      const accepted = await service.acceptTrip(trip.id, testDriverId);
-      expect(accepted.driverId).toBe(testDriverId);
-      expect(accepted.status).toBe('accepted');
+      // Simulate a first driver having already claimed the trip via the NX lock.
+      const lockKey = `trip:${trip.id}:claimed`;
+      await redis.set(lockKey, 'first-driver', 'EX', 30, 'NX');
 
-      // Clean up
-      await prisma.trip.delete({ where: { id: trip.id } });
+      await expectRejectCode(trips.acceptTrip(trip.id, driverUserId), 'TRIP_ALREADY_CLAIMED');
+
+      await redis.del(lockKey);
     });
   });
 
-  describe('endTrip — haversine check', () => {
-    it('rejects end trip if driver is too far from dropoff', async () => {
+  describe('markNoShow — TripEvent arrival timing', () => {
+    async function seedArrivedTrip(arrivedAt: Date): Promise<string> {
       const trip = await prisma.trip.create({
         data: {
-          riderId: testRiderId,
-          driverId: testDriverId,
-          status: 'in_progress',
-          pickupAddress: 'A',
-          dropoffAddress: 'B',
-          pickupLat: 40.7580,
-          pickupLng: -74.0060,
-          dropoffLat: 40.7128,
-          dropoffLng: -74.0060,
-          aiFare: 18.50,
-          vehicleClass: 'standard',
-          startedAt: new Date(Date.now() - 1800000),
-        },
-      });
-
-      await expect(
-        service.endTrip(trip.id, testDriverId, {
-          currentLat: 40.8,  // ~6 miles away
-          currentLng: -74.0,
-        }),
-      ).rejects.toThrow('TRIP_TOO_FAR_FROM_DROPOFF');
-
-      await prisma.trip.delete({ where: { id: trip.id } });
-    });
-  });
-
-  describe('markNoShow', () => {
-    it('rejects no-show if driver has not waited 5 minutes', async () => {
-      const trip = await prisma.trip.create({
-        data: {
-          riderId: testRiderId,
-          driverId: testDriverId,
+          riderId,
+          driverId,
           status: 'driver_arrived',
           pickupAddress: 'A',
           dropoffAddress: 'B',
-          pickupLat: 40.7580,
-          pickupLng: -74.0060,
+          pickupLat: 40.758,
+          pickupLng: -74.006,
           dropoffLat: 40.7128,
-          dropoffLng: -74.0060,
-          aiFare: 18.50,
-          vehicleClass: 'standard',
-          arrivedAt: new Date(),  // just arrived
+          dropoffLng: -74.006,
+          aiFare: 18.5,
         },
       });
+      await prisma.tripEvent.create({
+        data: { tripId: trip.id, eventType: 'driver_arrived', createdAt: arrivedAt },
+      });
+      return trip.id;
+    }
 
-      await expect(
-        service.markNoShow(trip.id, testDriverId),
-      ).rejects.toThrow('NO_SHOW_TOO_EARLY');
-
-      await prisma.trip.delete({ where: { id: trip.id } });
+    it('rejects no-show before the 5-minute wait has elapsed', async () => {
+      const tripId = await seedArrivedTrip(new Date()); // just arrived
+      await expectRejectCode(trips.markNoShow(tripId, driverUserId), 'NO_SHOW_TOO_EARLY');
     });
 
-    it('allows no-show after 5 minutes', async () => {
-      const trip = await prisma.trip.create({
-        data: {
-          riderId: testRiderId,
-          driverId: testDriverId,
-          status: 'driver_arrived',
-          pickupAddress: 'A',
-          dropoffAddress: 'B',
-          pickupLat: 40.7580,
-          pickupLng: -74.0060,
-          dropoffLat: 40.7128,
-          dropoffLng: -74.0060,
-          aiFare: 18.50,
-          vehicleClass: 'standard',
-          arrivedAt: new Date(Date.now() - 6 * 60 * 1000),  // 6 minutes ago
-        },
-      });
-
-      const result = await service.markNoShow(trip.id, testDriverId);
+    it('allows no-show after the 5-minute wait has elapsed', async () => {
+      const tripId = await seedArrivedTrip(new Date(Date.now() - 6 * 60 * 1000)); // 6 min ago
+      const result = await trips.markNoShow(tripId, driverUserId);
       expect(result.status).toBe('no_show');
-
-      await prisma.trip.delete({ where: { id: trip.id } });
-    });
-  });
-
-  describe('earnings floor integration', () => {
-    it('supplements driver earnings when fare is below floor', async () => {
-      // Floor: (2 miles × $1.10) + (15 min × $0.22) + $2.50 = $7.00
-      const supplementSpy = jest.spyOn(floorService, 'checkAndSupplement');
-
-      const trip = await prisma.trip.create({
-        data: {
-          riderId: testRiderId,
-          driverId: testDriverId,
-          status: 'in_progress',
-          pickupAddress: 'A',
-          dropoffAddress: 'B',
-          pickupLat: 40.7128,
-          pickupLng: -74.0060,
-          dropoffLat: 40.7300,   // ~1.2 miles
-          dropoffLng: -74.0060,
-          aiFare: 5.50,          // Below floor
-          finalFare: 5.50,
-          vehicleClass: 'standard',
-          startedAt: new Date(Date.now() - 15 * 60 * 1000),
-        },
-      });
-
-      // Simulate endTrip calling the floor service
-      await floorService.checkAndSupplement(trip.id, testDriverId, 5.50 * 0.80, 1.2, 15);
-
-      expect(supplementSpy).toHaveBeenCalled();
-
-      const log = await prisma.earningsFloorLog.findFirst({
-        where: { tripId: trip.id },
-      });
-      expect(log).not.toBeNull();
-      expect(parseFloat(log!.supplement.toString())).toBeGreaterThan(0);
-
-      await prisma.earningsFloorLog.deleteMany({ where: { tripId: trip.id } });
-      await prisma.trip.delete({ where: { id: trip.id } });
     });
   });
 });

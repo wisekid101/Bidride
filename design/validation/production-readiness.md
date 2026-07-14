@@ -112,7 +112,7 @@ Grouped by domain. Each item requires a named owner and a confirmed date.
 ## Admin Portal
 
 - [ ] Admin portal (`@bidride/admin`) deployed to production URL
-- [ ] Founder password changed from `CHANGE_ME_IMMEDIATELY`
+- [ ] Founder account seeded with a strong `FOUNDER_SEED_PASSWORD` (no default exists; seeding skips without it)
 - [ ] All admin role accounts created with least-privilege roles
 - [ ] Admin session cookie `httpOnly`, `secure`, `sameSite=strict` in production
 - [ ] Founder-only config mutations tested (earnings floor, surge cap)

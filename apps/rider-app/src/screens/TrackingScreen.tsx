@@ -8,7 +8,8 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
+import { MAP_PROVIDER } from '../constants/map';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
@@ -16,6 +17,8 @@ import { useTripStore } from '../store/trip.store';
 import { useSocketStore } from '../store/socket.store';
 import CounterOfferModal from './CounterOfferModal';
 import { api } from '../api/client';
+import { useFollowCamera } from '../hooks/useFollowCamera';
+import { RecenterButton } from '../components/RecenterButton';
 
 const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
@@ -28,6 +31,7 @@ const STATUS_LABELS: Record<string, string> = {
   driver_arrived:   'Your driver has arrived',
   in_progress:      'Enjoy your ride',
   completed:        'You have arrived!',
+  no_drivers:       'No drivers available. Try again.',
 };
 
 interface GoogleDirectionsResponse {
@@ -53,9 +57,10 @@ function decodePolyline(encoded: string): Array<{ latitude: number; longitude: n
 }
 
 export function TrackingScreen() {
-  const { activeTrip, completedTrip, pendingCounter } = useTripStore();
+  const { activeTrip, completedTrip, pendingCounter, setActiveTrip } = useTripStore();
   const { subscribeToTrip } = useSocketStore();
   const mapRef = useRef<MapView>(null);
+  const { following, follow, onUserGesture, recenter } = useFollowCamera(mapRef);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [routeCoords, setRouteCoords] = useState<Array<{ latitude: number; longitude: number }>>([]);
   const [localEta, setLocalEta] = useState<string | null>(null);
@@ -128,12 +133,22 @@ export function TrackingScreen() {
       .catch(() => {});
   }, [activeTrip?.status, activeTrip?.driverLocation]);
 
+  // Follow the driver marker as its live location updates (matched + in-trip).
+  useEffect(() => {
+    const dl = activeTrip?.driverLocation as { lat: number; lng: number; heading?: number } | undefined;
+    if (dl) follow({ lat: dl.lat, lng: dl.lng }, dl.heading);
+  }, [activeTrip?.driverLocation, follow]);
+
   const handleCancelRide = async () => {
     if (!activeTrip?.id || cancelling) return;
     setCancelling(true);
     try {
       await api.delete(`/trips/${activeTrip.id}`);
-      router.replace('/(tabs)');
+      // The server sends no socket event back to the cancelling rider, so the
+      // store must be cleared here — a stale activeTrip makes Home bounce
+      // straight back to this screen. The !activeTrip effect above then
+      // navigates to (tabs); no direct replace, or the two would race.
+      useTripStore.getState().updateTripStatus('cancelled');
     } catch {
       setCancelling(false);
     }
@@ -142,7 +157,10 @@ export function TrackingScreen() {
   if (!activeTrip) return null;
 
   const driverLocation = activeTrip.driverLocation;
-  const statusLabel = STATUS_LABELS[activeTrip.status] ?? activeTrip.status;
+  const statusLabel =
+    activeTrip.status === 'searching' && (activeTrip.searchingAttempt ?? 0) > 0
+      ? 'Still looking for drivers...'
+      : STATUS_LABELS[activeTrip.status] ?? activeTrip.status;
   const displayEta = activeTrip.estimatedArrival ?? localEta;
   const canCancel = CANCELLABLE_STATUSES.has(activeTrip.status);
 
@@ -150,9 +168,20 @@ export function TrackingScreen() {
     <View style={styles.container}>
       <MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+        provider={MAP_PROVIDER}
         style={styles.map}
         customMapStyle={darkMapStyle}
+        initialRegion={
+          activeTrip.pickupLat && activeTrip.pickupLng
+            ? {
+                latitude: Number(activeTrip.pickupLat),
+                longitude: Number(activeTrip.pickupLng),
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              }
+            : undefined
+        }
+        onPanDrag={onUserGesture}
       >
         {driverLocation && (
           <Marker
@@ -172,6 +201,10 @@ export function TrackingScreen() {
           />
         )}
       </MapView>
+
+      {driverLocation && (
+        <RecenterButton visible={!following} onPress={recenter} style={styles.recenter} />
+      )}
 
       {/* Status Bar */}
       <View style={styles.statusBar}>
@@ -244,6 +277,18 @@ export function TrackingScreen() {
           <Text style={styles.cancelText}>
             {cancelling ? 'Cancelling...' : 'Cancel Ride'}
           </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* No drivers found — trip was cancelled server-side; let the rider leave */}
+      {activeTrip.status === 'no_drivers' && (
+        <TouchableOpacity
+          style={styles.cancelButtonFloating}
+          onPress={() => setActiveTrip(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Try again"
+        >
+          <Text style={styles.cancelText}>Try Again</Text>
         </TouchableOpacity>
       )}
 
@@ -434,6 +479,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  recenter: {
+    position: 'absolute',
+    bottom: 200,
+    right: Spacing.base,
   },
 });
 

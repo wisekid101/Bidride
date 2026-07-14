@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../../src/constants/theme';
 import { useAuthStore } from '../../src/store/auth.store';
 import { useSocketStore } from '../../src/store/socket.store';
@@ -61,9 +61,12 @@ export default function ProfileScreen() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
+  // Refetch on focus so edits from Edit Profile show immediately on return
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfile();
+    }, []),
+  );
 
   const handleSignOut = () => {
     Alert.alert('Sign out', 'Are you sure?', [
@@ -152,9 +155,23 @@ export default function ProfileScreen() {
       <View style={styles.section}>
         <TouchableOpacity
           style={styles.row}
+          onPress={() => router.push('/edit-profile')}
+        >
+          <Text style={styles.rowText}>Edit Profile</Text>
+          <Text style={styles.rowChevron}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.row}
           onPress={() => router.push('/payment-methods')}
         >
           <Text style={styles.rowText}>Payment Methods</Text>
+          <Text style={styles.rowChevron}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => router.push('/saved-places')}
+        >
+          <Text style={styles.rowText}>Saved Places</Text>
           <Text style={styles.rowChevron}>›</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -162,6 +179,24 @@ export default function ProfileScreen() {
           onPress={() => router.push('/trusted-contacts')}
         >
           <Text style={styles.rowText}>Trusted Contacts</Text>
+          <Text style={styles.rowChevron}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Support & Settings */}
+      <View style={styles.section}>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => router.push('/help')}
+        >
+          <Text style={styles.rowText}>Help &amp; Support</Text>
+          <Text style={styles.rowChevron}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.row, styles.rowLast]}
+          onPress={() => router.push('/settings')}
+        >
+          <Text style={styles.rowText}>Settings</Text>
           <Text style={styles.rowChevron}>›</Text>
         </TouchableOpacity>
       </View>

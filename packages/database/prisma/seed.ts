@@ -1,5 +1,6 @@
 import { PrismaClient, AdminRole, UserRole, DriverStatus, BackgroundCheckStatus, TrustUserRole } from '../generated/client';
 import * as bcrypt from 'bcrypt';
+import { resolveFounderSeed } from './founder-seed';
 
 const prisma = new PrismaClient();
 
@@ -112,24 +113,31 @@ async function main() {
     },
   });
 
-  // Initial Founder admin account — CHANGE PASSWORD IMMEDIATELY AFTER SEED
-  const founderPassword = process.env.FOUNDER_SEED_PASSWORD ?? 'CHANGE_ME_IMMEDIATELY';
-  const passwordHash = await bcrypt.hash(founderPassword, 12);
-
-  const founder = await prisma.adminUser.upsert({
+  // Initial Founder admin account — SECURITY: no default credential exists.
+  // Creation requires FOUNDER_SEED_PASSWORD (dev-only secret, never logged);
+  // reruns never overwrite an existing founder password.
+  const existingFounder = await prisma.adminUser.findUnique({
     where: { email: 'marq@bidride.com' },
-    update: {},
-    create: {
-      email: 'marq@bidride.com',
-      passwordHash,
-      firstName: 'Marq',
-      lastName: 'Brown',
-      adminRole: AdminRole.founder,
-      mfaEnabled: false,
-    },
+    select: { id: true },
   });
+  const founderDecision = resolveFounderSeed(process.env, existingFounder !== null);
 
-  console.log(`Founder admin created: ${founder.email}`);
+  if (founderDecision.action === 'create') {
+    const passwordHash = await bcrypt.hash(founderDecision.password, 12);
+    const founder = await prisma.adminUser.create({
+      data: {
+        email: 'marq@bidride.com',
+        passwordHash,
+        firstName: 'Marq',
+        lastName: 'Brown',
+        adminRole: AdminRole.founder,
+        mfaEnabled: false,
+      },
+    });
+    console.log(`Founder admin created: ${founder.email}`); // email only — never the credential
+  } else {
+    console.log(`Founder admin seeding: ${founderDecision.action} (${founderDecision.reason})`);
+  }
 
   // Demo rider
   const riderUser = await prisma.user.upsert({
@@ -240,10 +248,10 @@ async function main() {
   console.log(`Demo rider created: ${riderUser.phone} (${riderUser.email})`);
   console.log(`Demo driver created: ${driverUser.phone} (${driverUser.email})`);
   console.log('Platform config seeded: 8 entries');
-  console.log('\n=== DEMO CREDENTIALS ===');
+  console.log('\n=== DEMO ACCOUNTS ===');
   console.log('Rider phone:  +15551234567  (OTP logged to console in dev mode)');
   console.log('Driver phone: +15559876543  (OTP logged to console in dev mode)');
-  console.log(`Admin email:  marq@bidride.com  password: ${founderPassword}`);
+  console.log('Admin email:  marq@bidride.com  (password: the FOUNDER_SEED_PASSWORD you provided — never printed)');
   console.log('========================\n');
   console.log('Seed complete.');
 }

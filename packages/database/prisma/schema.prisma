@@ -503,6 +503,7 @@ model Trip {
   @@index([driverId, status])
   @@index([riderId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
+  @@index([status, completedAt])
   @@map("trips")
 }
 
@@ -557,6 +558,8 @@ model TripEvent {
 
   trip Trip @relation(fields: [tripId], references: [id])
 
+  @@index([eventType, tripId])
+  @@index([eventType, createdAt])
   @@map("trip_events")
 }
 
@@ -1455,4 +1458,65 @@ model TripSafetyScore {
   @@index([tripId])
   @@index([riskLevel, createdAt(sort: Desc)])
   @@map("trip_safety_scores")
+}
+
+// ─── Intelligence Layer: Recommendation Ledger + Founder Briefs (Phase 3.1) ───
+// The ledger stores ADVISORY recommendations and the human decisions taken on
+// them. It is never a source of financial truth — money fields live only in
+// trips/payments/financial_ledger; the ledger stores references.
+
+model AiRecommendation {
+  id                 String    @id @default(uuid()) @db.Uuid
+  domain             String    @db.VarChar(50)
+  family             String    @db.VarChar(100)
+  recommendationType String    @map("recommendation_type") @db.VarChar(50)
+  title              String    @db.VarChar(200)
+  status             String    @default("proposed") @db.VarChar(30)
+  confidence         Decimal   @db.Decimal(5, 4)
+  sampleSize         Int       @map("sample_size")
+  constitutionTags   String[]  @map("constitution_tags")
+  payload            Json      // full UniversalRecommendation document
+  canonicalRefs      Json?     @map("canonical_refs") // references to canonical rows, never money copies
+  outcomeScore       Decimal?  @map("outcome_score") @db.Decimal(5, 4)
+  outcomeNotes       String?   @map("outcome_notes")
+  outcomeEvidence    Json?     @map("outcome_evidence") // before/after measurement snapshot — explicitly non-authoritative
+  createdAt          DateTime  @default(now()) @map("created_at")
+  expiresAt          DateTime? @map("expires_at")
+
+  events AiRecommendationEvent[]
+
+  @@index([domain, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("ai_recommendations")
+}
+
+model AiRecommendationEvent {
+  id               String   @id @default(uuid()) @db.Uuid
+  recommendationId String   @map("recommendation_id") @db.Uuid
+  actor            String   @db.VarChar(100)
+  actorRole        String   @map("actor_role") @db.VarChar(50)
+  action           String   @db.VarChar(30)
+  previousStatus   String?  @map("previous_status") @db.VarChar(30)
+  newStatus        String   @map("new_status") @db.VarChar(30)
+  reason           String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  recommendation AiRecommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@index([recommendationId, createdAt])
+  @@map("ai_recommendation_events")
+}
+
+model AiBrief {
+  id            String   @id @default(uuid()) @db.Uuid
+  briefType     String   @map("brief_type") @db.VarChar(50)
+  windowStart   DateTime @map("window_start")
+  windowEnd     DateTime @map("window_end")
+  payload       Json
+  sourceVersion String   @map("source_version") @db.VarChar(50)
+  generatedAt   DateTime @default(now()) @map("generated_at")
+
+  @@index([briefType, generatedAt(sort: Desc)])
+  @@map("ai_briefs")
 }

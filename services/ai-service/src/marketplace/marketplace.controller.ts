@@ -6,6 +6,7 @@ import { RepositioningService } from './repositioning.service';
 import { HeatmapService } from './heatmap.service';
 import { DemandForecastService } from './demand-forecast.service';
 import { EarningsOptimizerService } from './earnings-optimizer.service';
+import { ShadowModeService } from '../shadow/shadow-mode.service';
 
 interface DispatchSimulateBody {
   tripId: string;
@@ -22,11 +23,27 @@ export class MarketplaceController {
     private readonly heatmap: HeatmapService,
     private readonly forecast: DemandForecastService,
     private readonly optimizer: EarningsOptimizerService,
+    private readonly shadowMode: ShadowModeService,
   ) {}
 
   @Post('driver-ranking')
-  rankDrivers(@Body() body: RankDriversInput) {
-    return this.ranking.rankDrivers(body);
+  async rankDrivers(@Body() body: RankDriversInput) {
+    // Real ranking always computes (and logs its per-driver inference rows).
+    const ranked = await this.ranking.rankDrivers(body);
+
+    // Shadow gate — Founder hard rule: while shadowed, serve the caller's
+    // own fallback shape (input order, neutral score 50) so dispatch order
+    // never changes because of the AI. The real ranking rides along under
+    // shadowScore for observability without influence.
+    if (await this.shadowMode.isShadow('ranking')) {
+      return (body.candidates ?? []).map((c) => ({
+        driverUserId: c.driverUserId,
+        score: 50,
+        shadow: true,
+        shadowScore: ranked.find((r) => r.driverUserId === c.driverUserId)?.score ?? 50,
+      }));
+    }
+    return ranked;
   }
 
   @Post('dispatch-simulate')

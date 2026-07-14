@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,13 +6,18 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Animated,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Colors } from '../../constants/theme';
+import { api } from '../../api/client';
+import { OnboardingHeader } from './OnboardingHeader';
 
 export default function OnboardingCompleteScreen() {
   const scaleAnim = new Animated.Value(0);
   const fadeAnim = new Animated.Value(0);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     Animated.sequence([
@@ -21,8 +26,31 @@ export default function OnboardingCompleteScreen() {
     ]).start();
   }, []);
 
+  // Home is gated on approval — the button re-checks status so a freshly
+  // approved driver gets in immediately, and everyone else stays here.
+  const checkStatus = async () => {
+    setChecking(true);
+    try {
+      const me = await api.get<{ status: string }>('/drivers/me');
+      if (me.status === 'approved') {
+        router.replace('/(tabs)');
+      } else if (me.status === 'declined') {
+        Alert.alert('Application Declined', 'Please contact support for details.');
+      } else {
+        Alert.alert('Still Under Review', 'Your application has not been approved yet. We’ll text you the moment it is.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not check your application status. Try again.');
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
+      {/* Terminal screen — no earlier step to return to, but the driver must
+          still be able to switch accounts while waiting on review. */}
+      <OnboardingHeader route="/onboarding/complete" showBack={false} />
       <View style={styles.content}>
         <Animated.View style={[styles.iconWrap, { transform: [{ scale: scaleAnim }] }]}>
           <Text style={styles.icon}>🎉</Text>
@@ -51,11 +79,12 @@ export default function OnboardingCompleteScreen() {
       </View>
 
       <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.btn}
-          onPress={() => router.replace('/(tabs)')}
-        >
-          <Text style={styles.btnText}>Go to Dashboard</Text>
+        <TouchableOpacity style={styles.btn} onPress={checkStatus} disabled={checking}>
+          {checking ? (
+            <ActivityIndicator color={Colors.background} />
+          ) : (
+            <Text style={styles.btnText}>Check Approval Status</Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>

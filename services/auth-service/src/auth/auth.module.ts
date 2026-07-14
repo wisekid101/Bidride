@@ -5,6 +5,7 @@ import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { MfaService } from './mfa.service';
 import { JwtStrategy } from './jwt.strategy';
+import { JwtRefreshStrategy } from './jwt-refresh.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Module({
@@ -15,8 +16,9 @@ import { PrismaService } from '../prisma/prisma.service';
     TokenService,
     MfaService,
     JwtStrategy,
+    JwtRefreshStrategy,
     PrismaService,
   ],
-  exports: [TokenService, JwtStrategy],
+  exports: [TokenService, JwtStrategy, JwtRefreshStrategy],
 })
 export class AuthModule {}

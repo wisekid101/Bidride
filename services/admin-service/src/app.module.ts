@@ -14,6 +14,8 @@ import { MarketplaceAdminModule } from './marketplace/marketplace.module';
 import { SafetyAdminModule } from './safety/safety-admin.module';
 import { FinanceModule } from './finance/finance.module';
 import { OperationsModule } from './operations/operations.module';
+import { DriversAdminModule } from './drivers/drivers-admin.module';
+import { IntelligenceModule } from './intelligence/intelligence.module';
 
 @Module({
   controllers: [HealthController],
@@ -32,6 +34,8 @@ import { OperationsModule } from './operations/operations.module';
     SafetyAdminModule,
     FinanceModule,
     OperationsModule,
+    DriversAdminModule,
+    IntelligenceModule,
   ],
 })
 export class AppModule {}

@@ -26,7 +26,16 @@ const STATUS_CONFIG = {
   suspended:        { label: 'Suspended',     color: 'text-red-400 bg-red-900/20',     icon: XCircle },
 };
 
-const QUICK_FILTERS = ['All', 'Pending Review', 'Action Required', 'Approved', 'Suspended'] as const;
+// Chip label → DriverStatus enum value (null = no filter)
+const QUICK_FILTERS: Array<{ label: string; status: string | null }> = [
+  { label: 'All', status: null },
+  { label: 'Pending', status: 'pending' },
+  { label: 'Under Review', status: 'under_review' },
+  { label: 'Action Required', status: 'action_required' },
+  { label: 'Approved', status: 'approved' },
+  { label: 'Declined', status: 'declined' },
+  { label: 'Suspended', status: 'suspended' },
+];
 
 export default function DriversPage() {
   const [search, setSearch] = useState('');
@@ -37,7 +46,8 @@ export default function DriversPage() {
     queryFn: async () => {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
-      if (activeFilter !== 'All') params.set('status', activeFilter.toLowerCase().replace(' ', '_'));
+      const filter = QUICK_FILTERS.find((f) => f.label === activeFilter);
+      if (filter?.status) params.set('status', filter.status);
       const res = await fetch(`/api/admin/drivers?${params}`);
       return res.json();
     },
@@ -69,15 +79,15 @@ export default function DriversPage() {
       <div className="flex gap-2 flex-wrap">
         {QUICK_FILTERS.map((filter) => (
           <button
-            key={filter}
-            onClick={() => setActiveFilter(filter)}
+            key={filter.label}
+            onClick={() => setActiveFilter(filter.label)}
             className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-              activeFilter === filter
+              activeFilter === filter.label
                 ? 'bg-teal-400 text-navy-950 border-teal-400'
                 : 'bg-card text-muted-foreground border-border hover:border-teal-400/50'
             }`}
           >
-            {filter}
+            {filter.label}
           </button>
         ))}
       </div>
@@ -129,7 +139,7 @@ export default function DriversPage() {
                         <span className="text-xs text-muted-foreground">·</span>
                         <span className="text-xs text-muted-foreground">{driver.totalTrips} trips</span>
                         <span className="text-xs text-muted-foreground">·</span>
-                        <span className="text-xs text-muted-foreground">★ {driver.avgRating.toFixed(1)}</span>
+                        <span className="text-xs text-muted-foreground">★ {Number(driver.avgRating).toFixed(1)}</span>
                       </>
                     )}
                   </div>

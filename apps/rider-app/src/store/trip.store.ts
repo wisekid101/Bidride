@@ -9,7 +9,8 @@ export type TripStatus =
   | 'driver_arrived'
   | 'in_progress'
   | 'completed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'no_drivers';
 
 interface DriverLocation {
   lat: number;
@@ -38,6 +39,8 @@ interface ActiveTrip {
   estimatedArrival?: string;
   driverPhotoUrl?: string;
   driverLocation?: DriverLocation | null;
+  // Incremented on each server re-broadcast while searching
+  searchingAttempt?: number;
 }
 
 export interface PendingCounter {

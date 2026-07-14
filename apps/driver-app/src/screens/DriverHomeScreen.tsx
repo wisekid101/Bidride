@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,25 +7,57 @@ import {
   Switch,
   Platform,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Heatmap } from 'react-native-maps';
+import MapView, { Heatmap } from 'react-native-maps';
+import { MAP_PROVIDER, MAP_SUPPORTS_HEATMAP } from '../constants/map';
 import * as Location from 'expo-location';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { useDriverStore } from '../store/driver.store';
 import { useDriverSocketStore } from '../store/socket.store';
 import { IncomingRequestScreen } from './IncomingRequestScreen';
+import { IncomingStandardRequestScreen } from './IncomingStandardRequestScreen';
+import { DriverHubSheet } from '../components/DriverHubSheet';
 import { api } from '../api/client';
 
+// Downtown Newark — map placeholder region until the first GPS fix lands
+const NEWARK_REGION = {
+  latitude: 40.7357,
+  longitude: -74.1724,
+  latitudeDelta: 0.08,
+  longitudeDelta: 0.08,
+};
+
 export function DriverHomeScreen() {
-  const { isOnline, todayEarnings, setOnlineStatus } = useDriverStore();
-  const { incomingBid, clearIncomingBid, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
+  const { isOnline, setOnlineStatus, setTodayEarnings } = useDriverStore();
+  const { incomingBid, clearIncomingBid, incomingRequest, clearIncomingRequest, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toggling, setToggling] = useState(false);
   const [heatmapPoints, setHeatmapPoints] = useState<
     Array<{ latitude: number; longitude: number; weight: number }>
   >([]);
+
+  // Refresh today's totals whenever Home gains focus — cold start, tab
+  // returns, and coming back from a completed ride (rate-rider replaces to
+  // the tabs, focusing Drive). Failure keeps the last known values.
+  useFocusEffect(
+    useCallback(() => {
+      api
+        .get<{ takeHome: number; trips: number; hoursOnline: number; floorSupplements: number }>(
+          '/driver/earnings/today',
+        )
+        .then((s) =>
+          setTodayEarnings({
+            takeHome: Number(s.takeHome ?? 0),
+            trips: s.trips ?? 0,
+            hoursOnline: Number(s.hoursOnline ?? 0),
+            floorSupplements: Number(s.floorSupplements ?? 0),
+          }),
+        )
+        .catch(() => {});
+    }, []),
+  );
 
   // Poll demand heatmap every 30s while online — clears when going offline
   useEffect(() => {
@@ -62,23 +94,65 @@ export function DriverHomeScreen() {
   }, [counterResult]);
 
   useEffect(() => {
+    let cancelled = false;
+    let subscription: Location.LocationSubscription | null = null;
+
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
 
-      const loc = await Location.getCurrentPositionAsync({});
-      setCurrentLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      // A transient CoreLocation error (kCLErrorDomain on simulators) must
+      // not abort the effect — the movement watch below can still start.
+      try {
+        const loc = await Location.getCurrentPositionAsync({});
+        if (!cancelled) {
+          setCurrentLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          if (isOnline) {
+            // Seed lastFix immediately: a parked driver produces no movement
+            // events, so without this the heartbeat has nothing to send and
+            // the driver stays invisible to offer matching until they move.
+            // emitLocation caches the fix even mid-handshake — the heartbeat
+            // delivers it on the next beat.
+            emitLocation(
+              loc.coords.latitude,
+              loc.coords.longitude,
+              loc.coords.heading ?? undefined,
+            );
+          }
+        }
+      } catch {}
 
-      if (isOnline) {
-        // Stream GPS via WebSocket — updates Redis and notifies active trip riders
-        await Location.watchPositionAsync(
+      if (isOnline && !cancelled) {
+        // Stream GPS via WebSocket — updates Redis and notifies active trip
+        // riders. Settings stay movement-aware (no extra GPS polling); the
+        // heartbeat below re-sends the cached fix so a PARKED driver stays
+        // eligible for offers.
+        const sub = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 10 },
           (position) => {
-            emitLocation(position.coords.latitude, position.coords.longitude);
+            emitLocation(
+              position.coords.latitude,
+              position.coords.longitude,
+              position.coords.heading ?? undefined,
+            );
           },
         );
+        // Effect may have been cleaned up while the watch was starting.
+        if (cancelled) {
+          sub.remove();
+          return;
+        }
+        subscription = sub;
+        useDriverSocketStore.getState().startHeartbeat();
       }
     })();
+
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+      subscription = null;
+      useDriverSocketStore.getState().stopHeartbeat();
+    };
   }, [isOnline]);
 
   const toggleOnline = async () => {
@@ -87,8 +161,9 @@ export function DriverHomeScreen() {
       const nextState = !isOnline;
       await api.patch('/drivers/me/availability', {
         isAvailable: nextState,
-        currentLat: currentLocation?.lat ?? null,
-        currentLng: currentLocation?.lng ?? null,
+        ...(currentLocation
+          ? { currentLat: String(currentLocation.lat), currentLng: String(currentLocation.lng) }
+          : {}),
       });
       setOnlineStatus(nextState);
     } catch (err) {
@@ -100,35 +175,36 @@ export function DriverHomeScreen() {
 
   const PLATFORM_FEE_RATE = 0.20;
 
-  // Rule-based zone floor: earnings floor formula for a typical Newark trip (~3 mi, ~12 min)
-  // Formula: (miles × $1.10) + (minutes × $0.22) + $2.50
-  const ZONE_FLOOR_EST = parseFloat(((3.0 * 1.10) + (12 * 0.22) + 2.50).toFixed(2));
-  const sessionAvgPerTrip = todayEarnings.trips > 0
-    ? parseFloat((todayEarnings.takeHome / todayEarnings.trips).toFixed(2))
-    : null;
-
   return (
     <View style={styles.container}>
-      {currentLocation && (
-        <MapView
-          ref={mapRef}
-          provider={PROVIDER_GOOGLE}
-          style={styles.map}
-          initialRegion={{
-            latitude: currentLocation.lat,
-            longitude: currentLocation.lng,
-            latitudeDelta: 0.08,
-            longitudeDelta: 0.08,
-          }}
-          customMapStyle={darkMapStyle}
-        >
+      {/* Map is the screen — rendered immediately on the Newark fallback
+          region so GPS latency never leaves a blank void. The key remount
+          re-centers it once the real fix arrives. */}
+      <MapView
+        key={currentLocation ? 'located' : 'fallback'}
+        ref={mapRef}
+        provider={MAP_PROVIDER}
+        style={styles.map}
+        initialRegion={
+          currentLocation
+            ? {
+                latitude: currentLocation.lat,
+                longitude: currentLocation.lng,
+                latitudeDelta: 0.08,
+                longitudeDelta: 0.08,
+              }
+            : NEWARK_REGION
+        }
+        customMapStyle={darkMapStyle}
+      >
+        {MAP_SUPPORTS_HEATMAP && (
           <Heatmap
             points={heatmapPoints}
             radius={30}
-            gradient={{ colors: ['#00D4C6', '#F4B400', '#EF4444'], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
+            gradient={{ colors: [Colors.teal, Colors.gold, Colors.safety], startPoints: [0.3, 0.6, 1.0], colorMapSize: 256 }}
           />
-        </MapView>
-      )}
+        )}
+      </MapView>
 
       {/* Online Toggle Header */}
       <View style={styles.header}>
@@ -154,6 +230,27 @@ export function DriverHomeScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Driver Hub — pull-up command center (zIndex 100). Replaces the old
+          zone panel + earnings bar; both live inside the sheet now. */}
+      <DriverHubSheet />
+
+      {/* Incoming standard ride overlay — primary flow; only shown when no bid is pending */}
+      {isOnline && incomingRequest && !incomingBid && (
+        <IncomingStandardRequestScreen
+          tripId={incomingRequest.tripId}
+          pickupAddress={incomingRequest.pickupAddress}
+          dropoffAddress={incomingRequest.dropoffAddress}
+          aiFare={incomingRequest.aiFare}
+          driverTakeHome={parseFloat((incomingRequest.aiFare * (1 - PLATFORM_FEE_RATE)).toFixed(2))}
+          distanceMiles={incomingRequest.distanceMiles}
+          durationMin={incomingRequest.durationMin}
+          isAirportTrip={incomingRequest.isAirportTrip}
+          riderBadge={incomingRequest.riderBadge}
+          onAccepted={clearIncomingRequest}
+          onDeclined={clearIncomingRequest}
+        />
+      )}
+
       {/* Incoming bid overlay — only rendered when online and a bid is available */}
       {isOnline && incomingBid && (
         <IncomingRequestScreen
@@ -173,47 +270,6 @@ export function DriverHomeScreen() {
         />
       )}
 
-      {/* Zone Opportunity Card — rule-based estimate using floor formula + session data */}
-      <View style={styles.zoneCard}>
-        <View style={styles.zoneCardHeader}>
-          <Text style={styles.zoneCardTitle}>Zone Opportunity</Text>
-          <Text style={styles.zoneCardEstimated}>estimated</Text>
-        </View>
-        {sessionAvgPerTrip !== null ? (
-          <View style={styles.zoneRow}>
-            <Text style={styles.zoneLabel}>Your session avg</Text>
-            <Text style={styles.zoneValue}>${sessionAvgPerTrip.toFixed(2)} / trip</Text>
-          </View>
-        ) : (
-          <Text style={styles.zoneNoData}>No trips yet this session</Text>
-        )}
-        <View style={styles.zoneRow}>
-          <Text style={styles.zoneLabel}>Floor guarantee</Text>
-          <Text style={styles.zoneValue}>${ZONE_FLOOR_EST.toFixed(2)}+ / typical trip</Text>
-        </View>
-      </View>
-
-      {/* Earnings Card — always shows driver take-home first */}
-      <View style={styles.earningsCard}>
-        <Text style={styles.earningsLabel}>Today's Take-Home</Text>
-        <Text style={styles.earningsAmount}>${todayEarnings.takeHome.toFixed(2)}</Text>
-        <View style={styles.earningsRow}>
-          <View style={styles.earningsDetail}>
-            <Text style={styles.earningsDetailLabel}>Trips</Text>
-            <Text style={styles.earningsDetailValue}>{todayEarnings.trips}</Text>
-          </View>
-          <View style={styles.earningsDetail}>
-            <Text style={styles.earningsDetailLabel}>Hours</Text>
-            <Text style={styles.earningsDetailValue}>{todayEarnings.hoursOnline.toFixed(1)}</Text>
-          </View>
-          <View style={styles.earningsDetail}>
-            <Text style={styles.earningsDetailLabel}>Avg / trip</Text>
-            <Text style={styles.earningsDetailValue}>
-              ${todayEarnings.trips > 0 ? (todayEarnings.takeHome / todayEarnings.trips).toFixed(2) : '0.00'}
-            </Text>
-          </View>
-        </View>
-      </View>
     </View>
   );
 }
@@ -260,82 +316,6 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: Typography.size.sm,
     fontWeight: Typography.weight.semibold,
-  },
-  zoneCard: {
-    position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 264 : 244,
-    left: Spacing.base,
-    right: Spacing.base,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.xl,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  zoneCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
-  zoneCardTitle: {
-    color: Colors.text,
-    fontSize: Typography.size.sm,
-    fontWeight: Typography.weight.semibold,
-  },
-  zoneCardEstimated: {
-    color: Colors.textSecondary,
-    fontSize: Typography.size.xs,
-  },
-  zoneRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 2,
-  },
-  zoneLabel: {
-    color: Colors.textSecondary,
-    fontSize: Typography.size.xs,
-  },
-  zoneValue: {
-    color: Colors.text,
-    fontSize: Typography.size.sm,
-    fontWeight: Typography.weight.semibold,
-    fontFamily: Typography.fontFamilyMono,
-  },
-  zoneNoData: {
-    color: Colors.textSecondary,
-    fontSize: Typography.size.xs,
-    paddingVertical: 2,
-  },
-  earningsCard: {
-    position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 100 : 80,
-    left: Spacing.base,
-    right: Spacing.base,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.xl,
-    padding: Spacing.base,
-    borderWidth: 1,
-    borderColor: Colors.gold,
-  },
-  earningsLabel: { color: Colors.textSecondary, fontSize: Typography.size.sm },
-  earningsAmount: {
-    color: Colors.gold,
-    fontSize: 42,
-    fontWeight: Typography.weight.extrabold,
-    fontFamily: Typography.fontFamilyMono,
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.sm,
-  },
-  earningsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  earningsDetail: { alignItems: 'center' },
-  earningsDetailLabel: { color: Colors.textSecondary, fontSize: Typography.size.xs },
-  earningsDetailValue: {
-    color: Colors.text,
-    fontSize: Typography.size.md,
-    fontWeight: Typography.weight.bold,
-    fontFamily: Typography.fontFamilyMono,
   },
 });
 

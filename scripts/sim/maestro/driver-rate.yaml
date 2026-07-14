@@ -1,0 +1,10 @@
+# DEV-ONLY: driver rates the rider 5 stars and submits — by stable testID.
+appId: host.exp.Exponent
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    id: "rate-star-5"
+- tapOn:
+    id: "rate-submit"
+- takeScreenshot: .maestro-artifacts/driver-rated

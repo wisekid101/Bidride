@@ -8,7 +8,11 @@ import { InferenceLogService } from '../services/inference-log.service';
 import { ModelHealthService } from '../services/model-health.service';
 import { FeatureService } from '../services/feature.service';
 import { BidWinProbabilityEngine, BID_ENGINE_VERSION } from '../bid-prediction/bid-win-probability.engine';
+import { FareAdjustmentEngine, FARE_ENGINE_VERSION } from './fare-adjustment.engine';
+import { ShadowModeService } from '../shadow/shadow-mode.service';
 
+// Trust scores are deliberately absent: prohibited fare features
+// (anti-discrimination rule, design/ai-governance-rules.md).
 interface FareAdjustmentBody {
   distanceMiles: number;
   durationMin: number;
@@ -17,7 +21,6 @@ interface FareAdjustmentBody {
   isNight?: boolean;
   hourOfDay?: number;
   dayOfWeek?: number;
-  riderTrustScore?: number;
   riderTotalTrips?: number;
   pickupLat?: number;
   pickupLng?: number;
@@ -83,7 +86,9 @@ interface DriverEarningsBody {
   driverId?: string;
 }
 
-@UseGuards(InternalKeyGuard)
+// Guard applied per-route (not class-level) so the read-only health probe
+// stays public for load balancers while every inference endpoint requires
+// the internal service key.
 @Controller('ai')
 export class InferenceController {
   constructor(
@@ -93,6 +98,8 @@ export class InferenceController {
     private readonly health: ModelHealthService,
     private readonly features: FeatureService,
     private readonly bidEngine: BidWinProbabilityEngine,
+    private readonly fareEngine: FareAdjustmentEngine,
+    private readonly shadowMode: ShadowModeService,
   ) {}
 
   private async runInference<T extends Record<string, unknown>>(
@@ -130,14 +137,96 @@ export class InferenceController {
     return { data: output as T, modelVersion, latencyMs, fallbackUsed, confidence, inferenceId, predictionTimestamp: new Date().toISOString() };
   }
 
+  @UseGuards(InternalKeyGuard)
   @Post('fare-adjustment')
   async fareAdjustment(
     @Body() body: FareAdjustmentBody,
-  ): Promise<AiResponseEnvelope<{ adjustment: number }>> {
+  ): Promise<AiResponseEnvelope<Record<string, unknown>>> {
+    const start = Date.now();
+    const inferenceId = randomUUID();
     const featureVector = await this.features.buildFareFeatures(body);
-    return this.runInference('fare-adjustment', featureVector, body.tripId, body.userId);
+
+    // Real recommendation: SageMaker champion when an endpoint is deployed,
+    // else the transparent local engine. Either way it is ALWAYS logged.
+    // fallbackUsed is honest: true only when a configured endpoint FAILED and
+    // the engine stood in — the engine being the champion is not a fallback.
+    let endpointConfigured = false;
+    try {
+      endpointConfigured = !!this.modelRegistry.getChampion('fare-adjustment').endpointName;
+    } catch { /* unknown model name — treat as no endpoint */ }
+
+    let real: { adjustment: number; confidence: number; explanation: string; factors: unknown[] };
+    let modelVersion: string;
+    let fallbackUsed = false;
+    try {
+      const result = await this.modelRegistry.invoke('fare-adjustment', featureVector);
+      // Service-side bound (belt to the caller's ±$2 clamp): sanitize
+      // non-finite outputs to 0 — NaN survives min/max clamping.
+      const raw = Number((result.output as { adjustment?: number }).adjustment ?? 0);
+      const adj = Number.isFinite(raw) ? Math.max(-2, Math.min(2, raw)) : 0;
+      real = {
+        adjustment: adj,
+        confidence: result.confidence,
+        explanation: `SageMaker champion recommendation of $${adj.toFixed(2)}.`,
+        factors: [],
+      };
+      modelVersion = result.modelVersion;
+    } catch {
+      // Engine consumes the SAME (Redis-enriched) feature vector that gets
+      // logged, so the audit trail always matches the inputs actually used.
+      const rec = this.fareEngine.recommend({
+        surgeZoneScore: featureVector.surgeZoneScore as number | undefined,
+        isNight: featureVector.isNight as boolean | undefined,
+        isAirport: featureVector.isAirport as boolean | undefined,
+        hourOfDay: featureVector.hourOfDay as number | undefined,
+        riderTotalTrips: featureVector.riderTotalTrips as number | undefined,
+      });
+      real = rec;
+      modelVersion = FARE_ENGINE_VERSION;
+      fallbackUsed = endpointConfigured; // engine stood in for a failing endpoint
+    }
+
+    // Shadow gate — Founder hard rule: while shadowed, SERVE the neutral
+    // value (adjustment 0, exactly what the caller's fallback produces) and
+    // carry the real recommendation as data only.
+    const shadow = await this.shadowMode.isShadow('fare');
+    const served = shadow ? 0 : real.adjustment;
+    const output = {
+      adjustment: served,
+      confidence: real.confidence,
+      explanation: real.explanation,
+      factors: real.factors,
+      shadow,
+      shadowRecommendation: real.adjustment,
+      inferenceLogId: inferenceId,
+    };
+
+    const latencyMs = Date.now() - start;
+    this.inferenceLog.log({
+      modelName: 'fare-adjustment',
+      modelVersion,
+      inputFeatures: featureVector,
+      output,
+      confidence: real.confidence,
+      fallbackUsed,
+      latencyMs,
+      tripId: body.tripId,
+      userId: body.userId,
+    });
+    this.health.record('fare-adjustment', latencyMs, fallbackUsed);
+
+    return {
+      data: output,
+      modelVersion,
+      latencyMs,
+      fallbackUsed,
+      confidence: real.confidence,
+      inferenceId,
+      predictionTimestamp: new Date().toISOString(),
+    };
   }
 
+  @UseGuards(InternalKeyGuard)
   @Post('fraud-score')
   async fraudScore(
     @Body() body: FraudScoreBody,
@@ -146,18 +235,32 @@ export class InferenceController {
     return this.runInference('fraud-score', featureVector, body.tripId, body.userId);
   }
 
+  @UseGuards(InternalKeyGuard)
   @Post('bid-win-probability')
   async bidWinProbability(
     @Body() body: BidWinProbabilityBody,
-  ): Promise<AiResponseEnvelope<{ probability: number; confidence: number; explanation: string[] }>> {
+  ): Promise<AiResponseEnvelope<Record<string, unknown>>> {
     const start = Date.now();
     const inferenceId = randomUUID();
 
     const featureVector = await this.features.buildBidFeatures(body);
     const result = this.bidEngine.predict(featureVector as unknown as Parameters<BidWinProbabilityEngine['predict']>[0]);
 
+    // Shadow gate — serve the caller's own fallback value (0.50) while the
+    // real prediction rides along and is logged. bids.service surfaces
+    // data.probability to the rider, so this is production-visible.
+    const shadow = await this.shadowMode.isShadow('win_probability');
+    const served = shadow ? 0.5 : result.probability;
+
     const latencyMs = Date.now() - start;
-    const output = { probability: result.probability, confidence: result.confidence, explanation: result.explanation };
+    const output = {
+      probability: served,
+      confidence: result.confidence,
+      explanation: result.explanation,
+      shadow,
+      shadowRecommendation: result.probability,
+      inferenceLogId: inferenceId,
+    };
 
     this.inferenceLog.log({
       modelName: 'bid-win-probability',
@@ -186,6 +289,7 @@ export class InferenceController {
     };
   }
 
+  @UseGuards(InternalKeyGuard)
   @Post('surge-forecast')
   async surgeForecast(
     @Body() body: SurgeForecastBody,
@@ -194,6 +298,7 @@ export class InferenceController {
     return this.runInference('surge-forecast', featureVector, body.tripId);
   }
 
+  @UseGuards(InternalKeyGuard)
   @Post('driver-earnings')
   async driverEarnings(
     @Body() body: DriverEarningsBody,

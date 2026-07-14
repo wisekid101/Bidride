@@ -38,6 +38,7 @@ const mockPrisma = {
     create: jest.fn(),
     aggregate: jest.fn(),
   },
+  tripEvent: { create: jest.fn().mockResolvedValue({}) },
 };
 
 const mockRedis = {
@@ -311,7 +312,10 @@ describe('TripsService — createTrip trust score', () => {
     mockRedis.setex.mockResolvedValue('OK');
   });
 
-  it('passes real trust score to pricing-service when one exists', async () => {
+  // Founder rule (AI Core Phase 2): trust scores are PROHIBITED pricing
+  // features — the quote request must never carry them, even when a trust
+  // record exists (anti-discrimination rule, design/ai-governance-rules.md).
+  it('never transmits trust scores to pricing-service', async () => {
     const service = await buildService();
     mockPrisma.trustScore.findUnique.mockResolvedValue({ trustScore: 780 });
 
@@ -322,13 +326,13 @@ describe('TripsService — createTrip trust score', () => {
     });
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.riderTrustScore).toBe(780);
+    expect(body).not.toHaveProperty('riderTrustScore');
+    expect(body).not.toHaveProperty('driverTrustScore');
     expect(body.riderTotalTrips).toBe(10);
   });
 
-  it('defaults trust score to 500 when rider has no trust record yet', async () => {
+  it('does not read the trust score at all when quoting a fare', async () => {
     const service = await buildService();
-    mockPrisma.trustScore.findUnique.mockResolvedValue(null);
 
     await service.createTrip('user-1', {
       pickupAddress: 'A', pickupLat: 40.7, pickupLng: -74.1,
@@ -336,8 +340,7 @@ describe('TripsService — createTrip trust score', () => {
       rideType: 'standard' as any,
     });
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.riderTrustScore).toBe(500);
+    expect(mockPrisma.trustScore.findUnique).not.toHaveBeenCalled();
   });
 });
 
@@ -505,5 +508,156 @@ describe('TripsService — fraud hold: acceptTrip blocked', () => {
     mockPrisma.fraudAlert.findFirst.mockResolvedValue(null);
 
     await expect(service.acceptTrip('trip-1', 'user-1')).resolves.toBeDefined();
+  });
+});
+
+// ─── detectAirportTrip (coordinate-first geofence) ───────────────────────────
+
+describe('TripsService — detectAirportTrip', () => {
+  const base = {
+    pickupAddress: '171 Market St, Newark, NJ 07102, USA',
+    pickupLat: 40.7357, pickupLng: -74.1724,
+    dropoffAddress: '744 Broad St, Newark, NJ 07102, USA',
+    dropoffLat: 40.7368, dropoffLng: -74.1707,
+  };
+  const detect = async (dto: object) =>
+    (await buildService() as any).detectAirportTrip({ ...base, ...dto });
+
+  it('flags a trip to an EWR terminal by coordinates', async () => {
+    expect(await detect({ dropoffAddress: 'Newark Liberty Intl – Terminal B', dropoffLat: 40.6913, dropoffLng: -74.1746 })).toBe(true);
+  });
+
+  it('flags an EWR pickup by coordinates', async () => {
+    expect(await detect({ pickupAddress: 'Terminal C Arrivals', pickupLat: 40.6929, pickupLng: -74.1764 })).toBe(true);
+  });
+
+  it('does NOT flag a "Terminal Ave" street address with non-airport coords', async () => {
+    expect(await detect({ dropoffAddress: '1200 Terminal Ave, Elizabeth, NJ', dropoffLat: 40.6600, dropoffLng: -74.1900 })).toBe(false);
+  });
+
+  it('does NOT flag Port Newark Marine Terminal', async () => {
+    expect(await detect({ dropoffAddress: 'Marine Terminal A, Port Newark, NJ', dropoffLat: 40.6840, dropoffLng: -74.1450 })).toBe(false);
+  });
+
+  it('does NOT flag an ordinary downtown trip', async () => {
+    expect(await detect({})).toBe(false);
+  });
+
+  it('name fallback: flags "Newark Liberty" even with drifted coords', async () => {
+    expect(await detect({ dropoffAddress: 'Newark Liberty International Airport', dropoffLat: 40.7000, dropoffLng: -74.2100 })).toBe(true);
+  });
+
+  it('name fallback: strict word-bounded EWR only', async () => {
+    expect(await detect({ dropoffAddress: 'EWR Cell Lot', dropoffLat: 40.7100, dropoffLng: -74.2200 })).toBe(true);
+    expect(await detect({ dropoffAddress: 'Brewery District, Newark', dropoffLat: 40.7300, dropoffLng: -74.1800 })).toBe(false);
+  });
+});
+
+// ─── endTrip — canonical fare (Offer Fare Integrity Hotfix) ──────────────────
+// Standard ride: canonicalFare = aiFare. Offer ride: canonicalFare = the
+// accepted negotiated fare locked in trip.finalFare — aiFare is reference-only
+// and bid trips are never charged at completion (settled by hold capture).
+
+describe('TripsService — endTrip canonical fare', () => {
+  const mockFetch = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = mockFetch;
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+    mockRedis.del.mockResolvedValue(1);
+    mockPrisma.rider.findUnique.mockResolvedValue({ id: 'rider-1', userId: 'u-rider-1' });
+    mockPrisma.driver.findUnique.mockResolvedValue({ id: 'driver-1', userId: 'u-driver-1' });
+    mockFloor.enforce.mockImplementation(async (_trip: unknown, earnings: number) => ({
+      floorMet: true, floorAmount: 0, earnedAmount: earnings, supplement: 0, totalDriverEarnings: earnings,
+    }));
+  });
+
+  function chargeCalls() {
+    return mockFetch.mock.calls.filter(
+      ([url]) => typeof url === 'string' && (url as string).includes('/payments/internal/charge-trip'),
+    );
+  }
+  function walletCalls() {
+    return mockFetch.mock.calls.filter(
+      ([url]) => typeof url === 'string' && (url as string).includes('/payments/internal/credit-wallet'),
+    );
+  }
+
+  it('standard trip: charges the rider the aiFare (unchanged behavior)', async () => {
+    const service = await buildService();
+    const trip = makeTrip({
+      status: TripStatus.in_progress,
+      aiFare: 20, bidId: null, finalFare: null,
+    });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+
+    await service.endTrip('trip-1', 'u-driver-1', { currentLat: 40.71, currentLng: -74.11 });
+    await new Promise(setImmediate);
+
+    expect(chargeCalls().length).toBe(1);
+    const body = JSON.parse(chargeCalls()[0][1].body as string);
+    expect(body.amount).toBe(20);
+    // Stored fare is the canonical aiFare
+    expect(mockPrisma.trip.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ finalFare: 20 }) }),
+    );
+  });
+
+  it('bid trip: canonical fare is the accepted finalFare and NO completion charge fires', async () => {
+    const service = await buildService();
+    const trip = makeTrip({
+      status: TripStatus.in_progress,
+      aiFare: 24.66, bidId: 'bid-1', finalFare: 20.16,
+    });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+
+    await service.endTrip('trip-1', 'u-driver-1', { currentLat: 40.71, currentLng: -74.11 });
+    await new Promise(setImmediate);
+
+    // Settled at accept via hold capture — completion must not charge again.
+    expect(chargeCalls().length).toBe(0);
+
+    // Earnings + stored fare flow from the accepted 20.16, not aiFare 24.66.
+    expect(mockPrisma.trip.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          finalFare: 20.16,
+          platformFee: 20.16 * 0.20,
+        }),
+      }),
+    );
+    expect(mockFloor.enforce).toHaveBeenCalledWith(expect.anything(), 20.16 - 20.16 * 0.20, expect.anything());
+    expect(walletCalls().length).toBe(1);
+    const wallet = JSON.parse(walletCalls()[0][1].body as string);
+    expect(wallet.amount).toBeCloseTo(20.16 - 20.16 * 0.20, 2);
+  });
+
+  it('bid trip missing accepted finalFare: completes WITHOUT money movement and logs fare_integrity_error', async () => {
+    const service = await buildService();
+    const trip = makeTrip({
+      status: TripStatus.in_progress,
+      aiFare: 24.66, bidId: 'bid-1', finalFare: null,
+    });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+
+    await service.endTrip('trip-1', 'u-driver-1', { currentLat: 40.71, currentLng: -74.11 });
+    await new Promise(setImmediate);
+
+    expect(chargeCalls().length).toBe(0);
+    expect(walletCalls().length).toBe(0);
+    expect(mockFloor.enforce).not.toHaveBeenCalled();
+    expect(mockPrisma.tripEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ eventType: 'fare_integrity_error' }),
+      }),
+    );
+    // Never falls back to aiFare: no fare fields written.
+    const updateData = mockPrisma.trip.update.mock.calls[0][0].data;
+    expect(updateData.finalFare).toBeUndefined();
+    expect(updateData.driverEarnings).toBeUndefined();
   });
 });

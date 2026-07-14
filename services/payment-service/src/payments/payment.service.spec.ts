@@ -52,6 +52,7 @@ const mockPrisma = {
   payment: {
     create: jest.fn(),
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     update: jest.fn(),
     updateMany: jest.fn(),
   },
@@ -61,7 +62,9 @@ const mockPrisma = {
   },
   trip: {
     findMany: jest.fn(),
+    findUnique: jest.fn(),
   },
+  tripEvent: { create: jest.fn().mockResolvedValue({}) },
 } as any;
 
 const mockConfig = {
@@ -93,6 +96,9 @@ describe('PaymentService', () => {
 
   describe('chargeTrip', () => {
     it('creates payment intent and records in DB', async () => {
+      // Integrity guard context: a standard (non-bid) trip with no prior payment
+      mockPrisma.trip.findUnique.mockResolvedValue({ bidId: null, finalFare: null });
+      mockPrisma.payment.findFirst.mockResolvedValue(null);
       mockPrisma.rider.findUnique.mockResolvedValue({
         id: 'rider-1',
         stripeCustomerId: 'cus_test_123',
@@ -113,6 +119,8 @@ describe('PaymentService', () => {
     });
 
     it('throws if rider has no Stripe customer ID', async () => {
+      mockPrisma.trip.findUnique.mockResolvedValue({ bidId: null, finalFare: null });
+      mockPrisma.payment.findFirst.mockResolvedValue(null);
       mockPrisma.rider.findUnique.mockResolvedValue({
         id: 'rider-1',
         stripeCustomerId: null,
@@ -408,8 +416,93 @@ describe('PaymentService', () => {
     });
   });
 
+  // ─── Offer Fare Integrity Hotfix ────────────────────────────────────────
+  describe('chargeTrip payment integrity guard', () => {
+    it('refuses a direct charge on a bid trip and records fare_integrity_error', async () => {
+      mockPrisma.trip.findUnique.mockResolvedValue({ bidId: 'bid-1', finalFare: 20.16 });
+
+      await expect(
+        service.chargeTrip('trip-bid', 'rider-1', 24.66, 'pm_test_123'),
+      ).rejects.toMatchObject({ response: { code: 'FARE_INTEGRITY_ERROR' } });
+
+      expect(mockPrisma.tripEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ eventType: 'fare_integrity_error' }),
+        }),
+      );
+      // The blocked charge never reaches Stripe or the payments table.
+      expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a charge that does not match the canonical finalFare', async () => {
+      mockPrisma.trip.findUnique.mockResolvedValue({ bidId: null, finalFare: 11.36 });
+
+      await expect(
+        service.chargeTrip('trip-std', 'rider-1', 12.00, 'pm_test_123'),
+      ).rejects.toMatchObject({ response: { code: 'FARE_INTEGRITY_ERROR' } });
+
+      expect(mockPrisma.tripEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: 'fare_integrity_error',
+            metadata: expect.objectContaining({ attemptedAmount: 12.00, tripFinalFare: 11.36 }),
+          }),
+        }),
+      );
+    });
+
+    it('returns the existing succeeded payment instead of charging twice', async () => {
+      mockPrisma.trip.findUnique.mockResolvedValue({ bidId: null, finalFare: null });
+      mockPrisma.payment.findFirst.mockResolvedValue({
+        stripePaymentIntentId: 'pi_existing_1',
+        status: 'succeeded',
+      });
+
+      const res = await service.chargeTrip('trip-paid', 'rider-1', 18.5, 'pm_test_123');
+
+      expect(res).toEqual({ paymentIntentId: 'pi_existing_1', status: 'succeeded' });
+      expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('captureAuthorizationHold with trip attribution', () => {
+    it('books the capture as the trip payment record when tripId/riderId present', async () => {
+      mockPrisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.payment.create.mockResolvedValue({});
+
+      await service.captureAuthorizationHold('pi_hold_1', 2016, 'trip-bid', 'rider-1');
+
+      expect(mockPrisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tripId: 'trip-bid',
+            riderId: 'rider-1',
+            stripePaymentIntentId: 'pi_hold_1',
+            amount: 20.16,
+            status: 'succeeded',
+          }),
+        }),
+      );
+      expect(mockLedger.recordRiderPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ tripId: 'trip-bid', amount: 20.16, correlationId: 'capture:trip-bid' }),
+      );
+    });
+
+    it('keeps legacy behavior (updateMany only) without attribution', async () => {
+      mockPrisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.captureAuthorizationHold('pi_hold_2', 500);
+
+      expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+      expect(mockPrisma.payment.updateMany).toHaveBeenCalled();
+    });
+  });
+
   describe('chargeTripByDefault', () => {
     it('looks up default payment method and delegates to chargeTrip', async () => {
+      // Integrity guard context for the delegated chargeTrip call
+      mockPrisma.trip.findUnique.mockResolvedValue({ bidId: null, finalFare: null });
+      mockPrisma.payment.findFirst.mockResolvedValue(null);
       mockPrisma.rider.findUnique
         .mockResolvedValueOnce({
           id: 'rider-1',

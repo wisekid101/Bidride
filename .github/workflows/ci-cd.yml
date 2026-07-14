@@ -25,6 +25,7 @@ jobs:
           node-version: '${{ env.NODE_VERSION }}'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bidride/database exec prisma generate
       - run: pnpm turbo run lint typecheck
 
   # ─── Unit Tests ────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ jobs:
           node-version: '${{ env.NODE_VERSION }}'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bidride/database exec prisma generate
       - run: pnpm turbo run test --filter='./services/*'
         env:
           NODE_ENV: test
@@ -79,6 +81,7 @@ jobs:
           node-version: '${{ env.NODE_VERSION }}'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bidride/database exec prisma generate
       - name: Run DB migrations
         run: pnpm db:migrate:prod
         env:
@@ -88,6 +91,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://bidride:test_password@localhost:5432/bidride_test
           REDIS_URL: redis://localhost:6379
+          TEST_DATABASE_URL: postgresql://bidride:test_password@localhost:5432/bidride_test
+          TEST_REDIS_URL: redis://localhost:6379
           JWT_SECRET: test_jwt_secret_for_ci_only
           NODE_ENV: test
 

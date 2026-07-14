@@ -13,6 +13,7 @@ import {
 import { Colors, Typography } from '../../constants/theme';
 import { useDriverStore } from '../../store/driver.store';
 import { router } from 'expo-router';
+import { OnboardingHeader } from './OnboardingHeader';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
 
@@ -29,6 +30,12 @@ export default function PersonalInfoScreen() {
     state: '',
     zipCode: '',
     ssn: '',
+    licenseNumber: '',
+    licenseState: '',
+    licenseExpiry: '',
+    insuranceProvider: '',
+    insurancePolicyNumber: '',
+    insuranceExpiry: '',
   });
 
   const update = (key: keyof typeof form) => (val: string) =>
@@ -42,7 +49,18 @@ export default function PersonalInfoScreen() {
     form.city &&
     form.state.length === 2 &&
     form.zipCode.match(/^\d{5}$/) &&
-    form.ssn.length === 9;
+    form.ssn.length === 9 &&
+    form.licenseNumber.match(/^[A-Za-z0-9]{5,20}$/) &&
+    form.licenseState.length === 2 &&
+    form.licenseExpiry.match(/^\d{2}\/\d{2}\/\d{4}$/) &&
+    form.insuranceProvider &&
+    form.insurancePolicyNumber &&
+    form.insuranceExpiry.match(/^\d{2}\/\d{2}\/\d{4}$/);
+
+  const toIso = (mmddyyyy: string) => {
+    const [month, day, year] = mmddyyyy.split('/');
+    return `${year}-${month}-${day}`;
+  };
 
   const submit = async () => {
     if (!isValid()) {
@@ -52,9 +70,6 @@ export default function PersonalInfoScreen() {
 
     setLoading(true);
     try {
-      const [month, day, year] = form.dateOfBirth.split('/');
-      const isoDate = `${year}-${month}-${day}`;
-
       const res = await fetch(`${API_URL}/drivers/me/personal-info`, {
         method: 'POST',
         headers: {
@@ -64,12 +79,18 @@ export default function PersonalInfoScreen() {
         body: JSON.stringify({
           legalFirstName: form.legalFirstName,
           legalLastName: form.legalLastName,
-          dateOfBirth: isoDate,
+          dateOfBirth: toIso(form.dateOfBirth),
           streetAddress: form.streetAddress,
           city: form.city,
           state: form.state.toUpperCase(),
           zipCode: form.zipCode,
           ssn: form.ssn,
+          licenseNumber: form.licenseNumber.toUpperCase(),
+          licenseState: form.licenseState.toUpperCase(),
+          licenseExpiry: toIso(form.licenseExpiry),
+          insuranceProvider: form.insuranceProvider,
+          insurancePolicyNumber: form.insurancePolicyNumber,
+          insuranceExpiry: toIso(form.insuranceExpiry),
         }),
       });
 
@@ -88,6 +109,7 @@ export default function PersonalInfoScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <OnboardingHeader route="/onboarding/personal-info" />
       <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Text style={styles.step}>Step 1 of 6</Text>
@@ -195,6 +217,83 @@ export default function PersonalInfoScreen() {
                 placeholderTextColor={Colors.textTertiary}
                 keyboardType="numeric"
                 maxLength={5}
+              />
+            </View>
+          </View>
+
+          <View style={styles.row}>
+            <View style={[styles.field, { flex: 2 }]}>
+              <Text style={styles.label}>Driver License #</Text>
+              <TextInput
+                style={styles.input}
+                value={form.licenseNumber}
+                onChangeText={update('licenseNumber')}
+                placeholder="License number"
+                placeholderTextColor={Colors.textTertiary}
+                autoCapitalize="characters"
+                maxLength={20}
+              />
+            </View>
+            <View style={[styles.field, { flex: 1 }]}>
+              <Text style={styles.label}>State</Text>
+              <TextInput
+                style={styles.input}
+                value={form.licenseState}
+                onChangeText={update('licenseState')}
+                placeholder="NJ"
+                placeholderTextColor={Colors.textTertiary}
+                maxLength={2}
+                autoCapitalize="characters"
+              />
+            </View>
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>License Expiration</Text>
+            <TextInput
+              style={styles.input}
+              value={form.licenseExpiry}
+              onChangeText={update('licenseExpiry')}
+              placeholder="MM/DD/YYYY"
+              placeholderTextColor={Colors.textTertiary}
+              keyboardType="numeric"
+              maxLength={10}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>Insurance Provider</Text>
+            <TextInput
+              style={styles.input}
+              value={form.insuranceProvider}
+              onChangeText={update('insuranceProvider')}
+              placeholder="e.g. GEICO, Progressive"
+              placeholderTextColor={Colors.textTertiary}
+            />
+          </View>
+
+          <View style={styles.row}>
+            <View style={[styles.field, { flex: 2 }]}>
+              <Text style={styles.label}>Policy Number</Text>
+              <TextInput
+                style={styles.input}
+                value={form.insurancePolicyNumber}
+                onChangeText={update('insurancePolicyNumber')}
+                placeholder="Policy number"
+                placeholderTextColor={Colors.textTertiary}
+                autoCapitalize="characters"
+              />
+            </View>
+            <View style={[styles.field, { flex: 1 }]}>
+              <Text style={styles.label}>Expires</Text>
+              <TextInput
+                style={styles.input}
+                value={form.insuranceExpiry}
+                onChangeText={update('insuranceExpiry')}
+                placeholder="MM/DD/YYYY"
+                placeholderTextColor={Colors.textTertiary}
+                keyboardType="numeric"
+                maxLength={10}
               />
             </View>
           </View>

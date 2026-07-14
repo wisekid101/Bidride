@@ -4,11 +4,83 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useDriverStore } from '../src/store/driver.store';
+import { useDriverSocketStore } from '../src/store/socket.store';
 import { api } from '../src/api/client';
+import { resolveDriverRoute } from '../src/utils/onboardingRoute';
 
 SplashScreen.preventAutoHideAsync();
+
+// Single client for the whole app — EarningsDashboardScreen (and any other
+// useQuery consumer) requires a QueryClientProvider above it.
+const queryClient = new QueryClient();
+
+const PLATFORM_FEE_RATE = 0.20;
+
+// Cold-start onboarding resume: a driver who isn't approved must never land
+// on Home — route them to their current onboarding step instead.
+// Returns true when it navigated (caller then skips trip restore).
+async function resumeOnboardingIfNeeded(): Promise<boolean> {
+  try {
+    const me = await api.get<{ status: string; onboardingStep: string }>('/drivers/me');
+    if (me.status === 'approved') return false;
+    router.replace(resolveDriverRoute(me) as never);
+    return true;
+  } catch {
+    // Profile fetch failed — don't block startup; auth/token flows handle it
+    return false;
+  }
+}
+
+// Cold-start rehydration: if the server has an in-flight trip this driver
+// already accepted, route straight to the matching screen with the same
+// params the normal accept/arrived flow passes. Searching trips are skipped
+// (request cards are ephemeral; redispatch re-broadcasts them).
+async function restoreActiveTrip() {
+  try {
+    const { trip } = await api.get<{
+      trip: {
+        id: string;
+        status: string;
+        role: 'rider' | 'driver';
+        pickupAddress: string;
+        dropoffAddress: string;
+        aiFare: number;
+        riderName: string;
+      } | null;
+    }>('/trips/active');
+    if (!trip || trip.role !== 'driver') return;
+
+    const driverTakeHome = (trip.aiFare * (1 - PLATFORM_FEE_RATE)).toFixed(2);
+    if (trip.status === 'accepted' || trip.status === 'driver_en_route') {
+      router.replace({
+        pathname: '/navigating-to-pickup',
+        params: {
+          tripId: trip.id,
+          pickupAddress: trip.pickupAddress,
+          dropoffAddress: trip.dropoffAddress,
+          driverTakeHome,
+        },
+      });
+    } else if (trip.status === 'driver_arrived' || trip.status === 'in_progress') {
+      router.replace({
+        pathname: '/in-trip',
+        params: {
+          tripId: trip.id,
+          riderName: trip.riderName,
+          dropoffAddress: trip.dropoffAddress,
+          driverTakeHome,
+          earningsFloorAmount: '0',
+          phase: trip.status === 'in_progress' ? 'in_progress' : 'arrived',
+        },
+      });
+    }
+  } catch {
+    // Rehydration is best-effort — a failed fetch must never block startup
+  }
+}
 
 async function registerPushToken() {
   try {
@@ -60,7 +132,18 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    loadTokens().then(() => {
+    loadTokens().then(async () => {
+      // Reconnect the socket on cold start so dispatch events arrive without
+      // re-login. Guard on socket presence — this effect re-runs when fonts
+      // load, and connect() alone doesn't dedupe a still-handshaking socket.
+      const { accessToken } = useDriverStore.getState();
+      if (accessToken && !useDriverSocketStore.getState().socket) {
+        useDriverSocketStore.getState().connect(accessToken);
+        // Sockets first. Then: unfinished onboarding resumes exactly where the
+        // driver left off (never Home); approved drivers restore in-flight trips.
+        const resumed = await resumeOnboardingIfNeeded();
+        if (!resumed) await restoreActiveTrip();
+      }
       if (fontsLoaded) SplashScreen.hideAsync();
     });
   }, [fontsLoaded]);
@@ -70,6 +153,21 @@ export default function RootLayout() {
       void registerPushToken();
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    // iOS suspension kills the WebSocket and exhausts socket.io's retry budget,
+    // leaving a driver who looks Online but receives no requests. Reconnect on
+    // foreground; connect() is idempotent so this never duplicates sockets.
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const { accessToken } = useDriverStore.getState();
+      const { socket, connect } = useDriverSocketStore.getState();
+      if (accessToken && !socket?.connected) {
+        connect(accessToken);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     const receivedSub = Notifications.addNotificationReceivedListener((_notification) => {
@@ -105,7 +203,7 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <>
+    <QueryClientProvider client={queryClient}>
       <StatusBar style="light" backgroundColor="#0A2342" />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="(auth)" />
@@ -130,6 +228,6 @@ export default function RootLayout() {
           }}
         />
       </Stack>
-    </>
+    </QueryClientProvider>
   );
 }

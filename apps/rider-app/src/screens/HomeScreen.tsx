@@ -1,61 +1,81 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
   Alert,
   Platform,
-  Dimensions,
 } from 'react-native';
-
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
+import { MAP_PROVIDER } from '../constants/map';
 import * as Location from 'expo-location';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { geocodingApi, ResolvedAddress } from '../api/geocoding';
 import { useTripStore } from '../store/trip.store';
 import { useAddressStore } from '../store/address.store';
-import { AddressAutocomplete } from '../components/AddressAutocomplete';
+import { RiderBookingSheet, BookingFareEstimate } from '../components/RiderBookingSheet';
 import { EwrTerminalPicker } from '../components/EwrTerminalPicker';
-import { detectEwrAddress } from '../constants/airports';
+import { detectEwrAddress, EWR_TERMINALS, AirportTerminal, isNearEwr } from '../constants/airports';
 
-interface FareEstimate {
-  fare: number;
-  distanceMiles: number;
-  durationMin: number;
-  surgeMultiplier: number;
+// Mirror of the server's airport detection (trip-service detectAirportTrip):
+// coordinate-first — the endpoint's resolved coords inside the EWR geofence —
+// with the same STRICT name fallback trio for geocoder coordinate drift.
+// No 'Terminal X' substring patterns ("Terminal Ave" street addresses must
+// never be classified as airports). The quoted fare must include the airport
+// premium exactly when the created trip will be charged it: keep this in
+// lockstep with trips.service.ts.
+const AIRPORT_NAME_FALLBACK = [/\bEWR\b/, /Newark Liberty/i, /Newark Airport/i];
+function isAirportEndpoint(addr: ResolvedAddress): boolean {
+  return (
+    isNearEwr(addr.lat, addr.lng) ||
+    AIRPORT_NAME_FALLBACK.some((re) => re.test(addr.formattedAddress))
+  );
+}
+
+interface PaymentMethodSummary {
+  brand: string;
+  last4: string;
 }
 
 export function HomeScreen() {
   const mapRef = useRef<MapView>(null);
-  const { activeTrip } = useTripStore();
+  const { activeTrip, completedTrip } = useTripStore();
   const { recentAddresses, homeAddress, workAddress, addRecent } = useAddressStore();
 
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [pickupResolved, setPickupResolved] = useState<ResolvedAddress | null>(null);
   const [dropoffResolved, setDropoffResolved] = useState<ResolvedAddress | null>(null);
-  const [fareEstimate, setFareEstimate] = useState<FareEstimate | null>(null);
+  const [fareEstimate, setFareEstimate] = useState<BookingFareEstimate | null>(null);
   const [loadingFare, setLoadingFare] = useState(false);
   const [requestingRide, setRequestingRide] = useState(false);
   const [fareError, setFareError] = useState<string | null>(null);
   const [ewrVisible, setEwrVisible] = useState(false);
-  const [sheetExpanded, setSheetExpanded] = useState(false);
+  // undefined = still loading, null = no default method on file
   const [defaultPaymentMethodId, setDefaultPaymentMethodId] = useState<string | null | undefined>(undefined);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodSummary | null | undefined>(undefined);
   const pendingEwrAddress = useRef<ResolvedAddress | null>(null);
   const sessionToken = useRef(Math.random().toString(36).slice(2)).current;
 
-  useEffect(() => {
-    api.get<{ paymentMethods: { isDefault: boolean }[]; defaultPaymentMethodId: string | null }>(
-      '/riders/me/payment-methods',
-    )
-      .then((res) => setDefaultPaymentMethodId(res.defaultPaymentMethodId ?? null))
-      .catch(() => setDefaultPaymentMethodId(null));
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      api.get<{
+        paymentMethods: { id: string; brand: string; last4: string; isDefault: boolean }[];
+        defaultPaymentMethodId: string | null;
+      }>('/riders/me/payment-methods')
+        .then((res) => {
+          setDefaultPaymentMethodId(res.defaultPaymentMethodId ?? null);
+          const def = res.paymentMethods.find((pm) => pm.isDefault) ?? null;
+          setPaymentMethod(def ? { brand: def.brand, last4: def.last4 } : null);
+        })
+        .catch(() => {
+          setDefaultPaymentMethodId(null);
+          setPaymentMethod(null);
+        });
+    }, []),
+  );
 
   useEffect(() => {
     (async () => {
@@ -75,19 +95,41 @@ export function HomeScreen() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (activeTrip) router.push('/tracking');
-  }, [activeTrip]);
+  // Navigate to tracking exactly once per trip, and only while Home is the
+  // focused screen. The old unconditional push fired on every activeTrip
+  // object change — driver GPS pings replace it every ~3s — stacking duplicate
+  // tracking screens and yanking the rider back after they pressed back.
+  const navigatedTripId = useRef<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (activeTrip) {
+        if (navigatedTripId.current !== activeTrip.id) {
+          navigatedTripId.current = activeTrip.id;
+          router.push('/tracking');
+        }
+        return;
+      }
+      navigatedTripId.current = null;
+      // Trip finished while the rider was on Home (they backed out of
+      // tracking mid-trip) — still surface the completion/rating screen.
+      if (completedTrip?.status === 'completed') {
+        router.push('/trip-complete');
+      }
+    }, [activeTrip, completedTrip]),
+  );
 
   const getEstimate = async (pickup: ResolvedAddress, dropoff: ResolvedAddress) => {
     setFareError(null);
     setLoadingFare(true);
     try {
-      const estimate = await api.post<FareEstimate>('/pricing/estimate', {
+      const estimate = await api.post<BookingFareEstimate>('/pricing/estimate', {
         pickupLat: pickup.lat,
         pickupLng: pickup.lng,
         dropoffLat: dropoff.lat,
         dropoffLng: dropoff.lng,
+        // Mirrors the server-side airport detection so the quote matches
+        // the fare the trip will be created with.
+        isAirportTrip: isAirportEndpoint(pickup) || isAirportEndpoint(dropoff),
       });
       setFareEstimate(estimate);
     } catch {
@@ -111,6 +153,11 @@ export function HomeScreen() {
       return;
     }
     finalizeDropoff(addr);
+  };
+
+  const handlePickupResolved = (addr: ResolvedAddress) => {
+    setPickupResolved(addr);
+    setFareEstimate(null);
   };
 
   const handleEwrTerminalSelect = (addr: ResolvedAddress) => {
@@ -163,10 +210,12 @@ export function HomeScreen() {
         pickupLng: pickupResolved.lng,
         dropoffLat: dropoffResolved.lat,
         dropoffLng: dropoffResolved.lng,
-        aiFare: trip.aiFare,
+        // aiFare arrives as a string (Prisma Decimal JSON serialization) —
+        // coerce here so downstream .toFixed() renders don't crash.
+        aiFare: Number(trip.aiFare),
       });
-
-      router.push('/tracking');
+      // The focus effect above navigates to /tracking on the trip-id
+      // transition — no direct push here, or the screen would stack twice.
     } catch (err: any) {
       if (err.code === 'ACCOUNT_UNDER_REVIEW') {
         setFareError('Your account is under safety review. Please contact support.');
@@ -177,6 +226,43 @@ export function HomeScreen() {
       setRequestingRide(false);
     }
   };
+
+  const makeOffer = () => {
+    if (!fareEstimate || !pickupResolved || !dropoffResolved) return;
+    router.push({
+      pathname: '/bid-request',
+      params: {
+        aiFare: String(fareEstimate.fare),
+        pickupAddress: pickupResolved.formattedAddress,
+        dropoffAddress: dropoffResolved.formattedAddress,
+        pickupLat: String(pickupResolved.lat),
+        pickupLng: String(pickupResolved.lng),
+        dropoffLat: String(dropoffResolved.lat),
+        dropoffLng: String(dropoffResolved.lng),
+        paymentMethodId: defaultPaymentMethodId ?? '',
+      },
+    });
+  };
+
+  const isAirportTrip = useMemo(
+    () =>
+      Boolean(
+        (pickupResolved && isAirportEndpoint(pickupResolved)) ||
+          (dropoffResolved && isAirportEndpoint(dropoffResolved)),
+      ),
+    [pickupResolved, dropoffResolved],
+  );
+
+  // Terminal-aware pickup info: surfaced when either endpoint is a picked
+  // EWR terminal. Match the picker's structured placeId ('EWR-A/B/C'), not
+  // a bare `includes(t.name)` — "Terminal Ave, Clark" contains "Terminal A"
+  // and must never grow a terminal row. Gated on isAirportTrip for the same
+  // reason.
+  const terminal: AirportTerminal | null = useMemo(() => {
+    if (!isAirportTrip) return null;
+    const placeIds = [pickupResolved?.placeId, dropoffResolved?.placeId];
+    return EWR_TERMINALS.find((t) => placeIds.includes(t.id)) ?? null;
+  }, [isAirportTrip, pickupResolved, dropoffResolved]);
 
   const shortcuts: { label: string; addr: ResolvedAddress }[] = [
     ...(homeAddress ? [{ label: '🏠 Home', addr: homeAddress }] : []),
@@ -197,7 +283,7 @@ export function HomeScreen() {
       {currentLocation && (
         <MapView
           ref={mapRef}
-          provider={PROVIDER_GOOGLE}
+          provider={MAP_PROVIDER}
           style={styles.map}
           initialRegion={{
             latitude: currentLocation.lat,
@@ -221,117 +307,38 @@ export function HomeScreen() {
         </MapView>
       )}
 
-      <View style={[styles.bottomSheet, sheetExpanded && styles.bottomSheetExpanded]}>
+      {/* Rider backed out of tracking mid-trip — always give a way back. */}
+      {activeTrip && (
         <TouchableOpacity
-          onPress={() => setSheetExpanded((e) => !e)}
-          activeOpacity={1}
-          style={styles.pillWrap}
-          accessibilityLabel={sheetExpanded ? 'Collapse panel' : 'Expand panel'}
-        >
-          <View style={styles.pill} />
-        </TouchableOpacity>
-        <Text style={styles.heading}>Where to?</Text>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.shortcuts}
-          contentContainerStyle={styles.shortcutsContent}
-        >
-          {shortcuts.map(({ label, addr }) => (
-            <TouchableOpacity
-              key={label}
-              style={styles.shortcutChip}
-              onPress={() => handleDropoffResolved(addr)}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.shortcutText}>{label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <AddressAutocomplete
-          placeholder="Pickup location"
-          dotColor={Colors.primary}
-          initialValue={pickupResolved?.formattedAddress ?? ''}
-          sessionToken={sessionToken}
-          showRecents={false}
-          onAddressResolved={(addr) => {
-            setPickupResolved(addr);
-            setFareEstimate(null);
-          }}
-        />
-
-        <AddressAutocomplete
-          placeholder="Where to?"
-          dotColor={Colors.gold}
-          sessionToken={sessionToken}
-          recentAddresses={recentAddresses}
-          showRecents
-          onAddressResolved={handleDropoffResolved}
-        />
-
-        {fareError && <Text style={styles.errorText}>{fareError}</Text>}
-
-        {loadingFare && <ActivityIndicator color={Colors.primary} style={styles.fareLoader} />}
-
-        {fareEstimate && !loadingFare && (
-          <View style={styles.fareCard}>
-            <View style={styles.fareRow}>
-              <Text style={styles.fareLabel}>AI Fare</Text>
-              <Text style={styles.fareAmount}>${fareEstimate.fare.toFixed(2)}</Text>
-            </View>
-            <Text style={styles.fareDetail}>
-              {fareEstimate.distanceMiles.toFixed(1)} mi · ~{fareEstimate.durationMin} min
-              {fareEstimate.surgeMultiplier > 1.05 && (
-                <Text style={styles.surgeText}> · {fareEstimate.surgeMultiplier.toFixed(1)}× surge</Text>
-              )}
-            </Text>
-            {fareEstimate.surgeMultiplier > 1.1 && (
-              <View style={styles.surgeBadge}>
-                <Text style={styles.surgeBadgeText}>
-                  {fareEstimate.surgeMultiplier.toFixed(1)}× High Demand
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.requestButton, (!fareEstimate || requestingRide) && styles.requestButtonDisabled]}
-          onPress={requestRide}
-          disabled={!fareEstimate || requestingRide}
+          style={styles.activeRideBanner}
+          onPress={() => router.push('/tracking')}
           activeOpacity={0.85}
+          accessibilityLabel="Return to your ride"
         >
-          {requestingRide ? (
-            <ActivityIndicator color={Colors.primaryText} />
-          ) : (
-            <Text style={styles.requestButtonText}>
-              {fareEstimate ? `Request · $${fareEstimate.fare.toFixed(2)}` : 'Enter Destination'}
-            </Text>
-          )}
+          <Text style={styles.activeRideText}>Ride in progress</Text>
+          <Text style={styles.activeRideAction}>Return to ride ›</Text>
         </TouchableOpacity>
+      )}
 
-        <TouchableOpacity
-          style={styles.bidButton}
-          onPress={() => fareEstimate && pickupResolved && dropoffResolved && router.push({
-            pathname: '/bid-request',
-            params: {
-              aiFare: String(fareEstimate.fare),
-              pickupAddress: pickupResolved.formattedAddress,
-              dropoffAddress: dropoffResolved.formattedAddress,
-              pickupLat: String(pickupResolved.lat),
-              pickupLng: String(pickupResolved.lng),
-              dropoffLat: String(dropoffResolved.lat),
-              dropoffLng: String(dropoffResolved.lng),
-              paymentMethodId: defaultPaymentMethodId ?? '',
-            },
-          })}
-          disabled={!fareEstimate}
-        >
-          <Text style={styles.bidButtonText}>Make an offer instead</Text>
-        </TouchableOpacity>
-      </View>
+      <RiderBookingSheet
+        shortcuts={shortcuts}
+        onShortcut={handleDropoffResolved}
+        pickupInitialValue={pickupResolved?.formattedAddress ?? ''}
+        dropoffValue={dropoffResolved?.formattedAddress ?? ''}
+        recentAddresses={recentAddresses}
+        sessionToken={sessionToken}
+        onPickupResolved={handlePickupResolved}
+        onDropoffResolved={handleDropoffResolved}
+        fareEstimate={fareEstimate}
+        loadingFare={loadingFare}
+        fareError={fareError}
+        isAirportTrip={isAirportTrip}
+        terminal={terminal}
+        paymentMethod={paymentMethod}
+        requesting={requestingRide}
+        onRequest={requestRide}
+        onMakeOffer={makeOffer}
+      />
 
       <EwrTerminalPicker
         visible={ewrVisible}
@@ -345,123 +352,32 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   map: { flex: 1 },
-  bottomSheet: {
+  activeRideBanner: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: Spacing.base,
-    paddingBottom: Platform.OS === 'ios' ? 40 : Spacing['2xl'],
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 16,
-  },
-  pillWrap: {
-    alignItems: 'center',
-    paddingVertical: 6,
-    marginBottom: Spacing.xs,
-  },
-  pill: {
-    width: 40,
-    height: 4,
-    backgroundColor: Colors.border,
-    borderRadius: 2,
-  },
-  bottomSheetExpanded: {
-    maxHeight: SCREEN_HEIGHT * 0.75,
-  },
-  heading: {
-    color: Colors.text,
-    fontSize: Typography.size.xl,
-    fontWeight: Typography.weight.bold,
-    marginBottom: Spacing.md,
-  },
-  shortcuts: {
-    marginBottom: Spacing.md,
-  },
-  shortcutsContent: {
-    gap: Spacing.sm,
-    paddingRight: Spacing.sm,
-  },
-  shortcutChip: {
-    backgroundColor: Colors.background,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  shortcutText: {
-    color: Colors.text,
-    fontSize: Typography.size.sm,
-    fontWeight: Typography.weight.medium,
-  },
-  fareLoader: { marginTop: Spacing.sm },
-  errorText: {
-    color: Colors.error,
-    fontSize: Typography.size.sm,
-    marginTop: Spacing.sm,
-  },
-  fareCard: {
-    backgroundColor: Colors.background,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  fareRow: {
+    top: Platform.OS === 'ios' ? 60 : 32,
+    left: Spacing.base,
+    right: Spacing.base,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  fareLabel: { color: Colors.textSecondary, fontSize: Typography.size.sm },
-  fareAmount: {
-    color: Colors.text,
-    fontSize: Typography.size.xl,
-    fontWeight: Typography.weight.bold,
-    fontFamily: Typography.fontFamilyMono,
-  },
-  fareDetail: { color: Colors.textSecondary, fontSize: Typography.size.sm, marginTop: 4 },
-  surgeText: { color: Colors.warning },
-  surgeBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.primary + '20',
+    backgroundColor: Colors.surface,
     borderRadius: Radius.full,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
     borderWidth: 1,
     borderColor: Colors.primary,
-    marginTop: 6,
+    paddingHorizontal: Spacing.base,
+    paddingVertical: Spacing.md,
+    zIndex: 60,
   },
-  surgeBadgeText: {
-    color: Colors.primary,
-    fontSize: Typography.size.xs,
+  activeRideText: {
+    color: Colors.text,
+    fontSize: Typography.size.base,
     fontWeight: Typography.weight.semibold,
   },
-  requestButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: Radius.lg,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: Spacing.sm,
-  },
-  requestButtonDisabled: { opacity: 0.5 },
-  requestButtonText: {
-    color: Colors.primaryText,
-    fontSize: Typography.size.md,
+  activeRideAction: {
+    color: Colors.primary,
+    fontSize: Typography.size.base,
     fontWeight: Typography.weight.bold,
   },
-  bidButton: {
-    alignItems: 'center',
-    paddingVertical: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  bidButtonText: { color: Colors.textSecondary, fontSize: Typography.size.sm },
 });
 
 const darkMapStyle = [

@@ -12,6 +12,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Plane, Users, Clock, TrendingUp } from 'lucide-react-native';
 import { Colors, Fonts } from '../constants/theme';
+import { ScreenHeader } from '../components/ui/ScreenHeader';
 import { useDriverStore } from '../store/driver.store';
 
 type Props = {
@@ -111,12 +112,15 @@ export default function AirportModeScreen({ navigation }: Props) {
   const surge = queueStatus?.surgeMultiplier ?? 1;
   const surgeColor = surge >= 2 ? Colors.safety : surge >= 1.5 ? Colors.gold : Colors.teal;
 
+  // Leaving the screen never removes the driver from the queue — position is
+  // held server-side (see queue rules) — so back is always safe. ScreenHeader's
+  // default back handles the no-stack fallback to Home.
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Plane size={24} color={Colors.teal} />
-        <Text style={styles.title}>EWR Airport Mode</Text>
-      </View>
+      <ScreenHeader
+        title="EWR Airport Mode"
+        right={<Plane size={20} color={Colors.teal} />}
+      />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {!inQueue ? (
@@ -257,17 +261,6 @@ function StatCard({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  title: { fontSize: 20, fontWeight: '700', color: Colors.textPrimary },
   scroll: { flex: 1 },
   scrollContent: { padding: 24, gap: 16 },
   joinSection: { gap: 20 },

@@ -8,7 +8,8 @@
     "seed": "ts-node prisma/seed.ts",
     "seed:fraud": "ts-node prisma/seed-fraud.ts",
     "studio": "prisma studio",
-    "generate": "prisma generate"
+    "generate": "prisma generate",
+    "test": "jest --passWithNoTests"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",

@@ -11,6 +11,7 @@ import { BidStatus, TripStatus, RideType } from '@bidride/database/generated/cli
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { DispatchService } from '../trips/dispatch.service';
+import { detectAirportTripFromEndpoints } from '../trips/trips.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { SubmitBidDto, CounterBidDto } from './bids.dto';
 import {
@@ -68,7 +69,7 @@ export class BidsService implements OnModuleInit {
 
     const expiresAt = new Date(Date.now() + BID_TTL_SECONDS * 1000);
     const now = new Date();
-    const isAirportTrip = this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress);
+    const isAirportTrip = detectAirportTripFromEndpoints(dto);
 
     // Create Stripe authorization hold for the full standard fare amount so any
     // accepted outcome (bid or counter up to standard fare) is covered.
@@ -256,7 +257,7 @@ export class BidsService implements OnModuleInit {
       });
     });
 
-    await this.captureStripeHold(bidId, finalFare);
+    await this.captureStripeHold(bidId, finalFare, bid.tripId, bid.riderId);
     await this.redis.setex(`trip:${bid.tripId}:state`, 7200, TripStatus.accepted);
     await this.dispatch.notifyBidAcceptedByDriver(bid.tripId, bidId, driver, finalFare);
 
@@ -440,7 +441,7 @@ export class BidsService implements OnModuleInit {
       });
     });
 
-    await this.captureStripeHold(bidId, finalFare);
+    await this.captureStripeHold(bidId, finalFare, bid.tripId, bid.riderId);
     await this.redis.setex(`trip:${bid.tripId}:state`, 7200, TripStatus.accepted);
     await this.dispatch.notifyDriverCounterAccepted(bid.tripId, bidId, bid.driverId, finalFare);
 
@@ -616,8 +617,9 @@ export class BidsService implements OnModuleInit {
   }
 
   private recordRejectedBidOutcome(tripId: string, bidId: string): void {
-    const AI_SERVICE_URL = process.env.AI_SERVICE_URL;
-    if (!AI_SERVICE_URL) return;
+    // Same default as every other AI hook: the fetch is fire-and-forget and
+    // tolerates the service being down, so no early return when unset.
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
     void fetch(`${AI_SERVICE_URL}/ai/bid-outcome`, {
       method: 'POST',
       headers: {
@@ -654,7 +656,12 @@ export class BidsService implements OnModuleInit {
     return data.paymentIntentId;
   }
 
-  private async captureStripeHold(bidId: string, finalFare: number): Promise<void> {
+  private async captureStripeHold(
+    bidId: string,
+    finalFare: number,
+    tripId: string,
+    riderId: string,
+  ): Promise<void> {
     const piId = await this.redis.get(`bid:${bidId}:pi`);
     if (!piId) {
       this.logger.warn(`No payment intent found for bid ${bidId} — skipping capture`);
@@ -665,7 +672,15 @@ export class BidsService implements OnModuleInit {
     await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
-      body: JSON.stringify({ paymentIntentId: piId, amountCents: Math.round(finalFare * 100) }),
+      // tripId/riderId let payment-service book this capture as the trip's
+      // payment record — the capture IS the ride's charge for offer trips,
+      // and receipts/refunds/analytics must be able to see it.
+      body: JSON.stringify({
+        paymentIntentId: piId,
+        amountCents: Math.round(finalFare * 100),
+        tripId,
+        riderId,
+      }),
     }).catch((e: unknown) => this.logger.error(`Stripe capture failed for bid ${bidId}`, e));
 
     await this.redis.del(`bid:${bidId}:pi`);
@@ -698,7 +713,7 @@ export class BidsService implements OnModuleInit {
         dropoffLat: dto.dropoffLat,
         dropoffLng: dto.dropoffLng,
         rideType: 'bid',
-        isAirportTrip: this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress),
+        isAirportTrip: detectAirportTripFromEndpoints(dto),
       }),
     });
 
@@ -783,7 +798,19 @@ export class BidsService implements OnModuleInit {
       }
     }
 
-    return matched;
+    if (matched.length === 0) return matched;
+
+    // A Redis location key alone is NOT eligibility — availability and
+    // approval are authoritative in Postgres. This closes the hole where an
+    // offline or suspended driver with a lingering location key (leaked
+    // watcher, TTL not yet lapsed) would still receive offers. Applies to
+    // geo-matched and EWR-queue-injected drivers alike.
+    const eligible = await this.prisma.driver.findMany({
+      where: { userId: { in: matched }, isAvailable: true, status: 'approved' },
+      select: { userId: true },
+    });
+    const eligibleSet = new Set(eligible.map((d) => d.userId));
+    return matched.filter((userId) => eligibleSet.has(userId));
   }
 
   private async rankDriversWithFallback(
@@ -862,11 +889,6 @@ export class BidsService implements OnModuleInit {
       Math.sin(dLat / 2) ** 2 +
       Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
     return parseFloat((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2));
-  }
-
-  private detectAirportTrip(pickup: string, dropoff: string): boolean {
-    const terms = ['EWR', 'Newark Airport', 'Newark Liberty', 'Terminal A', 'Terminal B', 'Terminal C'];
-    return terms.some((t) => pickup.includes(t) || dropoff.includes(t));
   }
 
   private isNightRide(date: Date): boolean {

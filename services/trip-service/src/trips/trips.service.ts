@@ -1,9 +1,12 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
   Inject,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { TripStatus, RideType } from '@bidride/database/generated/client';
 import Redis from 'ioredis';
@@ -16,16 +19,77 @@ import { REDIS_CLIENT } from '../redis/redis.module';
 
 const PLATFORM_FEE_RATE = 0.20;
 const NO_SHOW_WAIT_MINUTES = 5;
+
+// EWR geofence for airport-trip detection. 1930m ≈ 1.2mi — validated against
+// real coordinates: terminals ≤0.26mi and the cell lot 0.74mi from center
+// (inside); Port Newark Marine Terminal 1.59mi and "Terminal Ave" Elizabeth
+// 2.19mi (outside). MUST stay in lockstep with rider-app
+// src/constants/airports.ts EWR_RADIUS_METERS or quotes diverge from charges.
+const EWR_CENTER = { lat: 40.6895, lng: -74.1745 };
+// Malformed env must fall back, never yield NaN (which would silently
+// disable the geofence and drop the airport premium from real EWR trips).
+const AIRPORT_RADIUS_METERS = (() => {
+  const parsed = Number(process.env.AIRPORT_RADIUS_METERS ?? 1930);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1930;
+})();
 const DROPOFF_LOCK_RADIUS_MILES = 0.2;
 const SURGE_COUNTER_TTL_SEC = 600; // 10-minute rolling window
+
+// Standard-ride dispatch: how long a broadcast may go unanswered before the
+// sweeper acts (driver card is 60s; +15s buffer), how many re-broadcasts are
+// allowed, and how often the sweeper scans for stale searching trips.
+const DISPATCH_WINDOW_MS = 75_000;
+const MAX_REDISPATCHES = 2;
+const DISPATCH_SWEEP_INTERVAL_MS = 15_000;
+const NO_DRIVERS_REASON = 'no_drivers_available';
 const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007';
 
 function getZoneKey(lat: number, lng: number): string {
   return `${Math.floor(lat / 0.018)}:${Math.floor(lng / 0.022)}`;
 }
 
+// CANONICAL airport-trip detection for this service — coordinate-first
+// (either endpoint inside the EWR geofence) with a STRICT name fallback for
+// geocoder coordinate drift. Deliberately NO 'Terminal X' substring patterns:
+// 'Terminal A'.includes matched "Terminal Ave"/"Marine Terminal" street
+// addresses and charged them the airport premium. Exported so bids.service
+// prices offers with the SAME rule — two detectors already diverged once.
+// Keep in lockstep with rider-app constants/airports.ts (isNearEwr + trio).
+const AIRPORT_NAME_FALLBACK = [/\bEWR\b/, /Newark Liberty/i, /Newark Airport/i];
+
+function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function detectAirportTripFromEndpoints(dto: {
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  pickupAddress: string;
+  dropoffAddress: string;
+}): boolean {
+  const inGeofence =
+    distanceMeters(dto.pickupLat, dto.pickupLng, EWR_CENTER.lat, EWR_CENTER.lng) <= AIRPORT_RADIUS_METERS ||
+    distanceMeters(dto.dropoffLat, dto.dropoffLng, EWR_CENTER.lat, EWR_CENTER.lng) <= AIRPORT_RADIUS_METERS;
+  if (inGeofence) return true;
+
+  return AIRPORT_NAME_FALLBACK.some(
+    (re) => re.test(dto.pickupAddress) || re.test(dto.dropoffAddress),
+  );
+}
+
 @Injectable()
-export class TripsService {
+export class TripsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(TripsService.name);
+  private dispatchSweepTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly dispatch: DispatchService,
@@ -33,20 +97,33 @@ export class TripsService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
+  onModuleInit(): void {
+    // DB-driven sweep — survives restarts and also cleans up any searching
+    // trips orphaned before this service instance started.
+    this.dispatchSweepTimer = setInterval(() => {
+      this.sweepStaleSearchingTrips().catch((err) =>
+        console.error('Dispatch sweep failed:', err),
+      );
+    }, DISPATCH_SWEEP_INTERVAL_MS);
+  }
+
+  onModuleDestroy(): void {
+    if (this.dispatchSweepTimer) clearInterval(this.dispatchSweepTimer);
+  }
+
   async createTrip(userId: string, dto: CreateTripDto) {
     const rider = await this.resolveRider(userId);
 
     await this.assertNoActiveFraudHold(userId);
 
-    // Fetch real trust score — used as a pricing feature. Default 500 for brand-new users only.
-    const trustRecord = await this.prisma.trustScore.findUnique({
-      where: { userId },
-      select: { trustScore: true },
-    });
-    const riderTrustScore = trustRecord?.trustScore ?? 500;
+    // Airport detection feeds both the trip record and the fare quote — the
+    // pricing engine's airport premium only applies when this flag reaches it.
+    const isAirportTrip = this.detectAirportTrip(dto);
 
-    // Get AI fare from pricing service (internal HTTP call)
-    const aiFare = await this.getPricingEstimate(dto, riderTrustScore, rider.totalTrips);
+    // Get AI fare from pricing service (internal HTTP call). Trust scores are
+    // deliberately NOT sent: they are prohibited as pricing features
+    // (anti-discrimination rule — see design/ai-governance-rules.md).
+    const aiFare = await this.getPricingEstimate(dto, rider.totalTrips, isAirportTrip);
     const now = new Date();
 
     const trip = await this.prisma.trip.create({
@@ -62,11 +139,11 @@ export class TripsService {
         dropoffLng: dto.dropoffLng,
         aiFare,
         isNightRide: isNightRide(now),
-        isAirportTrip: this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress),
+        isAirportTrip,
         safetySession: {
           create: {
             isNightRide: isNightRide(now),
-            isAirportTrip: this.detectAirportTrip(dto.pickupAddress, dto.dropoffAddress),
+            isAirportTrip,
             checkInStatus: isNightRide(now) ? 'pending' : 'not_required',
           },
         },
@@ -84,7 +161,24 @@ export class TripsService {
       .catch(() => {});
 
     // Begin dispatch (async — finds available drivers in zone)
-    this.dispatch.broadcastRequest(trip).catch(console.error);
+    const dispatchDistanceMiles = this.haversineDistance(
+      dto.pickupLat, dto.pickupLng,
+      dto.dropoffLat, dto.dropoffLng,
+    );
+    const dispatchDurationMin = Math.round((dispatchDistanceMiles / 20) * 60);
+    this.dispatch.broadcastRequest({
+      ...trip,
+      distanceMiles: dispatchDistanceMiles,
+      durationMin: dispatchDurationMin,
+      riderBadge: rider.currentBadge as string,
+    }).catch(console.error);
+
+    // Track dispatch attempts so the sweeper can re-broadcast or fail cleanly
+    void this.redis.set(
+      `trip:${trip.id}:dispatch`,
+      JSON.stringify({ attempts: 0, lastDispatchAt: Date.now() }),
+      'EX', 3600,
+    ).catch(() => {});
 
     // Store planned route + compute safety score (fire-and-forget)
     void this.storeTripRouteSafety(
@@ -227,9 +321,70 @@ export class TripsService {
       ? Math.round((completedAt.getTime() - trip.startedAt.getTime()) / 60000)
       : null;
 
-    const finalFare = Number(trip.aiFare); // Use AI fare (bid resolves separately)
-    const platformFee = finalFare * PLATFORM_FEE_RATE;
-    const driverEarnings = finalFare - platformFee;
+    // ── CANONICAL FARE ──────────────────────────────────────────────────────
+    // Standard ride: the AI fare quoted at creation becomes the final fare at
+    // completion. Offer ride (bidId set): the accepted negotiated fare was
+    // locked into trip.finalFare at accept/counter-accept — aiFare is
+    // REFERENCE-ONLY from that point. Stripe, driver earnings, receipts,
+    // history and analytics must all flow from this one value.
+    const isBidTrip = trip.bidId != null;
+
+    if (isBidTrip && trip.finalFare == null) {
+      // The accepted fare is missing — a state that should be impossible.
+      // Complete the ride so nobody is stranded, but BLOCK all money
+      // movement: never fall back to aiFare, never silently pick an amount.
+      this.logger.error(
+        `FARE INTEGRITY ERROR trip=${tripId} bid=${trip.bidId}: accepted finalFare missing — completing without charge for human resolution`,
+      );
+      // Audit writes are best-effort: a transient DB error must not stop the
+      // trip from completing (the logger line above carries the same facts).
+      try {
+        await this.prisma.tripEvent.create({
+          data: {
+            tripId,
+            eventType: 'fare_integrity_error',
+            metadata: {
+              reason: 'bid trip missing accepted finalFare at completion',
+              bidId: trip.bidId,
+              aiFare: Number(trip.aiFare),
+            },
+          },
+        });
+        // The driver DID complete this ride; money is blocked pending human
+        // resolution. Record the deterministic earnings-floor amount owed so
+        // ops can pay it manually — the floor is non-negotiable even here.
+        const floorMiles = this.haversineDistance(
+          Number(trip.pickupLat), Number(trip.pickupLng),
+          Number(trip.dropoffLat), Number(trip.dropoffLng),
+        );
+        const floorOwed = floorMiles * 1.10 + (actualDurationMin ?? 0) * 0.22 + 2.50;
+        await this.prisma.tripEvent.create({
+          data: {
+            tripId,
+            eventType: 'fare_integrity_driver_payout_hold',
+            metadata: {
+              reason: 'driver payout blocked by fare integrity error — pay at least the earnings floor manually',
+              driverId: trip.driverId,
+              earningsFloorOwed: Math.round(floorOwed * 100) / 100,
+              actualDurationMin,
+            },
+          },
+        });
+      } catch (auditErr: unknown) {
+        this.logger.error(`fare_integrity audit write failed for trip=${tripId}`, auditErr);
+      }
+      const blocked = await this.prisma.trip.update({
+        where: { id: tripId },
+        data: { status: TripStatus.completed, completedAt, actualDurationMin },
+      });
+      await this.redis.del(`trip:${tripId}:state`);
+      await this.redis.del(`trip:${tripId}:claimed`);
+      return blocked;
+    }
+
+    const canonicalFare = isBidTrip ? Number(trip.finalFare) : Number(trip.aiFare);
+    const platformFee = canonicalFare * PLATFORM_FEE_RATE;
+    const driverEarnings = canonicalFare - platformFee;
 
     // Enforce earnings floor (absorbs supplement from platform)
     const floorResult = await this.earningsFloor.enforce(trip, driverEarnings, actualDurationMin);
@@ -240,7 +395,7 @@ export class TripsService {
         status: TripStatus.completed,
         completedAt,
         actualDurationMin,
-        finalFare,
+        finalFare: canonicalFare,
         platformFee,
         driverEarnings: floorResult.totalDriverEarnings,
         earningsFloorMet: floorResult.floorMet,
@@ -250,10 +405,15 @@ export class TripsService {
 
     await this.redis.del(`trip:${tripId}:state`);
     await this.redis.del(`trip:${tripId}:claimed`);
-    await this.dispatch.notifyTripCompleted(tripId, finalFare, floorResult);
+    await this.dispatch.notifyTripCompleted(tripId, canonicalFare, floorResult);
 
-    // Fire-and-forget: charge rider for completed trip (non-bid standard trip path)
-    this.chargeRiderForTrip(tripId, trip.riderId, finalFare);
+    // Fire-and-forget: charge rider — STANDARD trips only. Bid trips were
+    // already settled on Stripe when the authorization hold was captured at
+    // the accepted fare (bids.service accept / counter-accept); charging here
+    // again was the double-charge defect this hotfix removes.
+    if (!isBidTrip) {
+      this.chargeRiderForTrip(tripId, trip.riderId, canonicalFare);
+    }
 
     // Fire-and-forget: credit driver wallet with take-home earnings
     this.creditDriverWalletForTrip(trip.driverId, tripId, floorResult.totalDriverEarnings);
@@ -262,7 +422,7 @@ export class TripsService {
     this.scheduleTrustRefresh(trip.riderId, trip.driverId);
 
     // Fire-and-forget: record bid outcome for AI training data pipeline
-    this.recordBidOutcome(trip, finalFare, floorResult.totalDriverEarnings, platformFee);
+    this.recordBidOutcome(trip, canonicalFare, floorResult.totalDriverEarnings, platformFee);
 
     return updated;
   }
@@ -465,6 +625,75 @@ export class TripsService {
     return trip;
   }
 
+  // Cold-start rehydration: the single in-flight trip the caller participates
+  // in (as rider or driver), shaped for the mobile apps. Read-only.
+  async getActiveTripForUser(userId: string) {
+    const [rider, driver] = await Promise.all([
+      this.prisma.rider.findUnique({ where: { userId }, select: { id: true } }),
+      this.prisma.driver.findUnique({ where: { userId }, select: { id: true } }),
+    ]);
+    if (!rider && !driver) return { trip: null };
+
+    const trip = await this.prisma.trip.findFirst({
+      where: {
+        status: {
+          in: [
+            TripStatus.searching,
+            TripStatus.accepted,
+            TripStatus.driver_en_route,
+            TripStatus.driver_arrived,
+            TripStatus.in_progress,
+          ],
+        },
+        OR: [
+          ...(rider ? [{ riderId: rider.id }] : []),
+          ...(driver ? [{ driverId: driver.id }] : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        rider: { select: { displayName: true } },
+        driver: {
+          include: {
+            vehicles: { where: { isActive: true }, take: 1 },
+            user: { select: { firstName: true, lastName: true, profilePhotoUrl: true } },
+          },
+        },
+      },
+    });
+    if (!trip) return { trip: null };
+
+    const vehicle = trip.driver?.vehicles[0] ?? null;
+    return {
+      trip: {
+        id: trip.id,
+        status: trip.status,
+        role: driver && trip.driverId === driver.id ? 'driver' : 'rider',
+        pickupAddress: trip.pickupAddress,
+        dropoffAddress: trip.dropoffAddress,
+        pickupLat: Number(trip.pickupLat),
+        pickupLng: Number(trip.pickupLng),
+        dropoffLat: Number(trip.dropoffLat),
+        dropoffLng: Number(trip.dropoffLng),
+        aiFare: Number(trip.aiFare),
+        riderName: trip.rider?.displayName ?? 'Rider',
+        driver: trip.driver
+          ? {
+              name:
+                [trip.driver.user?.firstName, trip.driver.user?.lastName].filter(Boolean).join(' ') ||
+                'Your Driver',
+              badge: (trip.driver.currentBadge as string) ?? 'Verified',
+              vehicleMake: vehicle?.make,
+              vehicleModel: vehicle?.model,
+              vehicleColor: vehicle?.color,
+              licensePlate: vehicle?.licensePlate,
+              photoUrl: trip.driver.user?.profilePhotoUrl ?? undefined,
+            }
+          : null,
+      },
+    };
+  }
+
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
   private async getActiveTrip(tripId: string) {
@@ -494,8 +723,8 @@ export class TripsService {
 
   private async getPricingEstimate(
     dto: CreateTripDto,
-    riderTrustScore: number,
     riderTotalTrips: number,
+    isAirportTrip: boolean,
   ): Promise<number> {
     const PRICING_SERVICE_URL = process.env.PRICING_SERVICE_URL ?? 'http://localhost:3005';
     const response = await fetch(`${PRICING_SERVICE_URL}/pricing/estimate`, {
@@ -507,7 +736,7 @@ export class TripsService {
         dropoffLat: dto.dropoffLat,
         dropoffLng: dto.dropoffLng,
         rideType: dto.rideType ?? 'standard',
-        riderTrustScore,
+        isAirportTrip,
         riderTotalTrips,
       }),
     });
@@ -574,8 +803,9 @@ export class TripsService {
     driverEarnings: number,
     platformFee: number,
   ): void {
-    const AI_SERVICE_URL = process.env.AI_SERVICE_URL;
-    if (!AI_SERVICE_URL) return;
+    // Same default as every other AI hook: the fetch is fire-and-forget and
+    // tolerates the service being down, so no early return when unset.
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
 
     const pickupLat = Number(trip.pickupLat);
     const pickupLng = Number(trip.pickupLng);
@@ -603,11 +833,104 @@ export class TripsService {
     }).catch(() => {});
   }
 
-  private detectAirportTrip(pickup: string, dropoff: string): boolean {
-    const airportTerms = ['EWR', 'Newark Airport', 'Newark Liberty', 'Terminal A', 'Terminal B', 'Terminal C'];
-    return airportTerms.some(
-      (term) => pickup.includes(term) || dropoff.includes(term),
+  // Coordinate-first airport detection. A trip is an airport trip iff either
+  // endpoint sits inside the EWR geofence, with a STRICT name fallback for
+  // geocoder coordinate drift. Deliberately NO 'Terminal X' substring
+  // patterns: 'Terminal A'.includes matched "Terminal Ave"/"Marine Terminal"
+  // street addresses and charged them the airport premium.
+  // Keep rule + constants in lockstep with rider-app constants/airports.ts
+  // (isNearEwr + fallback trio) or quoted fares diverge from charged fares.
+  private detectAirportTrip(dto: {
+    pickupLat: number;
+    pickupLng: number;
+    dropoffLat: number;
+    dropoffLng: number;
+    pickupAddress: string;
+    dropoffAddress: string;
+  }): boolean {
+    return detectAirportTripFromEndpoints(dto);
+  }
+
+  // ─── Standard-ride redispatch / no-drivers timeout ───────────────────────
+
+  private async sweepStaleSearchingTrips(): Promise<void> {
+    const staleBefore = new Date(Date.now() - DISPATCH_WINDOW_MS);
+    const staleTrips = await this.prisma.trip.findMany({
+      where: { status: TripStatus.searching, createdAt: { lt: staleBefore } },
+      include: { rider: { select: { currentBadge: true } } },
+      take: 20,
+    });
+
+    for (const trip of staleTrips) {
+      const metaRaw = await this.redis.get(`trip:${trip.id}:dispatch`);
+      // No metadata (pre-feature orphan or Redis restart): fail rather than
+      // re-broadcast a request of unknown age.
+      const meta = metaRaw
+        ? (JSON.parse(metaRaw) as { attempts: number; lastDispatchAt: number })
+        : { attempts: MAX_REDISPATCHES, lastDispatchAt: 0 };
+
+      if (Date.now() - meta.lastDispatchAt < DISPATCH_WINDOW_MS) continue;
+
+      if (meta.attempts < MAX_REDISPATCHES) {
+        await this.redispatchTrip(trip, meta.attempts + 1);
+      } else {
+        await this.failTripNoDrivers(trip.id);
+      }
+    }
+  }
+
+  private async redispatchTrip(
+    trip: {
+      id: string;
+      pickupAddress: string;
+      dropoffAddress: string;
+      pickupLat: unknown;
+      pickupLng: unknown;
+      dropoffLat: unknown;
+      dropoffLng: unknown;
+      aiFare: unknown;
+      rideType: string;
+      isAirportTrip: boolean;
+      rider: { currentBadge: string } | null;
+    },
+    attempt: number,
+  ): Promise<void> {
+    const distanceMiles = this.haversineDistance(
+      Number(trip.pickupLat), Number(trip.pickupLng),
+      Number(trip.dropoffLat), Number(trip.dropoffLng),
     );
+    const durationMin = Math.round((distanceMiles / 20) * 60);
+
+    await this.dispatch.broadcastRequest({
+      ...trip,
+      distanceMiles,
+      durationMin,
+      riderBadge: (trip.rider?.currentBadge as string) ?? 'verified',
+    });
+
+    await this.redis.set(
+      `trip:${trip.id}:dispatch`,
+      JSON.stringify({ attempts: attempt, lastDispatchAt: Date.now() }),
+      'EX', 3600,
+    );
+
+    await this.dispatch.notifyRiderSearchingUpdate(trip.id, attempt);
+  }
+
+  private async failTripNoDrivers(tripId: string): Promise<void> {
+    // Guard against a driver accepting between the sweep query and this write
+    const { count } = await this.prisma.trip.updateMany({
+      where: { id: tripId, status: TripStatus.searching },
+      data: {
+        status: TripStatus.cancelled,
+        cancelledAt: new Date(),
+        cancelReason: NO_DRIVERS_REASON,
+      },
+    });
+    if (count === 0) return;
+
+    await this.redis.del(`trip:${tripId}:state`, `trip:${tripId}:dispatch`);
+    await this.dispatch.notifyRiderNoDrivers(tripId);
   }
 
   private haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {

@@ -85,7 +85,9 @@ describe('DriversService — Redis location key format', () => {
 
       expect(mockRedis.setex).toHaveBeenCalledWith(
         `driver:${DRIVER_USER_ID}:location`,
-        300,
+        // Unified with the gateway's LOCATION_TTL_SECONDS (default 180) —
+        // one env-driven retention bound for the shared location key.
+        180,
         JSON.stringify({ lat: 40.695, lng: -74.175 }),
       );
     });

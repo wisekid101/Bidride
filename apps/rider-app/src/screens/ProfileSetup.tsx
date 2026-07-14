@@ -11,11 +11,20 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 
+function initialsOf(first: string, last: string): string {
+  return ((first.trim()[0] ?? '') + (last.trim()[0] ?? '')).toUpperCase() || '?';
+}
+
 export function ProfileSetupScreen() {
+  // flow=signup: brand-new rider — continue into the signup steps.
+  // Otherwise (returning rider completing their profile): straight to Home.
+  const { flow } = useLocalSearchParams<{ flow?: string }>();
+  const nextRoute = flow === 'signup' ? '/signup/payment' : '/(tabs)';
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -32,15 +41,15 @@ export function ProfileSetupScreen() {
         email: email.trim() || undefined,
       });
     } catch {
-      // Profile save is best-effort — still proceed to Home
+      // Profile save is best-effort — still proceed
     } finally {
       setSaving(false);
-      router.replace('/(tabs)');
+      router.replace(nextRoute as never);
     }
   };
 
   const skip = () => {
-    router.replace('/(tabs)');
+    router.replace(nextRoute as never);
   };
 
   return (
@@ -51,6 +60,17 @@ export function ProfileSetupScreen() {
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Welcome to BidiRide</Text>
         <Text style={styles.subtitle}>Tell us your name so drivers can greet you.</Text>
+
+        {/* Profile photo placeholder — real upload ships with Phase B (S3
+            credentials). No picker is offered until it can actually work. */}
+        <View style={styles.avatarSection}>
+          <View style={styles.avatarPlaceholder}>
+            <Text style={styles.avatarInitials}>{initialsOf(firstName, lastName)}</Text>
+          </View>
+          <Text style={styles.avatarHint}>
+            Profile photos are coming soon — your initials represent you for now.
+          </Text>
+        </View>
 
         <Text style={styles.label}>First name</Text>
         <TextInput
@@ -116,8 +136,29 @@ const styles = StyleSheet.create({
   subtitle: {
     color: Colors.textSecondary,
     fontSize: Typography.size.base,
-    marginBottom: Spacing['3xl'],
+    marginBottom: Spacing.xl,
     lineHeight: 22,
+  },
+  avatarSection: { alignItems: 'center', marginBottom: Spacing.xl },
+  avatarPlaceholder: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  avatarInitials: {
+    color: Colors.primaryText,
+    fontSize: Typography.size['2xl'],
+    fontWeight: Typography.weight.bold,
+  },
+  avatarHint: {
+    color: Colors.textDisabled,
+    fontSize: Typography.size.xs,
+    textAlign: 'center',
+    paddingHorizontal: Spacing.xl,
   },
   label: {
     color: Colors.textSecondary,

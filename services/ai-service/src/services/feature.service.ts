@@ -14,6 +14,9 @@ export class FeatureService {
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
   ) {}
 
+  // NOTE: trust scores are PROHIBITED fare features (anti-discrimination
+  // rule, design/ai-governance-rules.md) — they must never appear in this
+  // input type, the returned vector, or the inference logs it feeds.
   async buildFareFeatures(input: {
     distanceMiles: number;
     durationMin: number;
@@ -21,7 +24,6 @@ export class FeatureService {
     isNight?: boolean;
     hourOfDay?: number;
     dayOfWeek?: number;
-    riderTrustScore?: number;
     riderTotalTrips?: number;
     // Optional: if lat/lng provided, enrich surgeZoneScore from Redis
     pickupLat?: number;
@@ -49,7 +51,6 @@ export class FeatureService {
       isNight: input.isNight ?? false,
       hourOfDay: input.hourOfDay ?? new Date().getHours(),
       dayOfWeek: input.dayOfWeek ?? new Date().getDay(),
-      riderTrustScore: input.riderTrustScore ?? 500,
       riderTotalTrips: input.riderTotalTrips ?? 0,
     };
   }

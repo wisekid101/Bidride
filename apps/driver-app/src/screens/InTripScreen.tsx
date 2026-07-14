@@ -9,13 +9,17 @@ import {
   Vibration,
   PanResponder,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
+import { MAP_PROVIDER } from '../constants/map';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { useDriverSocketStore } from '../store/socket.store';
+import { useFollowCamera } from '../hooks/useFollowCamera';
+import { RecenterButton } from '../components/RecenterButton';
+import { isAlreadyAdvancedError } from '../utils/tripErrors';
 
 interface InTripProps {
   tripId: string;
@@ -23,6 +27,8 @@ interface InTripProps {
   dropoffAddress: string;
   driverTakeHome: number;
   earningsFloorAmount: number;
+  // 'in_progress' when rehydrating a trip that was already started
+  initialPhase?: 'arrived' | 'in_progress';
 }
 
 export function InTripScreen({
@@ -31,11 +37,28 @@ export function InTripScreen({
   dropoffAddress,
   driverTakeHome,
   earningsFloorAmount,
+  initialPhase,
 }: InTripProps) {
   const mapRef = useRef<MapView>(null);
+  const { following, follow, onUserGesture, recenter } = useFollowCamera(mapRef);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [elapsedMin, setElapsedMin] = useState(0);
+  // Trip runs driver_arrived -> in_progress (POST /start) -> completed (POST /end);
+  // the End button is only valid once the trip has been started.
+  const [phase, setPhase] = useState<'arrived' | 'in_progress'>(initialPhase ?? 'arrived');
+  const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
+
+  // Rider cancelled mid-trip — return the driver Home instead of leaving
+  // them stranded on a dead trip screen.
+  const cancelledTripId = useDriverSocketStore((s) => s.cancelledTripId);
+  useEffect(() => {
+    if (!cancelledTripId || cancelledTripId !== tripId) return;
+    useDriverSocketStore.getState().clearCancelledTrip();
+    Alert.alert('Trip Cancelled', 'The rider cancelled this trip.', [
+      { text: 'OK', onPress: () => router.replace('/(tabs)') },
+    ]);
+  }, [cancelledTripId]);
 
   // Track elapsed time
   useEffect(() => {
@@ -51,6 +74,7 @@ export function InTripScreen({
         { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 15 },
         (pos) => {
           setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          follow({ lat: pos.coords.latitude, lng: pos.coords.longitude }, pos.coords.heading ?? undefined);
           useDriverSocketStore.getState().emitLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.heading ?? undefined, tripId);
         },
       );
@@ -84,6 +108,24 @@ export function InTripScreen({
     api.post('/safety/panic', { tripId }).catch(console.error);
   };
 
+  const startTrip = async () => {
+    setStarting(true);
+    try {
+      await api.post(`/trips/${tripId}/start`, {});
+      setElapsedMin(0);
+      setPhase('in_progress');
+    } catch (err: any) {
+      if (isAlreadyAdvancedError(err)) {
+        // Already started (e.g. after an app reload) — just advance the UI.
+        setPhase('in_progress');
+      } else {
+        Alert.alert('Error', 'Could not start trip. Try again.');
+      }
+    } finally {
+      setStarting(false);
+    }
+  };
+
   const endTrip = async () => {
     if (!currentLocation) {
       Alert.alert('Error', 'Cannot end trip — location unavailable.');
@@ -112,7 +154,7 @@ export function InTripScreen({
       {currentLocation && (
         <MapView
           ref={mapRef}
-          provider={PROVIDER_GOOGLE}
+          provider={MAP_PROVIDER}
           style={styles.map}
           initialRegion={{
             latitude: currentLocation.lat,
@@ -121,6 +163,7 @@ export function InTripScreen({
             longitudeDelta: 0.03,
           }}
           customMapStyle={darkMapStyle}
+          onPanDrag={onUserGesture}
         >
           <Marker coordinate={{ latitude: currentLocation.lat, longitude: currentLocation.lng }}>
             <View style={styles.carMarker}>
@@ -129,6 +172,8 @@ export function InTripScreen({
           </Marker>
         </MapView>
       )}
+
+      <RecenterButton visible={!following} onPress={recenter} style={styles.recenter} />
 
       {/* Top bar: SOS always top-right, shield center */}
       <View style={styles.topBar}>
@@ -165,16 +210,33 @@ export function InTripScreen({
           </View>
         )}
 
-        <TouchableOpacity
-          style={[styles.endButton, ending && styles.endButtonDisabled]}
-          onPress={endTrip}
-          disabled={ending}
-        >
-          <Text style={styles.endButtonText}>
-            {ending ? 'Ending Trip...' : 'End Trip'}
-          </Text>
-        </TouchableOpacity>
-        <Text style={styles.endHint}>Must be within 0.2 mi of dropoff</Text>
+        {phase === 'arrived' ? (
+          <>
+            <TouchableOpacity
+              style={[styles.endButton, starting && styles.endButtonDisabled]}
+              onPress={startTrip}
+              disabled={starting}
+            >
+              <Text style={styles.endButtonText}>
+                {starting ? 'Starting Trip...' : 'Start Trip'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.endHint}>Tap when the rider is in the car</Text>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[styles.endButton, ending && styles.endButtonDisabled]}
+              onPress={endTrip}
+              disabled={ending}
+            >
+              <Text style={styles.endButtonText}>
+                {ending ? 'Ending Trip...' : 'End Trip'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.endHint}>Must be within 0.2 mi of dropoff</Text>
+          </>
+        )}
       </View>
     </View>
   );
@@ -227,6 +289,11 @@ const styles = StyleSheet.create({
   carMarker: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center',
+  },
+  recenter: {
+    position: 'absolute',
+    bottom: 210,
+    right: Spacing.base,
   },
   bottomBar: {
     position: 'absolute',

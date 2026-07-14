@@ -42,13 +42,18 @@ async function request<T>(
 }
 
 async function refreshAccessToken(): Promise<boolean> {
-  const { refreshToken, userId, setTokens } = useAuthStore.getState();
+  const { accessToken, refreshToken, userId, setTokens } = useAuthStore.getState();
   if (!refreshToken || !userId) return false;
 
   try {
     const response = await fetch(`${BASE_URL}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // /auth/refresh uses the jwt-refresh guard: it requires the (possibly
+        // expired) access token as Bearer to identify the caller.
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
       body: JSON.stringify({ refreshToken }),
     });
 

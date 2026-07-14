@@ -17,6 +17,12 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
   connect: (accessToken) => {
     const existing = get().socket;
     if (existing?.connected) return;
+    if (existing) {
+      // Dead or mid-handshake socket — tear it down fully so its built-in
+      // auto-reconnect can't resurrect it as a phantom duplicate.
+      existing.removeAllListeners();
+      existing.disconnect();
+    }
 
     const socket = io(API_URL, {
       auth: { token: accessToken },
@@ -24,6 +30,13 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+    });
+
+    // Rooms do not survive socket.io reconnection — rejoin the active trip's
+    // room on every (re)connect so live tracking survives dropped sockets.
+    socket.on('connect', () => {
+      const trip = useTripStore.getState().activeTrip;
+      if (trip?.id) socket.emit('subscribe:trip', { tripId: trip.id });
     });
 
     socket.on('driver:assigned', (data: {
@@ -78,6 +91,20 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       useTripStore.getState().updateTripStatus('cancelled');
     });
 
+    // Standard-ride redispatch: server re-broadcast the request to drivers
+    socket.on('trip:searchingUpdate', (data: { tripId: string; attempt: number }) => {
+      const current = useTripStore.getState().activeTrip;
+      if (!current || current.id !== data.tripId) return;
+      useTripStore.getState().setActiveTrip({ ...current, searchingAttempt: data.attempt });
+    });
+
+    // Standard-ride timeout: no driver accepted after all re-broadcasts
+    socket.on('trip:noDrivers', (data: { tripId: string }) => {
+      const current = useTripStore.getState().activeTrip;
+      if (!current || current.id !== data.tripId) return;
+      useTripStore.getState().setActiveTrip({ ...current, status: 'no_drivers' });
+    });
+
     socket.on('bid:countered', (data: {
       bidId: string;
       tripId: string;
@@ -111,8 +138,8 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
   },
 
   subscribeToTrip: (tripId) => {
-    const { socket } = get();
-    if (!socket?.connected) return;
-    socket.emit('subscribe:trip', { tripId });
+    // No connected-guard: socket.io buffers emits made before the handshake
+    // completes, and a guard here silently drops the room join at cold start.
+    get().socket?.emit('subscribe:trip', { tripId });
   },
 }));

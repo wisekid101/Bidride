@@ -15,7 +15,9 @@ import { Colors, Fonts, Typography } from '../constants/theme';
 import { api } from '../api/client';
 import { useTripStore } from '../store/trip.store';
 
-const BID_INCREMENTS = [-2, -1, 0, 1, 2];
+// Discounts only: the backend accepts offers in [65% of standard fare,
+// standard fare) — never at or above the standard fare.
+const BID_INCREMENTS = [-1, -2, -3];
 
 export default function BidRequestScreen() {
   const { setActiveTrip } = useTripStore();
@@ -40,31 +42,49 @@ export default function BidRequestScreen() {
     dropoffLng?: string;
   }>();
 
-  const [bidAmount, setBidAmount] = useState<number>(parseFloat(aiFare ?? '0'));
+  const standardFare = parseFloat(aiFare ?? '0');
+
+  // Mirror of the backend rule (bids.service): bidFloor = 65% of the
+  // standard fare; a valid offer is bidFloor ≤ offer < standard fare.
+  const minBid = Number((standardFare * 0.65).toFixed(2));
+  const maxBid = Number((standardFare - 0.01).toFixed(2));
+  const offersAvailable = standardFare > 0 && maxBid >= minBid;
+
+  const clampBid = (value: number) =>
+    Number(Math.min(maxBid, Math.max(minBid, value)).toFixed(2));
+
+  // Default to a valid amount below the standard fare.
+  const [bidAmount, setBidAmount] = useState<number>(
+    offersAvailable ? clampBid(standardFare - 1) : 0,
+  );
   const [customInput, setCustomInput] = useState('');
+  const [customInvalid, setCustomInvalid] = useState(false);
   const [loading, setLoading] = useState(false);
   const [bidResult, setBidResult] = useState<{ winProbability: number } | null>(null);
 
-  const minBid = Math.max(5.0, parseFloat(aiFare ?? '0') - 3);
-  const maxBid = parseFloat(aiFare ?? '0') + 5;
-
   const applyOffset = (offset: number) => {
-    const newAmount = Math.min(maxBid, Math.max(minBid, parseFloat(aiFare ?? '0') + offset));
-    setBidAmount(parseFloat(newAmount.toFixed(2)));
+    setBidAmount(clampBid(standardFare + offset));
     setCustomInput('');
+    setCustomInvalid(false);
   };
 
   const handleCustomInput = (text: string) => {
     setCustomInput(text);
     const parsed = parseFloat(text);
     if (!isNaN(parsed) && parsed >= minBid && parsed <= maxBid) {
-      setBidAmount(parseFloat(parsed.toFixed(2)));
+      setBidAmount(Number(parsed.toFixed(2)));
+      setCustomInvalid(false);
+    } else {
+      setCustomInvalid(text.trim().length > 0);
     }
   };
 
   const submitBid = async () => {
-    if (bidAmount < minBid || bidAmount > maxBid) {
-      Alert.alert('Invalid Bid', `Bid must be between $${minBid.toFixed(2)} and $${maxBid.toFixed(2)}`);
+    if (!offersAvailable || bidAmount < minBid || bidAmount > maxBid) {
+      Alert.alert(
+        'Invalid Offer',
+        `Offers must be between $${minBid.toFixed(2)} and $${maxBid.toFixed(2)} — below the standard fare.`,
+      );
       return;
     }
 
@@ -200,16 +220,16 @@ export default function BidRequestScreen() {
   }
 
   // ── Pre-submit bid selection view ─────────────────────────────────────────
-  const saving = bidAmount < parseFloat(aiFare ?? '0');
-  const premium = bidAmount > parseFloat(aiFare ?? '0');
+  const saving = offersAvailable && bidAmount < standardFare;
+  const submitDisabled =
+    loading || !offersAvailable || customInvalid || bidAmount < minBid || bidAmount > maxBid;
 
-  const standardFare = parseFloat(aiFare ?? '0');
   const strengthData =
-    standardFare > 0
-      ? bidAmount >= standardFare
-        ? { label: 'Strong', color: Colors.teal, hint: 'Drivers will prioritize your request' }
-        : bidAmount >= standardFare * 0.93
-        ? { label: 'Good', color: Colors.textPrimary, hint: 'Competitive — most drivers will consider this' }
+    offersAvailable && bidAmount >= minBid
+      ? bidAmount >= standardFare * 0.93
+        ? { label: 'Strong', color: Colors.teal, hint: 'Competitive — most drivers will consider this' }
+        : bidAmount >= standardFare * 0.8
+        ? { label: 'Good', color: Colors.textPrimary, hint: 'A fair discount — decent match odds' }
         : { label: 'Low', color: Colors.textSecondary, hint: 'May take longer to match' }
       : null;
 
@@ -218,9 +238,7 @@ export default function BidRequestScreen() {
       <View style={styles.content}>
         <View style={styles.header}>
           <Text style={styles.title}>Choose Your Fare</Text>
-          <Text style={styles.subtitle}>
-            Bid lower to save — or offer more to attract drivers faster.
-          </Text>
+          <Text style={styles.subtitle}>Offer below the standard fare and save.</Text>
         </View>
 
         {/* AI Fare reference */}
@@ -235,76 +253,89 @@ export default function BidRequestScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Bid display */}
-        <View style={styles.bidDisplay}>
-          <Text style={styles.bidLabel}>Your Bid</Text>
-          <Text
-            style={[
-              styles.bidAmount,
-              saving && styles.bidAmountSaving,
-              premium && styles.bidAmountPremium,
-            ]}
-          >
-            ${bidAmount.toFixed(2)}
-          </Text>
-          {saving && (
-            <Text style={styles.bidSavings}>
-              You save ${(parseFloat(aiFare ?? '0') - bidAmount).toFixed(2)}
+        {/* No valid offer range for this fare — point at the standard-ride
+            escape hatch instead of showing a zeroed-out bid. */}
+        {!offersAvailable && (
+          <View style={styles.customInputWrap}>
+            <Text style={styles.invalidHint}>
+              Offers aren't available for this fare — tap "Use This" above to
+              take the standard ride.
             </Text>
-          )}
-          {premium && (
-            <Text style={styles.bidPremium}>
-              +${(bidAmount - parseFloat(aiFare ?? '0')).toFixed(2)} — attracts drivers faster
-            </Text>
-          )}
-          {strengthData && (
-            <View style={styles.strengthRow}>
-              <Text style={[styles.strengthLabel, { color: strengthData.color }]}>
-                {strengthData.label}
-              </Text>
-              <Text style={styles.strengthHint}>{strengthData.hint}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Quick-select offsets */}
-        <View style={styles.quickSelect}>
-          {BID_INCREMENTS.map((offset) => {
-            const amount = parseFloat(aiFare ?? '0') + offset;
-            if (amount < minBid || amount > maxBid) return null;
-            const selected = Math.abs(bidAmount - amount) < 0.01;
-            return (
-              <TouchableOpacity
-                key={offset}
-                style={[styles.quickBtn, selected && styles.quickBtnSelected]}
-                onPress={() => applyOffset(offset)}
-              >
-                <Text style={[styles.quickBtnText, selected && styles.quickBtnTextSelected]}>
-                  {offset === 0 ? 'AI' : offset > 0 ? `+$${offset}` : `-$${Math.abs(offset)}`}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* Custom amount input */}
-        <View style={styles.customInputWrap}>
-          <Text style={styles.customLabel}>Or enter a custom amount</Text>
-          <View style={styles.customRow}>
-            <Text style={styles.dollarSign}>$</Text>
-            <TextInput
-              style={styles.customInput}
-              value={customInput}
-              onChangeText={handleCustomInput}
-              placeholder={bidAmount.toFixed(2)}
-              placeholderTextColor={Colors.textDisabled}
-              keyboardType="decimal-pad"
-            />
           </View>
-          <Text style={styles.rangeHint}>
-            Min ${minBid.toFixed(2)} · Max ${maxBid.toFixed(2)}
-          </Text>
-        </View>
+        )}
+
+        {offersAvailable && (
+          <>
+            {/* Bid display */}
+            <View style={styles.bidDisplay}>
+              <Text style={styles.bidLabel}>Your Bid</Text>
+              <Text style={[styles.bidAmount, saving && styles.bidAmountSaving]}>
+                ${bidAmount.toFixed(2)}
+              </Text>
+              {saving && (
+                <Text style={styles.bidSavings}>
+                  You save{' '}
+                  <Text style={styles.bidSavingsAmount}>
+                    ${(standardFare - bidAmount).toFixed(2)}
+                  </Text>
+                </Text>
+              )}
+              {strengthData && (
+                <View style={styles.strengthRow}>
+                  <Text style={[styles.strengthLabel, { color: strengthData.color }]}>
+                    {strengthData.label}
+                  </Text>
+                  <Text style={styles.strengthHint}>{strengthData.hint}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Quick-select discounts off the standard fare */}
+            <View style={styles.quickSelect}>
+              {BID_INCREMENTS.map((offset) => {
+                const amount = standardFare + offset;
+                if (amount < minBid || amount > maxBid) return null;
+                const selected = Math.abs(bidAmount - amount) < 0.01;
+                return (
+                  <TouchableOpacity
+                    key={offset}
+                    style={[styles.quickBtn, selected && styles.quickBtnSelected]}
+                    onPress={() => applyOffset(offset)}
+                  >
+                    <Text style={[styles.quickBtnText, selected && styles.quickBtnTextSelected]}>
+                      {`-$${Math.abs(offset)}`}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Custom amount input */}
+            <View style={styles.customInputWrap}>
+              <Text style={styles.customLabel}>Or enter a custom amount</Text>
+              <View style={styles.customRow}>
+                <Text style={styles.dollarSign}>$</Text>
+                <TextInput
+                  style={styles.customInput}
+                  value={customInput}
+                  onChangeText={handleCustomInput}
+                  placeholder={bidAmount.toFixed(2)}
+                  placeholderTextColor={Colors.textDisabled}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <Text style={styles.rangeHint}>
+                Min ${minBid.toFixed(2)} · Max ${maxBid.toFixed(2)} — always below the
+                standard fare
+              </Text>
+              {customInvalid && (
+                <Text style={styles.invalidHint}>
+                  Enter an amount between ${minBid.toFixed(2)} and ${maxBid.toFixed(2)}.
+                </Text>
+              )}
+            </View>
+          </>
+        )}
 
         {/* Info note */}
         <View style={styles.infoNote}>
@@ -316,7 +347,12 @@ export default function BidRequestScreen() {
       </View>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.submitBtn} onPress={submitBid} disabled={loading}>
+        <Text style={styles.matchNote}>Lower offers may take longer to match.</Text>
+        <TouchableOpacity
+          style={[styles.submitBtn, submitDisabled && styles.submitBtnDisabled]}
+          onPress={submitBid}
+          disabled={submitDisabled}
+        >
           {loading ? (
             <ActivityIndicator color={Colors.background} />
           ) : (
@@ -364,9 +400,9 @@ const styles = StyleSheet.create({
   bidLabel: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
   bidAmount: { fontSize: 56, fontFamily: Fonts.mono, fontWeight: '700', color: Colors.textPrimary },
   bidAmountSaving: { color: Colors.teal },
-  bidAmountPremium: { color: Colors.gold },
-  bidSavings: { fontSize: 13, color: Colors.teal, marginTop: 4 },
-  bidPremium: { fontSize: 13, color: Colors.gold, marginTop: 4 },
+  // Gold: savings figures only.
+  bidSavings: { fontSize: 13, color: Colors.gold, fontWeight: '600', marginTop: 4 },
+  bidSavingsAmount: { fontFamily: Fonts.mono },
   strengthRow: { alignItems: 'center', gap: 4, marginTop: 8 },
   strengthLabel: { fontSize: 15, fontWeight: '700' },
   strengthHint: { fontSize: 12, color: Colors.textSecondary },
@@ -381,7 +417,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   quickBtnSelected: { borderColor: Colors.teal, backgroundColor: Colors.teal + '20' },
-  quickBtnText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  quickBtnText: { fontSize: 14, fontWeight: '600', fontFamily: Fonts.mono, color: Colors.textSecondary },
   quickBtnTextSelected: { color: Colors.teal },
   customInputWrap: { gap: 6 },
   customLabel: { fontSize: 13, color: Colors.textSecondary },
@@ -394,7 +430,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     paddingHorizontal: 14,
   },
-  dollarSign: { fontSize: 20, color: Colors.textSecondary, marginRight: 4 },
+  dollarSign: { fontSize: 20, fontFamily: Fonts.mono, color: Colors.textSecondary, marginRight: 4 },
   customInput: {
     flex: 1,
     fontSize: 24,
@@ -404,6 +440,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   rangeHint: { fontSize: 11, color: Colors.textDisabled },
+  invalidHint: { fontSize: 12, color: Colors.error, marginTop: 2 },
   infoNote: {
     flexDirection: 'row',
     gap: 8,
@@ -414,12 +451,18 @@ const styles = StyleSheet.create({
   },
   infoText: { fontSize: 12, color: Colors.textSecondary, flex: 1, lineHeight: 17 },
   footer: { padding: 24, paddingBottom: 32, gap: 10 },
+  matchNote: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
   submitBtn: {
     backgroundColor: Colors.teal,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
   },
+  submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { fontSize: 17, fontWeight: '700', color: Colors.background },
   cancelBtn: { paddingVertical: 10, alignItems: 'center' },
   cancelBtnText: { fontSize: 15, color: Colors.textSecondary },

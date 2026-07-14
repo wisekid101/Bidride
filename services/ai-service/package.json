@@ -42,6 +42,8 @@
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "maxWorkers": 2,
+    "workerIdleMemoryLimit": "768MB"
   }
 }

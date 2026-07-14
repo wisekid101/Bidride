@@ -14,6 +14,7 @@ import {
   CreditCard,
   Activity,
   HeadphonesIcon,
+  Sparkles,
   LogOut,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { href: '/operations', label: 'Operations', icon: Activity },
   { href: '/support', label: 'Support', icon: HeadphonesIcon },
   { href: '/ai', label: 'AI Models', icon: Brain },
+  { href: '/intelligence', label: 'Intelligence', icon: Sparkles },
   { href: '/marketplace', label: 'Marketplace', icon: BarChart2 },
 ];
 

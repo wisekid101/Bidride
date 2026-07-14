@@ -38,7 +38,7 @@ Items marked **[Founder]** require explicit sign-off from the Founder before pro
 ## Security
 
 - [ ] JWT secrets rotated from dev defaults (`local-dev-jwt-secret-*`)
-- [ ] Admin founder password changed from `CHANGE_ME_IMMEDIATELY`
+- [ ] Founder account seeded with a strong `FOUNDER_SEED_PASSWORD` (no default exists; seeding skips without it)
 - [ ] All `httpOnly` cookies in use for admin session (no localStorage JWT)
 - [ ] Internal service keys (`INTERNAL_SERVICE_KEY`) set and non-default
 - [ ] Stripe webhook signature verification enabled (`STRIPE_WEBHOOK_SECRET` set)

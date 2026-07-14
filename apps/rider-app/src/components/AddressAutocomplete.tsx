@@ -29,6 +29,7 @@ interface Props {
   sessionToken?: string;
   recentAddresses?: RecentItem[];
   showRecents?: boolean;
+  triggerTestID?: string;
 }
 
 type SuggestionItem =
@@ -43,6 +44,7 @@ export function AddressAutocomplete({
   sessionToken,
   recentAddresses = [],
   showRecents = true,
+  triggerTestID,
 }: Props) {
   const [displayValue, setDisplayValue] = useState(initialValue);
   const [resolved, setResolved] = useState(!!initialValue);
@@ -142,6 +144,8 @@ export function AddressAutocomplete({
           style={styles.suggestion}
           onPress={() => handleSelectRecent(item.address)}
           activeOpacity={0.75}
+          testID={`dest-recent-${index}`}
+          accessibilityLabel={item.address.formattedAddress}
         >
           <Text style={styles.recentIcon}>🕐</Text>
           <Text style={styles.suggestionMain} numberOfLines={1}>
@@ -155,6 +159,8 @@ export function AddressAutocomplete({
         style={styles.suggestion}
         onPress={() => handleSelectApi(item.suggestion)}
         activeOpacity={0.75}
+        testID={`dest-suggestion-${index}`}
+        accessibilityLabel={`${item.suggestion.mainText} ${item.suggestion.secondaryText}`}
       >
         <View style={styles.apiSuggestionText}>
           <Text style={styles.suggestionMain} numberOfLines={1}>
@@ -175,6 +181,7 @@ export function AddressAutocomplete({
         style={[styles.inputRow, resolved && styles.inputRowResolved]}
         onPress={openModal}
         activeOpacity={0.7}
+        testID={triggerTestID}
       >
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
         <Text

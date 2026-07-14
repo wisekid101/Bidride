@@ -15,7 +15,7 @@ import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 
-const ACCEPT_WINDOW_SECONDS = 15;
+const ACCEPT_WINDOW_SECONDS = 60;
 
 interface RequestCardProps {
   bidId: string;
@@ -65,14 +65,7 @@ export function IncomingRequestScreen({
     anim.start();
 
     const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          onDeclined();
-          return 0;
-        }
-        return prev - 1;
-      });
+      setTimeLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
 
     return () => {
@@ -81,6 +74,13 @@ export function IncomingRequestScreen({
       Vibration.cancel();
     };
   }, []);
+
+  // Fires when timer reaches zero; loading guard prevents dismiss while accept is in-flight
+  useEffect(() => {
+    if (timeLeft === 0 && !loading) {
+      onDeclined();
+    }
+  }, [timeLeft, loading, onDeclined]);
 
   const accept = async () => {
     setLoading(true);

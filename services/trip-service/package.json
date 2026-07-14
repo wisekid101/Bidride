@@ -8,7 +8,8 @@
     "start": "node dist/main",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
-    "test": "jest --passWithNoTests"
+    "test": "jest --passWithNoTests",
+    "test:int": "jest --config jest.integration.json"
   },
   "dependencies": {
     "@bidride/database": "workspace:*",
