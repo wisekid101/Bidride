@@ -91,6 +91,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://bidride:test_password@localhost:5432/bidride_test
           REDIS_URL: redis://localhost:6379
+          TEST_DATABASE_URL: postgresql://bidride:test_password@localhost:5432/bidride_test
+          TEST_REDIS_URL: redis://localhost:6379
           JWT_SECRET: test_jwt_secret_for_ci_only
           NODE_ENV: test
 

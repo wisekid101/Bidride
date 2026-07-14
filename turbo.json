@@ -13,6 +13,18 @@
     "test": {
       "dependsOn": ["^build"]
     },
+    "test:int": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "TEST_DATABASE_URL",
+        "REDIS_URL",
+        "TEST_REDIS_URL",
+        "JWT_SECRET",
+        "NODE_ENV"
+      ]
+    },
     "lint": {},
     "typecheck": {
       "dependsOn": ["^build"]
