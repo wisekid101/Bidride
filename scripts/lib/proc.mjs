@@ -65,3 +65,32 @@ export function kill(pid, signal) {
     return false;
   }
 }
+
+export function pgidOf(pid) {
+  const out = sh('ps', ['-o', 'pgid=', '-p', String(pid)]);
+  return out ? out.trim() : '';
+}
+
+/**
+ * PURE: from `ps` rows [{ pid, pgid, command }], pick this workspace's managed
+ * dev processes by the unique '@bidride/' package signature (pnpm parents, Metro
+ * workers, admin portal). This never matches PostgreSQL/Redis or unrelated user
+ * processes, and excludes the current process so cleanup can never self-terminate.
+ */
+export function selectManagedProcs(rows, selfPid) {
+  return rows.filter(
+    (r) => (r.command || '').includes('@bidride/') && String(r.pid) !== String(selfPid),
+  );
+}
+
+/** Impure: enumerate this repo's managed dev processes as { pid, pgid, command }. */
+export function repoDevProcs(selfPid) {
+  const out = sh('ps', ['-axo', 'pid=,pgid=,command=']);
+  const rows = (out ? out.split('\n') : [])
+    .map((line) => {
+      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+      return m ? { pid: m[1], pgid: m[2], command: m[3] } : null;
+    })
+    .filter(Boolean);
+  return selectManagedProcs(rows, selfPid);
+}

@@ -38,9 +38,11 @@ const SERVICES = [
   { name: 'driver', filter: '@bidride/driver-service', port: 3003 },
   { name: 'rider', filter: '@bidride/rider-service', port: 3004 },
   { name: 'pricing', filter: '@bidride/pricing-service', port: 3005 },
+  { name: 'safety', filter: '@bidride/safety-service', port: 3006 },
   { name: 'payment', filter: '@bidride/payment-service', port: 3007 },
   { name: 'notification', filter: '@bidride/notification-service', port: 3008 },
   { name: 'trust', filter: '@bidride/trust-service', port: 3009 },
+  { name: 'airport', filter: '@bidride/airport-service', port: 3010 },
   { name: 'admin-service', filter: '@bidride/admin-service', port: 3011 },
   { name: 'ai-service', filter: '@bidride/ai-service', port: 3012 },
 ];

@@ -29,7 +29,7 @@ function redis(args) {
 console.log('Ports:');
 const labels = {
   3000: 'admin portal', 3001: 'auth', 3002: 'trip', 3003: 'driver', 3004: 'rider',
-  3005: 'pricing', 3007: 'payment', 3008: 'notification', 3009: 'trust',
+  3005: 'pricing', 3006: 'safety', 3007: 'payment', 3008: 'notification', 3009: 'trust', 3010: 'airport',
   3011: 'admin-service', 3012: 'ai-service', 8080: 'dev-proxy', 8081: 'metro-rider', 8082: 'metro-driver',
 };
 for (const p of MANAGED_PORTS) console.log(`  ${portUp(p) ? '✓' : '✗'} :${p} ${labels[p] || ''}`);
