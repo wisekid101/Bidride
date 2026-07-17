@@ -1,6 +1,8 @@
 import {
   Controller,
   Post,
+  Get,
+  UseGuards,
   Body,
   Req,
   Res,
@@ -8,6 +10,8 @@ import {
   HttpStatus,
   UnauthorizedException,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { AdminSessionGuard } from './admin-session.guard';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { Request, Response } from 'express';
 import { AdminAuthService } from './admin-auth.service';
@@ -29,7 +33,24 @@ export class AdminAuthController {
   constructor(
     private readonly adminAuth: AdminAuthService,
     private readonly config: ConfigService,
+    private readonly jwt: JwtService,
   ) {}
+
+  /**
+   * Mint a short-lived WebSocket token for the authenticated admin. Signed with
+   * the shared JWT_SECRET (the auth gateway's secret) and role 'admin', so the
+   * gateway verifies it and joins this socket to the admin:broadcast room. No
+   * PII is placed in the token; the token is bearer-scoped and short-lived.
+   */
+  @Get('ws-token')
+  @UseGuards(AdminSessionGuard)
+  wsToken(@Req() req: Request & { adminUser?: { sub: string } }) {
+    const token = this.jwt.sign(
+      { sub: req.adminUser?.sub, role: 'admin' },
+      { secret: this.config.get<string>('JWT_SECRET'), expiresIn: '15m' },
+    );
+    return { token };
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)

@@ -11,6 +11,8 @@ import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { RouteService, minDistanceToPolylineMiles } from './route.service';
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 
 const SOS_COUNTDOWN_SECONDS = 5;
 const SOS_SLA_SECONDS = 90;
@@ -59,7 +61,6 @@ export class SafetyService {
         gpsLat,
         gpsLng,
         status: 'active',
-        slaDeadline: new Date(Date.now() + SOS_SLA_SECONDS * 1000),
       } as any,
     });
 
@@ -109,9 +110,13 @@ export class SafetyService {
       data: {
         tripId: sos.tripId,
         safetySessionId: sos.safetySessionId,
-        storageBucket: this.config.getOrThrow('S3_RECORDINGS_BUCKET'),
+        storageBucket:
+          this.config.get<string>('S3_BUCKET_SOS_AUDIO') ??
+          this.config.get<string>('S3_RECORDINGS_BUCKET') ??
+          'bidride-sos-audio-dev',
         storageKey: recordingKey,
-        encryptionKeyId: this.config.getOrThrow('KMS_RECORDINGS_KEY_ID'),
+        encryptionKeyId:
+          this.config.get<string>('KMS_RECORDINGS_KEY_ID') ?? 'dev-local-no-kms',
         retentionCategory: 'no_action_30d',
         deleteAfter: new Date(Date.now() + 30 * 24 * 3600 * 1000),
         status: 'recording',
@@ -521,6 +526,52 @@ export class SafetyService {
   }
 
   // ─── Private Helpers ──────────────────────────────────────────────────────
+
+  /**
+   * Persist SOS audio bytes. Uses real S3 when AWS creds are configured;
+   * otherwise a local dev store (dev creds are placeholders). Finalizes the
+   * SafetyRecording row. Only the SOS owner may upload.
+   */
+  async storeRecordingAudio(
+    sosId: string,
+    userId: string,
+    audioBase64: string,
+    durationSeconds: number,
+  ): Promise<{ stored: true; storageKey: string; backend: 'S3' | 'local-dev' }> {
+    const sos = await this.prisma.sosEvent.findUnique({ where: { id: sosId } });
+    if (!sos || sos.initiatedByUserId !== userId) throw new ForbiddenException('Not your SOS.');
+
+    const recording = await this.prisma.safetyRecording.findFirst({
+      where: { tripId: sos.tripId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!recording) throw new NotFoundException('No recording to finalize.');
+
+    const bytes = Buffer.from(audioBase64, 'base64');
+    const key = recording.storageKey;
+    const awsKey = this.config.get<string>('AWS_ACCESS_KEY_ID') ?? '';
+    let backend: 'S3' | 'local-dev';
+
+    if (awsKey && awsKey !== 'dev-placeholder') {
+      await this.s3
+        .putObject({ Bucket: recording.storageBucket, Key: key, Body: bytes, ContentType: 'audio/m4a' })
+        .promise();
+      backend = 'S3';
+    } else {
+      // Dev store — bytes on local disk (gitignored). Prod path is S3 above.
+      const dir = join(process.cwd(), '..', '..', '.dev-artifacts', 'sos-audio', sosId);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(join(dir, key.split('/').pop() ?? 'audio.m4a'), bytes);
+      backend = 'local-dev';
+    }
+
+    await this.prisma.safetyRecording.update({
+      where: { id: recording.id },
+      data: { status: 'complete', durationSeconds: Math.round(durationSeconds) },
+    });
+
+    return { stored: true, storageKey: key, backend };
+  }
 
   private async notifyTrustedContacts(tripId: string): Promise<void> {
     const trip = await this.prisma.trip.findUnique({

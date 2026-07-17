@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Param, Post } from '@nestjs/common';
+import { Controller, Get, Query, Param, Post, Body } from '@nestjs/common';
 import { SosStatus } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -37,6 +37,15 @@ export class SafetyAdminController {
     return this.prisma.sosEvent.update({
       where: { id },
       data: { adminAssignedId: id }, // Mark as assigned to self — real auth would use adminId from JWT
+    });
+  }
+
+  @Post('sos/:id/resolve')
+  async resolveSos(@Param('id') id: string, @Body() body: { notes?: string }) {
+    return this.prisma.sosEvent.update({
+      where: { id },
+      data: { status: 'resolved', resolvedAt: new Date(), resolutionNotes: body?.notes ?? null },
+      select: { id: true, status: true, resolvedAt: true },
     });
   }
 
