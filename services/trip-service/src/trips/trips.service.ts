@@ -9,6 +9,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { TripStatus, RideType } from '@bidride/database/generated/client';
+import { sanitizeRouteDistanceMiles } from './distance.util';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { DispatchService } from './dispatch.service';
@@ -123,7 +124,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     // Get AI fare from pricing service (internal HTTP call). Trust scores are
     // deliberately NOT sent: they are prohibited as pricing features
     // (anti-discrimination rule — see design/ai-governance-rules.md).
-    const aiFare = await this.getPricingEstimate(dto, rider.totalTrips, isAirportTrip);
+    const estimate = await this.getPricingEstimate(dto, rider.totalTrips, isAirportTrip);
+    const aiFare = estimate.fare;
     const now = new Date();
 
     const trip = await this.prisma.trip.create({
@@ -138,6 +140,10 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         dropoffLat: dto.dropoffLat,
         dropoffLng: dto.dropoffLng,
         aiFare,
+        // Persist the pricing route-distance ESTIMATE so the earnings floor has
+        // a non-zero distance input. actualDistanceMiles stays null — it is
+        // reserved for a future verified GPS distance.
+        ...(estimate.distanceMiles != null ? { routeDistanceMiles: estimate.distanceMiles } : {}),
         isNightRide: isNightRide(now),
         isAirportTrip,
         safetySession: {
@@ -389,6 +395,12 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     // Enforce earnings floor (absorbs supplement from platform)
     const floorResult = await this.earningsFloor.enforce(trip, driverEarnings, actualDurationMin);
 
+    // Fill routeDistanceMiles from a deterministic pickup->dropoff haversine if
+    // this trip never received a route estimate at creation. Never overwrites an
+    // existing value, never writes actualDistanceMiles, never persists 0 for a
+    // valid-coords trip. No cross-service reads.
+    const routeDistanceFill = this.resolveRouteDistanceAtCompletion(trip);
+
     const updated = await this.prisma.trip.update({
       where: { id: tripId },
       data: {
@@ -400,6 +412,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         driverEarnings: floorResult.totalDriverEarnings,
         earningsFloorMet: floorResult.floorMet,
         earningsSupplement: floorResult.supplement,
+        ...(routeDistanceFill != null ? { routeDistanceMiles: routeDistanceFill } : {}),
       },
     });
 
@@ -696,6 +709,29 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
 
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
+  /**
+   * Fill routeDistanceMiles at completion via a deterministic pickup->dropoff
+   * haversine when the trip never received a route estimate at creation.
+   * Returns null (leave the field untouched) when a value already exists or the
+   * coordinates are missing. Never returns actualDistanceMiles and never a
+   * silent 0 for a valid-coords trip. No cross-service reads.
+   */
+  private resolveRouteDistanceAtCompletion(trip: {
+    routeDistanceMiles: unknown;
+    pickupLat: unknown;
+    pickupLng: unknown;
+    dropoffLat: unknown;
+    dropoffLng: unknown;
+  }): number | null {
+    if (trip.routeDistanceMiles != null) return null; // never overwrite an existing estimate
+    const pLat = Number(trip.pickupLat);
+    const pLng = Number(trip.pickupLng);
+    const dLat = Number(trip.dropoffLat);
+    const dLng = Number(trip.dropoffLng);
+    if (![pLat, pLng, dLat, dLng].every((n) => Number.isFinite(n))) return null; // missing coords -> null, never 0
+    return sanitizeRouteDistanceMiles(this.haversineDistance(pLat, pLng, dLat, dLng));
+  }
+
   private async getActiveTrip(tripId: string) {
     const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
     if (!trip) throw new NotFoundException('Trip not found.');
@@ -725,7 +761,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     dto: CreateTripDto,
     riderTotalTrips: number,
     isAirportTrip: boolean,
-  ): Promise<number> {
+  ): Promise<{ fare: number; distanceMiles: number | null }> {
     const PRICING_SERVICE_URL = process.env.PRICING_SERVICE_URL ?? 'http://localhost:3005';
     const response = await fetch(`${PRICING_SERVICE_URL}/pricing/estimate`, {
       method: 'POST',
@@ -742,8 +778,10 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!response.ok) throw new BadRequestException('Pricing service unavailable.');
-    const data = await response.json() as { fare: number };
-    return data.fare;
+    // Capture the pricing engine's route-distance ESTIMATE alongside the fare
+    // (previously discarded). Sanitized for storage; never treated as actual.
+    const data = await response.json() as { fare: number; distanceMiles?: number };
+    return { fare: data.fare, distanceMiles: sanitizeRouteDistanceMiles(data.distanceMiles) };
   }
 
   private async assertNoActiveFraudHold(userId: string): Promise<void> {

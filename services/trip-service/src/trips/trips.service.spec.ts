@@ -661,3 +661,75 @@ describe('TripsService — endTrip canonical fare', () => {
     expect(updateData.driverEarnings).toBeUndefined();
   });
 });
+
+// ─── createTrip — route-distance persistence (Commit 1) ───────────────────────
+describe('TripsService — createTrip persists route distance', () => {
+  const mockFetch = jest.fn();
+  const dto = {
+    pickupAddress: 'A', pickupLat: 40.7, pickupLng: -74.1,
+    dropoffAddress: 'B', dropoffLat: 40.71, dropoffLng: -74.11,
+    rideType: 'standard' as any,
+  };
+  beforeEach(() => {
+    global.fetch = mockFetch as any;
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ fare: 18, distanceMiles: 4.2 }) });
+    mockPrisma.rider.findUnique.mockResolvedValue({ id: 'rider-1', totalTrips: 3 });
+    mockPrisma.trip.create.mockResolvedValue(makeTrip({ status: TripStatus.searching }));
+    mockRedis.setex.mockResolvedValue('OK');
+  });
+  it('persists the pricing route distance into routeDistanceMiles', async () => {
+    const service = await buildService();
+    await service.createTrip('user-1', dto);
+    expect(mockPrisma.trip.create.mock.calls[0][0].data.routeDistanceMiles).toBe(4.2);
+  });
+  it('never writes actualDistanceMiles at creation (reserved for GPS)', async () => {
+    const service = await buildService();
+    await service.createTrip('user-1', dto);
+    expect(mockPrisma.trip.create.mock.calls[0][0].data.actualDistanceMiles).toBeUndefined();
+  });
+  it('omits route distance (no silent 0) when pricing returns none', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ fare: 18 }) });
+    const service = await buildService();
+    await service.createTrip('user-1', dto);
+    expect(mockPrisma.trip.create.mock.calls[0][0].data.routeDistanceMiles).toBeUndefined();
+  });
+  it('keeps the fare quote unchanged (parity)', async () => {
+    const service = await buildService();
+    await service.createTrip('user-1', dto);
+    expect(mockPrisma.trip.create.mock.calls[0][0].data.aiFare).toBe(18);
+  });
+});
+
+// ─── endTrip — haversine completion fallback (Commit 1) ───────────────────────
+describe('TripsService — endTrip fills route distance when missing', () => {
+  const mockFetch = jest.fn();
+  const endDto = { currentLat: 40.71, currentLng: -74.11 };
+  beforeEach(() => {
+    global.fetch = mockFetch as any;
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+    mockPrisma.rider.findUnique.mockResolvedValue({ id: 'rider-1', userId: 'u-rider-1', totalTrips: 5 });
+    mockPrisma.driver.findUnique.mockResolvedValue({ id: 'driver-1', userId: 'u-driver-1' });
+    mockRedis.del.mockResolvedValue(1);
+    mockFloor.enforce.mockResolvedValue({
+      floorMet: true, floorAmount: 0, earnedAmount: 16, supplement: 0, totalDriverEarnings: 16,
+    });
+  });
+  it('fills routeDistanceMiles from haversine when missing — never 0 for valid coords', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, routeDistanceMiles: null });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    const data = mockPrisma.trip.update.mock.calls[0][0].data;
+    expect(Number(data.routeDistanceMiles)).toBeGreaterThan(0);
+    expect(data.actualDistanceMiles).toBeUndefined();
+  });
+  it('does NOT overwrite an existing route distance', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, routeDistanceMiles: 7.5 });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    expect(mockPrisma.trip.update.mock.calls[0][0].data.routeDistanceMiles).toBeUndefined();
+  });
+});

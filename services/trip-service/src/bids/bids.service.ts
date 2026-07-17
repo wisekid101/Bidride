@@ -8,6 +8,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { BidStatus, TripStatus, RideType } from '@bidride/database/generated/client';
+import { sanitizeRouteDistanceMiles } from '../trips/distance.util';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { DispatchService } from '../trips/dispatch.service';
@@ -81,6 +82,11 @@ export class BidsService implements OnModuleInit {
 
     // Create trip + bid atomically in a transaction
     const { trip, bid } = await this.prisma.$transaction(async (tx) => {
+      // Bid trips skip the pricing estimate, so persist a straight-line route
+      // distance for the earnings floor (actualDistanceMiles stays null).
+      const bidRouteDistance = sanitizeRouteDistanceMiles(
+        this.haversineDistance(dto.pickupLat, dto.pickupLng, dto.dropoffLat, dto.dropoffLng),
+      );
       const t = await tx.trip.create({
         data: {
           riderId: rider.id,
@@ -93,6 +99,7 @@ export class BidsService implements OnModuleInit {
           dropoffLat: dto.dropoffLat,
           dropoffLng: dto.dropoffLng,
           aiFare: standardFare,
+          ...(bidRouteDistance != null ? { routeDistanceMiles: bidRouteDistance } : {}),
           isAirportTrip,
           isNightRide: this.isNightRide(now),
           safetySession: {
