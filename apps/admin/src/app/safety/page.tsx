@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Shield, AlertTriangle, MapPin, Clock } from 'lucide-react';
+import { io, Socket } from 'socket.io-client';
 
 interface SosEvent {
   id: string;
@@ -9,11 +10,11 @@ interface SosEvent {
   initiatedByRole: 'rider' | 'driver';
   status: 'active' | 'assigned' | 'resolved';
   createdAt: string;
-  slaDeadline: string;
   gpsLat: number;
   gpsLng: number;
   adminAssignedId: string | null;
-  recordingExists: boolean;
+  slaMet?: boolean | null;
+  recordingId?: string | null;
 }
 
 interface PanicEvent {
@@ -55,8 +56,29 @@ export default function SafetyPage() {
 
   useEffect(() => {
     fetchAll();
-    const interval = setInterval(fetchAll, 10000);
-    return () => clearInterval(interval);
+    // Real-time: subscribe to the safety WebSocket. On any safety event the
+    // Safety Center refreshes immediately (no polling). A slow 30s fallback
+    // only covers a dropped socket; it is not the primary mechanism.
+    let socket: Socket | undefined;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/auth/ws-token');
+        const { token } = await res.json();
+        if (!token) return;
+        socket = io(process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080', {
+          auth: { token },
+          transports: ['websocket'],
+        });
+        const onSafety = () => fetchAll();
+        socket.on('safety:panic_new', onSafety);
+        socket.on('safety:sos_new', onSafety);
+        socket.on('safety:anomaly', onSafety);
+      } catch {
+        /* falls back to the resilience interval below */
+      }
+    })();
+    const fallback = setInterval(fetchAll, 30000);
+    return () => { clearInterval(fallback); if (socket) socket.close(); };
   }, []);
 
   const fetchAll = async () => {
@@ -96,8 +118,10 @@ export default function SafetyPage() {
     setSelectedSos(null);
   };
 
-  const getSlaStatus = (deadline: string) => {
-    const secondsLeft = (new Date(deadline).getTime() - Date.now()) / 1000;
+  const SOS_SLA_SECONDS = 90;
+  const getSlaStatus = (createdAt: string) => {
+    const deadline = new Date(createdAt).getTime() + SOS_SLA_SECONDS * 1000;
+    const secondsLeft = (deadline - Date.now()) / 1000;
     if (secondsLeft < 0) return { label: 'BREACHED', color: 'text-red-500', urgent: true };
     if (secondsLeft < 30) return { label: `${Math.round(secondsLeft)}s`, color: 'text-red-400', urgent: true };
     if (secondsLeft < 60) return { label: `${Math.round(secondsLeft)}s`, color: 'text-yellow-400', urgent: false };
@@ -178,7 +202,7 @@ export default function SafetyPage() {
 
         <div className="divide-y divide-border">
           {sosQueue.map((sos) => {
-            const sla = getSlaStatus(sos.slaDeadline);
+            const sla = getSlaStatus(sos.createdAt);
             return (
               <div
                 key={sos.id}
@@ -189,7 +213,7 @@ export default function SafetyPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-white">Trip {sos.tripId.slice(0, 8)}…</span>
                     <span className="text-xs bg-secondary rounded-full px-2 py-0.5 text-muted-foreground capitalize">{sos.initiatedByRole}</span>
-                    {sos.recordingExists && (
+                    {!!sos.recordingId && (
                       <span className="text-xs bg-teal-900/50 text-teal-400 rounded-full px-2 py-0.5">Recording</span>
                     )}
                   </div>
@@ -338,9 +362,9 @@ function SosDetailPanel({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">GPS</span>
-            <span className="text-white font-mono text-xs">{sos.gpsLat?.toFixed(5)}, {sos.gpsLng?.toFixed(5)}</span>
+            <span className="text-white font-mono text-xs">{sos.gpsLat != null ? Number(sos.gpsLat).toFixed(5) : '—'}, {sos.gpsLng != null ? Number(sos.gpsLng).toFixed(5) : '—'}</span>
           </div>
-          {sos.recordingExists && (
+          {!!sos.recordingId && (
             <div className="bg-yellow-950/30 border border-yellow-700 rounded-lg p-3">
               <p className="text-yellow-300 text-xs">
                 Audio recording exists. Access requires dual-admin authorization.
