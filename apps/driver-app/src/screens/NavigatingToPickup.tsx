@@ -19,6 +19,7 @@ import { useDriverSocketStore } from '../store/socket.store';
 import { useFollowCamera } from '../hooks/useFollowCamera';
 import { RecenterButton } from '../components/RecenterButton';
 import { isAlreadyAdvancedError } from '../utils/tripErrors';
+import { PanicShield } from '../components/PanicShield';
 
 interface NavigatingToPickupProps {
   tripId: string;
@@ -93,6 +94,7 @@ export function NavigatingToPickupScreen({
 
   return (
     <View style={styles.container}>
+      {tripId ? <PanicShield tripId={tripId} style={{ position: 'absolute', top: 52, left: 16, zIndex: 30 }} /> : null}
       <MapView
         ref={mapRef}
         provider={MAP_PROVIDER}

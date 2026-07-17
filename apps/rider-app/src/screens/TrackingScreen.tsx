@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { useTripStore } from '../store/trip.store';
+import { PanicShield } from '../components/PanicShield';
 import { useSocketStore } from '../store/socket.store';
 import CounterOfferModal from './CounterOfferModal';
 import { api } from '../api/client';
@@ -292,6 +293,9 @@ export function TrackingScreen() {
         </TouchableOpacity>
       )}
 
+      {/* Silent panic gesture — invisible, not in a11y tree */}
+      {activeTrip?.id ? <PanicShield tripId={activeTrip.id} style={styles.panicShield} /> : null}
+
       {/* SOS Button — always visible during trip */}
       <TouchableOpacity
         style={styles.sosButton}
@@ -450,6 +454,7 @@ const styles = StyleSheet.create({
     fontSize: Typography.size.sm,
     fontWeight: Typography.weight.semibold,
   },
+  panicShield: { position: 'absolute', top: 52, left: 16, zIndex: 20 },
   sosButton: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 60 : 32,

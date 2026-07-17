@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { Colors, Typography, Spacing, Radius } from '../constants/theme';
 import { api } from '../api/client';
 import { useTripStore } from '../store/trip.store';
@@ -27,6 +29,9 @@ export function SosScreen() {
   const [sosId, setSosId] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recStartRef = useRef<number>(0);
+  const activeSosRef = useRef<string | null>(null);
 
   // Pulse during countdown
   useEffect(() => {
@@ -80,6 +85,8 @@ export function SosScreen() {
       await api.post(`/safety/sos/${id}/confirm`, {});
       setPhase('active');
       Vibration.vibrate([0, 600, 300, 600, 300, 600]);
+      activeSosRef.current = id;
+      startRecording();
     } catch (err) {
       console.error('SOS confirm failed', err);
     }
@@ -93,6 +100,45 @@ export function SosScreen() {
     Vibration.cancel();
     router.back();
   };
+
+  const startRecording = async () => {
+    try {
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) return; // audio is best-effort; SOS already active server-side
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      );
+      recordingRef.current = recording;
+      recStartRef.current = Date.now();
+    } catch {
+      /* recording is best-effort; the SOS itself and admin alert are unaffected */
+    }
+  };
+
+  const stopAndUpload = async () => {
+    const rec = recordingRef.current;
+    const id = activeSosRef.current;
+    recordingRef.current = null;
+    if (!rec || !id) return;
+    try {
+      await rec.stopAndUnloadAsync();
+      const uri = rec.getURI();
+      if (!uri) return;
+      const audioBase64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const durationSeconds = Math.round((Date.now() - recStartRef.current) / 1000);
+      await api.post(`/safety/recordings/${id}/audio`, { audioBase64, durationSeconds });
+    } catch {
+      /* upload is best-effort */
+    }
+  };
+
+  // Stop + upload the recording when the SOS screen is torn down.
+  useEffect(() => {
+    return () => { void stopAndUpload(); };
+  }, []);
 
   return (
     <View style={styles.container}>

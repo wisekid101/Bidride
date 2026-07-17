@@ -184,7 +184,7 @@ export function InTripScreen({
 
         <Text style={styles.dropoff} numberOfLines={1}>{dropoffAddress}</Text>
 
-        <TouchableOpacity style={styles.sosButton} onPress={() => Alert.alert('Emergency SOS', 'Call 911 immediately, or triple-tap the shield icon for silent panic mode.')}>
+        <TouchableOpacity style={styles.sosButton} onPress={() => router.push({ pathname: '/driver-sos', params: { tripId } })} accessibilityRole="button" accessibilityLabel="Emergency SOS">
           <Text style={styles.sosText}>SOS</Text>
         </TouchableOpacity>
       </View>
