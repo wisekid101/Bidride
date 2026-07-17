@@ -733,3 +733,121 @@ describe('TripsService — endTrip fills route distance when missing', () => {
     expect(mockPrisma.trip.update.mock.calls[0][0].data.routeDistanceMiles).toBeUndefined();
   });
 });
+
+// ─── endTrip — effective distance feeds the floor (Commit 2) ──────────────────
+describe('TripsService — endTrip effective distance & floor wiring', () => {
+  const mockFetch = jest.fn();
+  const endDto = { currentLat: 40.71, currentLng: -74.11 };
+  beforeEach(() => {
+    global.fetch = mockFetch as any;
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+    mockPrisma.rider.findUnique.mockResolvedValue({ id: 'rider-1', userId: 'u-rider-1', totalTrips: 5 });
+    mockPrisma.driver.findUnique.mockResolvedValue({ id: 'driver-1', userId: 'u-driver-1' });
+    mockRedis.del.mockResolvedValue(1);
+    mockFloor.enforce.mockResolvedValue({
+      floorMet: true, floorAmount: 0, earnedAmount: 16, supplement: 0,
+      totalDriverEarnings: 16, distanceMiles: 0, distanceSource: 'route',
+    });
+  });
+
+  it('#32 populates routeDistanceMiles on the trip BEFORE floor enforcement', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, routeDistanceMiles: null });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    // enforce is called with the normal (trip, earnings, duration) signature — no
+    // precomputed distance object — and the trip it receives already has a
+    // resolved routeDistanceMiles (the floor owns effective-distance selection).
+    expect(mockFloor.enforce.mock.calls[0].length).toBe(3);
+    const passedTrip = mockFloor.enforce.mock.calls[0][0];
+    expect(Number(passedTrip.routeDistanceMiles)).toBeGreaterThan(0);
+  });
+
+  it('#33 persists the SAME resolved distance the floor receives', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, routeDistanceMiles: null });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    const passedTrip = mockFloor.enforce.mock.calls[0][0];
+    const persisted = Number(mockPrisma.trip.update.mock.calls[0][0].data.routeDistanceMiles);
+    expect(persisted).toBe(Number(passedTrip.routeDistanceMiles));
+  });
+
+  it('#34 preserves an existing route distance and does not overwrite it', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, routeDistanceMiles: 7.5 });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    // the floor receives the existing route distance unchanged...
+    expect(Number(mockFloor.enforce.mock.calls[0][0].routeDistanceMiles)).toBe(7.5);
+    // ...and the completion write does not touch routeDistanceMiles
+    expect(mockPrisma.trip.update.mock.calls[0][0].data.routeDistanceMiles).toBeUndefined();
+  });
+
+  it('#35 never writes actualDistanceMiles at completion', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, routeDistanceMiles: null });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    // neither the completion write nor the trip handed to the floor carries a
+    // written actualDistanceMiles (it stays reserved for verified GPS).
+    expect(mockPrisma.trip.update.mock.calls[0][0].data.actualDistanceMiles).toBeUndefined();
+    expect(mockFloor.enforce.mock.calls[0][0].actualDistanceMiles).toBeUndefined();
+  });
+
+  it('#36 bid trip passes final driver earnings to the floor', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, bidId: 'bid-1', finalFare: 20, routeDistanceMiles: 4 });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    // finalFare 20 → platformFee 4 → driverEarnings 16
+    expect(mockFloor.enforce.mock.calls[0][1]).toBeCloseTo(16);
+  });
+
+  it('#37 counter-offer (bid) trip passes its accepted final earnings to the floor', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, bidId: 'bid-2', finalFare: 25, routeDistanceMiles: 4 });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    // finalFare 25 → platformFee 5 → driverEarnings 20
+    expect(mockFloor.enforce.mock.calls[0][1]).toBeCloseTo(20);
+  });
+
+  it('#38 does not change the rider-facing canonical fare (standard trip)', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, routeDistanceMiles: 4 });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    const data = mockPrisma.trip.update.mock.calls[0][0].data;
+    expect(data.finalFare).toBe(20);       // == aiFare, unchanged by the distance fix
+    expect(data.platformFee).toBeCloseTo(4); // 20 × 0.20
+  });
+
+  it('#39 completion write touches only earnings/floor/distance fields (no payout/wallet field)', async () => {
+    const trip = makeTrip({ status: TripStatus.in_progress, routeDistanceMiles: null });
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    mockPrisma.trip.update.mockResolvedValue({ ...trip, status: TripStatus.completed });
+    const service = await buildService();
+    await service.endTrip('trip-1', 'u-driver-1', endDto);
+    const keys = Object.keys(mockPrisma.trip.update.mock.calls[0][0].data);
+    const allowed = new Set([
+      'status', 'completedAt', 'actualDurationMin', 'finalFare', 'platformFee',
+      'driverEarnings', 'earningsFloorMet', 'earningsSupplement', 'routeDistanceMiles',
+    ]);
+    expect(keys.every((k) => allowed.has(k))).toBe(true);
+  });
+
+  it('#40 a repeated completed-trip call is blocked by the state machine', async () => {
+    const trip = makeTrip({ status: TripStatus.completed }); // already terminal
+    mockPrisma.trip.findUnique.mockResolvedValue(trip);
+    const service = await buildService();
+    await expect(service.endTrip('trip-1', 'u-driver-1', endDto)).rejects.toThrow();
+  });
+});

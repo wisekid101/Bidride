@@ -9,7 +9,12 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { TripStatus, RideType } from '@bidride/database/generated/client';
-import { sanitizeRouteDistanceMiles } from './distance.util';
+import {
+  sanitizeRouteDistanceMiles,
+  haversineRouteDistanceMiles,
+  haversineMiles,
+  haversineMeters,
+} from './distance.util';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { DispatchService } from './dispatch.service';
@@ -59,13 +64,8 @@ function getZoneKey(lat: number, lng: number): string {
 const AIRPORT_NAME_FALLBACK = [/\bEWR\b/, /Newark Liberty/i, /Newark Airport/i];
 
 function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  // Single great-circle implementation lives in distance.util (haversineMeters).
+  return haversineMeters(lat1, lng1, lat2, lng2);
 }
 
 export function detectAirportTripFromEndpoints(dto: {
@@ -392,14 +392,23 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     const platformFee = canonicalFare * PLATFORM_FEE_RATE;
     const driverEarnings = canonicalFare - platformFee;
 
-    // Enforce earnings floor (absorbs supplement from platform)
-    const floorResult = await this.earningsFloor.enforce(trip, driverEarnings, actualDurationMin);
+    // Ensure routeDistanceMiles is populated BEFORE enforcement so the earnings
+    // floor (the sole owner of effective-distance policy) has a distance to use.
+    // Fill from a deterministic pickup->dropoff haversine ONLY when the trip
+    // never received a route estimate; never overwrite an existing value; never
+    // touch actualDistanceMiles. No cross-service reads. The floor reproduces
+    // the identical value from this same shared helper.
+    const routeDistanceFill =
+      trip.routeDistanceMiles == null
+        ? haversineRouteDistanceMiles(trip.pickupLat, trip.pickupLng, trip.dropoffLat, trip.dropoffLng)
+        : null;
+    const tripForFloor = routeDistanceFill != null
+      ? { ...trip, routeDistanceMiles: routeDistanceFill }
+      : trip;
 
-    // Fill routeDistanceMiles from a deterministic pickup->dropoff haversine if
-    // this trip never received a route estimate at creation. Never overwrites an
-    // existing value, never writes actualDistanceMiles, never persists 0 for a
-    // valid-coords trip. No cross-service reads.
-    const routeDistanceFill = this.resolveRouteDistanceAtCompletion(trip);
+    // Enforce earnings floor (absorbs supplement from platform). EarningsFloor
+    // owns the effective-distance selection (resolveEffectiveDistance) itself.
+    const floorResult = await this.earningsFloor.enforce(tripForFloor, driverEarnings, actualDurationMin);
 
     const updated = await this.prisma.trip.update({
       where: { id: tripId },
@@ -709,29 +718,6 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
 
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
-  /**
-   * Fill routeDistanceMiles at completion via a deterministic pickup->dropoff
-   * haversine when the trip never received a route estimate at creation.
-   * Returns null (leave the field untouched) when a value already exists or the
-   * coordinates are missing. Never returns actualDistanceMiles and never a
-   * silent 0 for a valid-coords trip. No cross-service reads.
-   */
-  private resolveRouteDistanceAtCompletion(trip: {
-    routeDistanceMiles: unknown;
-    pickupLat: unknown;
-    pickupLng: unknown;
-    dropoffLat: unknown;
-    dropoffLng: unknown;
-  }): number | null {
-    if (trip.routeDistanceMiles != null) return null; // never overwrite an existing estimate
-    const pLat = Number(trip.pickupLat);
-    const pLng = Number(trip.pickupLng);
-    const dLat = Number(trip.dropoffLat);
-    const dLng = Number(trip.dropoffLng);
-    if (![pLat, pLng, dLat, dLng].every((n) => Number.isFinite(n))) return null; // missing coords -> null, never 0
-    return sanitizeRouteDistanceMiles(this.haversineDistance(pLat, pLng, dLat, dLng));
-  }
-
   private async getActiveTrip(tripId: string) {
     const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
     if (!trip) throw new NotFoundException('Trip not found.');
@@ -972,13 +958,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
-    const R = 3958.8; // Earth radius in miles
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLng = ((lng2 - lng1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    // Single source of truth for the great-circle formula (see distance.util).
+    return haversineMiles(lat1, lng1, lat2, lng2);
   }
 
   private chargeRiderForTrip(tripId: string, riderId: string, amount: number): void {
