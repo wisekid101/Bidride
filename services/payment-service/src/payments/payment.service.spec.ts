@@ -86,7 +86,7 @@ const mockRedis = {
 } as any;
 
 const mockLedger = { createEntries: jest.fn().mockResolvedValue(undefined), recordRiderPayment: jest.fn().mockResolvedValue(undefined), recordDriverEarning: jest.fn().mockResolvedValue(undefined), recordTip: jest.fn().mockResolvedValue(undefined), recordRefund: jest.fn().mockResolvedValue(undefined), recordBonus: jest.fn().mockResolvedValue(undefined), recordPayout: jest.fn().mockResolvedValue(undefined), recordAdjustment: jest.fn().mockResolvedValue(undefined), getLedgerEntries: jest.fn().mockResolvedValue([]) } as any;
-const mockWallet = { creditEarning: jest.fn().mockResolvedValue(undefined), releaseHold: jest.fn().mockResolvedValue(undefined), debitPayout: jest.fn().mockResolvedValue(undefined), applyAdjustment: jest.fn().mockResolvedValue(undefined), getWallet: jest.fn().mockResolvedValue({ balance: 0 }) } as any;
+const mockWallet = { creditEarning: jest.fn().mockResolvedValue(undefined), creditDriverEarning: jest.fn().mockResolvedValue('credited'), releaseHold: jest.fn().mockResolvedValue(undefined), debitPayout: jest.fn().mockResolvedValue(undefined), applyAdjustment: jest.fn().mockResolvedValue(undefined), getWallet: jest.fn().mockResolvedValue({ balance: 0 }) } as any;
 const mockReconciliation = { reconcilePaymentIntent: jest.fn().mockResolvedValue(undefined), reconcileRefund: jest.fn().mockResolvedValue(undefined), recordDispute: jest.fn().mockResolvedValue(undefined), listMismatches: jest.fn().mockResolvedValue([]), resolveEntry: jest.fn().mockResolvedValue(undefined) } as any;
 
 const service = new PaymentService(mockPrisma, mockConfig, mockRedis, mockLedger, mockWallet, mockReconciliation);
@@ -552,10 +552,10 @@ describe('PaymentService', () => {
   });
 
   describe('creditDriverWallet', () => {
-    it('delegates to wallet.creditEarning with correct params', async () => {
+    it('delegates to wallet.creditDriverEarning with correct params', async () => {
       await service.creditDriverWallet('driver-1', 'trip-1', 15.50);
 
-      expect(mockWallet.creditEarning).toHaveBeenCalledWith('driver-1', 'trip-1', 15.50);
+      expect(mockWallet.creditDriverEarning).toHaveBeenCalledWith('driver-1', 'trip-1', 15.50);
     });
   });
 

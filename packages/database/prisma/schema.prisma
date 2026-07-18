@@ -1307,6 +1307,7 @@ model FinancialLedger {
   metadata      Json     @default("{}")
   createdAt     DateTime @default(now()) @map("created_at")
 
+  @@unique([correlationId, accountId, direction])
   @@index([correlationId])
   @@index([accountId, createdAt(sort: Desc)])
   @@index([tripId])
@@ -1338,13 +1339,15 @@ model WalletTransaction {
   direction    String   @db.VarChar(6)
   amount       Decimal  @db.Decimal(10, 2)
   balanceAfter Decimal  @map("balance_after") @db.Decimal(10, 2)
-  tripId       String?  @map("trip_id") @db.VarChar(100)
-  payoutId     String?  @map("payout_id") @db.VarChar(100)
-  description  String   @db.VarChar(200)
-  createdAt    DateTime @default(now()) @map("created_at")
+  tripId        String?  @map("trip_id") @db.VarChar(100)
+  payoutId      String?  @map("payout_id") @db.VarChar(100)
+  correlationId String?  @map("correlation_id") @db.VarChar(100)
+  description   String   @db.VarChar(200)
+  createdAt     DateTime @default(now()) @map("created_at")
 
   wallet DriverWallet @relation(fields: [walletId], references: [id])
 
+  @@unique([correlationId])
   @@index([walletId, createdAt(sort: Desc)])
   @@index([driverId, createdAt(sort: Desc)])
   @@map("wallet_transactions")

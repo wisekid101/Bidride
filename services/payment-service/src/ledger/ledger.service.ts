@@ -22,34 +22,48 @@ export interface LedgerEntry {
 export class LedgerService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createEntries(entries: LedgerEntry[]): Promise<void> {
+  /** A journal must balance (debits == credits) before any row is written. */
+  private assertBalanced(entries: LedgerEntry[]): void {
     const debitTotal = entries.filter((e) => e.direction === 'debit').reduce((s, e) => s + e.amount, 0);
     const creditTotal = entries.filter((e) => e.direction === 'credit').reduce((s, e) => s + e.amount, 0);
     if (Math.abs(debitTotal - creditTotal) > 0.001) {
       throw new Error(`Ledger imbalance: debits=${debitTotal} credits=${creditTotal}`);
     }
+  }
 
-    await this.prisma.$transaction(
-      entries.map((e) =>
-        this.prisma.financialLedger.create({
-          data: {
-            correlationId: e.correlationId,
-            entryType: e.entryType,
-            accountType: e.accountType,
-            accountId: e.accountId,
-            direction: e.direction,
-            amount: e.amount,
-            tripId: e.tripId,
-            refundId: e.refundId,
-            payoutId: e.payoutId,
-            actorType: e.actorType ?? 'system',
-            actorId: e.actorId,
-            sourceEvent: e.sourceEvent,
-            metadata: (e.metadata ?? {}) as Prisma.InputJsonObject,
-          },
-        }),
-      ),
-    );
+  /**
+   * Write a balanced journal on an EXISTING transaction client, so a caller can
+   * persist the canonical ledger and a projection (e.g. the driver wallet) in
+   * one atomic transaction. The @@unique([correlationId, accountId, direction])
+   * constraint makes a duplicate journal insert fail with P2002 — callers turn
+   * that into idempotency. correlationId identifies a JOURNAL (2+ legs), never a
+   * single row, so it is never unique on its own.
+   */
+  async createEntriesTx(tx: Prisma.TransactionClient, entries: LedgerEntry[]): Promise<void> {
+    this.assertBalanced(entries);
+    for (const e of entries) {
+      await tx.financialLedger.create({
+        data: {
+          correlationId: e.correlationId,
+          entryType: e.entryType,
+          accountType: e.accountType,
+          accountId: e.accountId,
+          direction: e.direction,
+          amount: e.amount,
+          tripId: e.tripId,
+          refundId: e.refundId,
+          payoutId: e.payoutId,
+          actorType: e.actorType ?? 'system',
+          actorId: e.actorId,
+          sourceEvent: e.sourceEvent,
+          metadata: (e.metadata ?? {}) as Prisma.InputJsonObject,
+        },
+      });
+    }
+  }
+
+  async createEntries(entries: LedgerEntry[]): Promise<void> {
+    await this.prisma.$transaction((tx) => this.createEntriesTx(tx, entries));
   }
 
   async recordRiderPayment(opts: {

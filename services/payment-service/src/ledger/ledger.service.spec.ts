@@ -1,7 +1,10 @@
 import { LedgerService } from './ledger.service';
 
 const mockCreate = jest.fn().mockResolvedValue({});
-const mockTransaction = jest.fn().mockImplementation((ops: unknown[]) => Promise.all(ops));
+const mockTransaction = jest.fn().mockImplementation((arg: unknown) => {
+  if (typeof arg === 'function') return (arg as (tx: any) => Promise<unknown>)(mockPrisma);
+  return Promise.all(arg as Promise<unknown>[]);
+});
 
 const mockPrisma = {
   financialLedger: { create: mockCreate },

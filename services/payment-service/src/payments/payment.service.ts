@@ -199,7 +199,7 @@ export class PaymentService {
   }
 
   async creditDriverWallet(driverId: string, tripId: string, amount: number): Promise<void> {
-    await this.wallet.creditEarning(driverId, tripId, amount);
+    await this.wallet.creditDriverEarning(driverId, tripId, amount);
   }
 
   async getDriverWallet(driverId: string) {

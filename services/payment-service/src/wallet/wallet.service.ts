@@ -1,11 +1,16 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import { Prisma } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { LedgerService } from '../ledger/ledger.service';
 
 export const HOLD_HOURS = 2;
 
 @Injectable()
 export class WalletService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: LedgerService,
+  ) {}
 
   private async upsertWallet(driverId: string) {
     return this.prisma.driverWallet.upsert({
@@ -21,38 +26,109 @@ export class WalletService {
     });
   }
 
-  async creditEarning(driverId: string, tripId: string, amount: number): Promise<void> {
-    if (amount <= 0) return;
+  /**
+   * Idempotently credit a driver's trip earnings. Writes the canonical
+   * double-entry ledger journal AND the derived wallet projection in ONE
+   * transaction, keyed by a deterministic correlationId. Duplicate delivery for
+   * the same trip with the same amount is a safe no-op; a duplicate with a
+   * DIFFERENT amount or driver fails loudly. Concurrent callers resolve to
+   * exactly one credit via the database unique constraints. DriverWallet is a
+   * projection here, never the payout source of truth.
+   */
+  async creditDriverEarning(
+    driverId: string,
+    tripId: string,
+    amount: number,
+  ): Promise<'credited' | 'duplicate_ignored' | 'skipped_zero'> {
+    if (amount <= 0) return 'skipped_zero';
+    const correlationId = `trip:${tripId}:driver_earning`;
 
-    await this.prisma.$transaction(async (tx) => {
-      const wallet = await tx.driverWallet.upsert({
-        where: { driverId },
-        update: {
-          pendingBalance: { increment: amount },
-          lifetimeEarnings: { increment: amount },
-        },
-        create: {
-          driverId,
-          pendingBalance: amount,
-          availableBalance: 0,
-          lifetimeEarnings: amount,
-          lifetimePaid: 0,
-        },
-      });
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // Canonical ledger journal (platform -> driver), guarded by
+        // @@unique([correlationId, accountId, direction]).
+        await this.ledger.createEntriesTx(tx, [
+          {
+            correlationId,
+            entryType: 'driver_earning',
+            accountType: 'platform',
+            accountId: 'platform',
+            direction: 'debit',
+            amount,
+            tripId,
+            sourceEvent: 'trip:completed',
+          },
+          {
+            correlationId,
+            entryType: 'driver_earning',
+            accountType: 'driver',
+            accountId: driverId,
+            direction: 'credit',
+            amount,
+            tripId,
+            sourceEvent: 'trip:completed',
+          },
+        ]);
 
-      await tx.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          driverId,
-          type: 'earning',
-          direction: 'credit',
-          amount,
-          balanceAfter: Number(wallet.availableBalance),
-          tripId,
-          description: `Trip earning (2h hold)`,
-        },
+        // Wallet projection, guarded by wallet_transactions.correlation_id unique.
+        const wallet = await tx.driverWallet.upsert({
+          where: { driverId },
+          update: {
+            pendingBalance: { increment: amount },
+            lifetimeEarnings: { increment: amount },
+          },
+          create: {
+            driverId,
+            pendingBalance: amount,
+            availableBalance: 0,
+            lifetimeEarnings: amount,
+            lifetimePaid: 0,
+          },
+        });
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            driverId,
+            type: 'earning',
+            direction: 'credit',
+            amount,
+            balanceAfter: Number(wallet.availableBalance),
+            tripId,
+            correlationId,
+            description: 'Trip earning (2h hold)',
+          },
+        });
       });
-    });
+      return 'credited';
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        // A journal for this trip already exists. Idempotent only if the prior
+        // credit matches this driver + amount; otherwise surface the conflict.
+        const existing = await this.prisma.financialLedger.findFirst({
+          where: {
+            correlationId,
+            entryType: 'driver_earning',
+            accountType: 'driver',
+            direction: 'credit',
+          },
+        });
+        const cents = (n: number) => Math.round(n * 100);
+        if (
+          existing &&
+          existing.accountId === driverId &&
+          cents(Number(existing.amount)) === cents(amount)
+        ) {
+          return 'duplicate_ignored';
+        }
+        throw new ConflictException({
+          code: 'earning_conflict',
+          message:
+            'Driver earning already recorded with a different amount or driver for this trip.',
+        });
+      }
+      throw e;
+    }
   }
 
   async releaseHold(driverId: string, tripId: string, amount: number): Promise<void> {

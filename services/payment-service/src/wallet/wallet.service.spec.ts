@@ -1,5 +1,6 @@
 import { WalletService } from './wallet.service';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Prisma } from '@bidride/database/generated/client';
 
 const WALLET_STUB = {
   id: 'wallet-1',
@@ -30,10 +31,14 @@ const mockPrisma = {
     findFirst: jest.fn().mockResolvedValue(null),
     count: jest.fn().mockResolvedValue(0),
   },
+  financialLedger: {
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
   $transaction: mockTxFn,
 } as any;
 
-const makeService = () => new WalletService(mockPrisma);
+const mockLedger = { createEntriesTx: jest.fn().mockResolvedValue(undefined) } as any;
+const makeService = () => new WalletService(mockPrisma, mockLedger);
 
 describe('WalletService', () => {
   beforeEach(() => {
@@ -42,17 +47,34 @@ describe('WalletService', () => {
     mockPrisma.driverWallet.update.mockResolvedValue({ ...WALLET_STUB });
   });
 
-  describe('creditEarning', () => {
-    it('skips when amount is 0', async () => {
+  describe('creditDriverEarning', () => {
+    const p2002 = () =>
+      new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' });
+
+    it('skips when amount is 0 (no ledger, no wallet write)', async () => {
       const svc = makeService();
-      await svc.creditEarning('driver-1', 'trip-1', 0);
+      const r = await svc.creditDriverEarning('driver-1', 'trip-1', 0);
+      expect(r).toBe('skipped_zero');
       expect(mockTxFn).not.toHaveBeenCalled();
+      expect(mockLedger.createEntriesTx).not.toHaveBeenCalled();
     });
 
-    it('increments pendingBalance and lifetimeEarnings', async () => {
+    it('writes the canonical double-entry journal (platform debit -> driver credit)', async () => {
+      const svc = makeService();
+      await svc.creditDriverEarning('driver-1', 'trip-1', 16);
+      expect(mockLedger.createEntriesTx).toHaveBeenCalledTimes(1);
+      const legs = mockLedger.createEntriesTx.mock.calls[0][1];
+      expect(legs).toEqual([
+        expect.objectContaining({ correlationId: 'trip:trip-1:driver_earning', accountType: 'platform', direction: 'debit', amount: 16 }),
+        expect.objectContaining({ correlationId: 'trip:trip-1:driver_earning', accountType: 'driver', accountId: 'driver-1', direction: 'credit', amount: 16 }),
+      ]);
+    });
+
+    it('increments the wallet projection and records a correlated earning txn', async () => {
       const svc = makeService();
       mockPrisma.driverWallet.upsert.mockResolvedValue({ ...WALLET_STUB, pendingBalance: 16 });
-      await svc.creditEarning('driver-1', 'trip-1', 16);
+      const r = await svc.creditDriverEarning('driver-1', 'trip-1', 16);
+      expect(r).toBe('credited');
       expect(mockPrisma.driverWallet.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           update: expect.objectContaining({
@@ -61,16 +83,42 @@ describe('WalletService', () => {
           }),
         }),
       );
-    });
-
-    it('creates a wallet transaction record', async () => {
-      const svc = makeService();
-      await svc.creditEarning('driver-1', 'trip-1', 20);
       expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ type: 'earning', direction: 'credit', amount: 20, tripId: 'trip-1' }),
+          data: expect.objectContaining({
+            type: 'earning', direction: 'credit', amount: 16, tripId: 'trip-1',
+            correlationId: 'trip:trip-1:driver_earning',
+          }),
         }),
       );
+    });
+
+    it('uses a deterministic correlationId (no timestamps / randomness)', async () => {
+      const svc = makeService();
+      await svc.creditDriverEarning('driver-9', 'trip-42', 10);
+      expect(mockLedger.createEntriesTx.mock.calls[0][1][0].correlationId).toBe('trip:trip-42:driver_earning');
+    });
+
+    it('duplicate delivery with the SAME amount is an idempotent no-op', async () => {
+      const svc = makeService();
+      mockTxFn.mockImplementationOnce(() => { throw p2002(); });
+      mockPrisma.financialLedger.findFirst.mockResolvedValue({ accountId: 'driver-1', amount: 16 });
+      const r = await svc.creditDriverEarning('driver-1', 'trip-1', 16);
+      expect(r).toBe('duplicate_ignored');
+    });
+
+    it('duplicate correlationId with a CONFLICTING amount fails loudly', async () => {
+      const svc = makeService();
+      mockTxFn.mockImplementationOnce(() => { throw p2002(); });
+      mockPrisma.financialLedger.findFirst.mockResolvedValue({ accountId: 'driver-1', amount: 99 });
+      await expect(svc.creditDriverEarning('driver-1', 'trip-1', 16)).rejects.toThrow(ConflictException);
+    });
+
+    it('duplicate correlationId with a CONFLICTING driver fails loudly', async () => {
+      const svc = makeService();
+      mockTxFn.mockImplementationOnce(() => { throw p2002(); });
+      mockPrisma.financialLedger.findFirst.mockResolvedValue({ accountId: 'other-driver', amount: 16 });
+      await expect(svc.creditDriverEarning('driver-1', 'trip-1', 16)).rejects.toThrow(ConflictException);
     });
   });
 
