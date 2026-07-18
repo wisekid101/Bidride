@@ -395,6 +395,7 @@ model Driver {
   driverEarnings        DriverEarning[]
   wallet                DriverWallet?
   payoutAttempts        PayoutAttempt[]
+  payoutRequests        PayoutRequest[]
 
   @@map("drivers")
 }
@@ -1307,6 +1308,8 @@ model FinancialLedger {
   metadata      Json     @default("{}")
   createdAt     DateTime @default(now()) @map("created_at")
 
+  allocations   PayoutAllocation[]
+
   @@unique([correlationId, accountId, direction])
   @@index([correlationId])
   @@index([accountId, createdAt(sort: Desc)])
@@ -1389,6 +1392,87 @@ model PayoutAttempt {
   @@index([driverId, createdAt(sort: Desc)])
   @@index([status, nextRetryAt])
   @@map("payout_attempts")
+}
+
+// ─── Durable payout allocation (Bidiride payout integrity, Commit 2) ──────────
+// Internal-only reservation boundary between EARNED (canonical FinancialLedger)
+// and ALLOCATED funds. No Stripe execution, no ledger debit at allocation, no
+// production caller — dormant until a later execution milestone. Status is a
+// VarChar string, matching the existing PayoutBatch/PayoutAttempt convention.
+
+model PayoutRequest {
+  id                        String    @id @default(uuid()) @db.Uuid
+  driverId                  String    @map("driver_id") @db.Uuid
+  amount                    Decimal   @db.Decimal(10, 2)
+  currency                  String    @default("usd") @db.VarChar(3)
+  status                    String    @db.VarChar(30)
+  idempotencyKey            String    @unique @map("idempotency_key") @db.VarChar(200)
+  initiatorType             String    @map("initiator_type") @db.VarChar(30)
+  initiatorId               String?   @map("initiator_id") @db.VarChar(100)
+  reason                    String    @db.VarChar(200)
+  sourceAvailableBalance    Decimal   @map("source_available_balance") @db.Decimal(10, 2)
+  resultingAvailableBalance Decimal   @map("resulting_available_balance") @db.Decimal(10, 2)
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  allocatedAt               DateTime? @map("allocated_at")
+  releasedAt                DateTime? @map("released_at")
+  canceledAt                DateTime? @map("canceled_at")
+
+  driver      Driver                       @relation(fields: [driverId], references: [id])
+  allocations PayoutAllocation[]
+  transitions PayoutAllocationTransition[]
+
+  @@index([driverId, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("payout_requests")
+}
+
+model PayoutAllocation {
+  id              String    @id @default(uuid()) @db.Uuid
+  payoutRequestId String    @map("payout_request_id") @db.Uuid
+  driverId        String    @map("driver_id") @db.Uuid
+  earningLedgerId String    @map("earning_ledger_id") @db.Uuid
+  amount          Decimal   @db.Decimal(10, 2)
+  currency        String    @default("usd") @db.VarChar(3)
+  status          String    @db.VarChar(30)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  allocatedAt     DateTime  @map("allocated_at")
+  releasedAt      DateTime? @map("released_at")
+  releaseReason   String?   @map("release_reason") @db.VarChar(200)
+
+  request     PayoutRequest                @relation(fields: [payoutRequestId], references: [id])
+  earning     FinancialLedger              @relation(fields: [earningLedgerId], references: [id])
+  transitions PayoutAllocationTransition[]
+
+  // NOTE: one earning may belong to at most one ACTIVE allocation. That
+  // invariant is enforced by a PARTIAL unique index (status IN active set),
+  // which Prisma cannot express — added via raw SQL in the migration.
+  @@index([driverId, status])
+  @@index([payoutRequestId])
+  @@map("payout_allocations")
+}
+
+model PayoutAllocationTransition {
+  id                 String   @id @default(uuid()) @db.Uuid
+  payoutAllocationId String   @map("payout_allocation_id") @db.Uuid
+  payoutRequestId    String   @map("payout_request_id") @db.Uuid
+  driverId           String   @map("driver_id") @db.Uuid
+  fromStatus         String?  @map("from_status") @db.VarChar(30)
+  toStatus           String   @map("to_status") @db.VarChar(30)
+  reason             String   @db.VarChar(200)
+  initiatorType      String   @map("initiator_type") @db.VarChar(30)
+  initiatorId        String?  @map("initiator_id") @db.VarChar(100)
+  correlationId      String   @unique @map("correlation_id") @db.VarChar(200)
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  allocation PayoutAllocation @relation(fields: [payoutAllocationId], references: [id])
+  request    PayoutRequest    @relation(fields: [payoutRequestId], references: [id])
+
+  @@index([payoutAllocationId, createdAt])
+  @@index([payoutRequestId, createdAt])
+  @@map("payout_allocation_transitions")
 }
 
 model PaymentReconciliation {
