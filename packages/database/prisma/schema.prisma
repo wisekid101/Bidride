@@ -1417,10 +1417,24 @@ model PayoutRequest {
   allocatedAt               DateTime? @map("allocated_at")
   releasedAt                DateTime? @map("released_at")
   canceledAt                DateTime? @map("canceled_at")
+  // Commit 3 — Stripe transfer submission & settlement (additive; dormant, no caller)
+  stripeTransferId          String?   @unique @map("stripe_transfer_id") @db.VarChar(100)
+  transferIdempotencyKey    String?   @unique @map("transfer_idempotency_key") @db.VarChar(200)
+  transferGroup             String?   @unique @map("transfer_group") @db.VarChar(200)
+  destinationAccountId      String?   @map("destination_account_id") @db.VarChar(100)
+  submissionStartedAt       DateTime? @map("submission_started_at")
+  paidAt                    DateTime? @map("paid_at")
+  reconciliationRequiredAt  DateTime? @map("reconciliation_required_at")
+  lastErrorCode             String?   @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage          String?   @map("last_error_message") @db.VarChar(500)
+  lastProviderRequestId     String?   @map("last_provider_request_id") @db.VarChar(100)
+  attemptCount              Int       @default(0) @map("attempt_count")
+  providerMetadata          Json?     @map("provider_metadata")
 
-  driver      Driver                       @relation(fields: [driverId], references: [id])
-  allocations PayoutAllocation[]
-  transitions PayoutAllocationTransition[]
+  driver             Driver                       @relation(fields: [driverId], references: [id])
+  allocations        PayoutAllocation[]
+  transitions        PayoutAllocationTransition[]
+  submissionAttempts PayoutSubmissionAttempt[]
 
   @@index([driverId, status])
   @@index([status, createdAt(sort: Desc)])
@@ -1473,6 +1487,33 @@ model PayoutAllocationTransition {
   @@index([payoutAllocationId, createdAt])
   @@index([payoutRequestId, createdAt])
   @@map("payout_allocation_transitions")
+}
+
+model PayoutSubmissionAttempt {
+  id                   String    @id @default(uuid()) @db.Uuid
+  payoutRequestId      String    @map("payout_request_id") @db.Uuid
+  attemptNumber        Int       @map("attempt_number")
+  status               String    @db.VarChar(40)
+  idempotencyKey       String    @map("idempotency_key") @db.VarChar(200)
+  transferGroup        String    @map("transfer_group") @db.VarChar(200)
+  amount               Decimal   @db.Decimal(10, 2)
+  currency             String    @default("usd") @db.VarChar(3)
+  destinationAccountId String?   @map("destination_account_id") @db.VarChar(100)
+  providerRequestId    String?   @map("provider_request_id") @db.VarChar(100)
+  stripeTransferId     String?   @map("stripe_transfer_id") @db.VarChar(100)
+  providerResponse     Json?     @map("provider_response")
+  errorCode            String?   @map("error_code") @db.VarChar(100)
+  errorMessage         String?   @map("error_message") @db.VarChar(500)
+  startedAt            DateTime? @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  request PayoutRequest @relation(fields: [payoutRequestId], references: [id])
+
+  @@unique([payoutRequestId, attemptNumber])
+  @@index([payoutRequestId, createdAt])
+  @@index([status])
+  @@map("payout_submission_attempts")
 }
 
 model PaymentReconciliation {
