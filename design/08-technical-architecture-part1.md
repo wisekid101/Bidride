@@ -22,7 +22,7 @@
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════╗
-║                      BIDRIDE SYSTEM ARCHITECTURE                     ║
+║                      BIDIRIDE SYSTEM ARCHITECTURE                    ║
 ╠═══════════════════════╦═══════════════════════╦═══════════════════════╣
 ║   CLIENT LAYER        ║   GATEWAY LAYER       ║   SERVICE LAYER       ║
 ║                       ║                       ║                       ║

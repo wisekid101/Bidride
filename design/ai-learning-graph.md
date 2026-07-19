@@ -1,9 +1,9 @@
-# BidRide — Learning Graph Design v1.0 (Phase 3.1, design only — DO NOT BUILD)
+# BidiRide — Learning Graph Design v1.0 (Phase 3.1, design only — DO NOT BUILD)
 
 **Status:** Design for future consideration — no implementation approved
 **Date:** 2026-07-11
 
-The question this document answers: should BidRide's intelligence learn over
+The question this document answers: should BidiRide's intelligence learn over
 an explicit graph of marketplace relationships, and if so, how do we build one
 that can never become a hidden user-surveillance system?
 

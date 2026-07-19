@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# BidRide — Smoke Test Script
+# BidiRide — Smoke Test Script
 # Tests all 12 services via health endpoints.
 # Usage:
 #   Local:      bash infrastructure/scripts/smoke-test.sh
@@ -75,7 +75,7 @@ check_service() {
 
 echo ""
 echo "════════════════════════════════════════════════"
-echo "  BidRide Smoke Test — $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+echo "  BidiRide Smoke Test — $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "  Target: ${BASE_URL}"
 echo "  Mode:   $([ "${LOCAL_MODE}" == "true" ] && echo "local (per-port)" || echo "production (ALB)")"
 echo "════════════════════════════════════════════════"

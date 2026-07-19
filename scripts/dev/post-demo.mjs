@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────────────────────
-// BidRide DEVELOPMENT-ONLY post-demo readiness check.
+// BidiRide DEVELOPMENT-ONLY post-demo readiness check.
 //
 // After the final acceptance-flow step, an idle simulator app can be evicted by
 // the OS (backgrounded by the XCUITest teardown, then reclaimed under memory

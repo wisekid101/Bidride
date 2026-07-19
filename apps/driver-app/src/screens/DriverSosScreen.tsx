@@ -59,7 +59,7 @@ export function DriverSosScreen() {
       {phase === 'confirm' && (
         <>
           <Text style={styles.title}>Emergency SOS</Text>
-          <Text style={styles.sub}>Alerts BidRide safety + starts a 5-second countdown you can cancel.</Text>
+          <Text style={styles.sub}>Alerts BidiRide safety + starts a 5-second countdown you can cancel.</Text>
           <TouchableOpacity style={styles.circle} onPress={begin} accessibilityRole="button" accessibilityLabel="Activate Emergency SOS">
             <Text style={styles.circleText}>SOS</Text>
           </TouchableOpacity>
@@ -77,7 +77,7 @@ export function DriverSosScreen() {
       {phase === 'active' && (
         <>
           <Text style={styles.active}>SOS Active</Text>
-          <Text style={styles.sub}>BidRide safety alerted. Recording started. A safety agent will contact you.</Text>
+          <Text style={styles.sub}>BidiRide safety alerted. Recording started. A safety agent will contact you.</Text>
         </>
       )}
     </View>

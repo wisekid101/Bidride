@@ -2,7 +2,7 @@
   "name": "bidride",
   "private": true,
   "version": "1.0.0",
-  "description": "BidRide — AI-powered rideshare marketplace",
+  "description": "BidiRide — AI-powered rideshare marketplace",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "build": "turbo run build",

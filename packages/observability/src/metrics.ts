@@ -153,7 +153,7 @@ export class MetricsRegistry {
   }
 }
 
-// Global BidRide metrics registry
+// Global BidiRide metrics registry
 export const registry = new MetricsRegistry();
 
 export const bidRideMetrics = {

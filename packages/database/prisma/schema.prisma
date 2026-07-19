@@ -1,4 +1,4 @@
-// BidRide — Complete Database Schema v1.0
+// BidiRide — Complete Database Schema v1.0
 // PostgreSQL 15 via AWS RDS Multi-AZ
 
 generator client {
@@ -1394,7 +1394,7 @@ model PayoutAttempt {
   @@map("payout_attempts")
 }
 
-// ─── Durable payout allocation (Bidiride payout integrity, Commit 2) ──────────
+// ─── Durable payout allocation (BidiRide payout integrity, Commit 2) ──────────
 // Internal-only reservation boundary between EARNED (canonical FinancialLedger)
 // and ALLOCATED funds. No Stripe execution, no ledger debit at allocation, no
 // production caller — dormant until a later execution milestone. Status is a

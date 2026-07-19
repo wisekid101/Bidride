@@ -1,5 +1,5 @@
 /**
- * Real-PostgreSQL integration tests for Bidiride durable payout allocation.
+ * Real-PostgreSQL integration tests for BidiRide durable payout allocation.
  * REQUIRES TEST_DATABASE_URL; skipped otherwise. Unit mocks cannot prove the
  * advisory-lock serialization or the partial-unique active-allocation index, so
  * these run against real inserts and real concurrency.

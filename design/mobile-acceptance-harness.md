@@ -4,7 +4,7 @@
 payment, pricing, dispatch, safety, or GPS business rule was modified. Uncommitted —
 awaiting Founder approval.
 
-**Demonstrated:** a complete BidRide ride driven entirely through the visible Rider and
+**Demonstrated:** a complete BidiRide ride driven entirely through the visible Rider and
 Driver simulator apps + Founder portal. Round 1 on 2026-07-12/13 (trip `cae08a68`, $10.97);
 Round 2 re-test after the six contained fixes on 2026-07-13 (trip
 `fdd836f9-a38a-4a83-94d0-ed9b58d2108b`, $9.97). No backend API substituted for any

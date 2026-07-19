@@ -1,9 +1,9 @@
-# BidRide — Intelligence Layer Architecture v1.0 (AI Core Phase 3)
+# BidiRide — Intelligence Layer Architecture v1.0 (AI Core Phase 3)
 
 **Status:** Phases 3.1 and 3.2 IMPLEMENTED (Founder-approved); this document is the architecture of record. Later phases remain design-only.
 **Author:** Engineering
 **Date:** 2026-07-11 (architecture) · 2026-07-12 (Phase 3.1 + 3.2 shipped)
-**Scope:** The AI Operating System every current and future BidRide product consumes
+**Scope:** The AI Operating System every current and future BidiRide product consumes
 
 > **Shipped delta (Phase 3.2 — Close the Learning Loop):** the loop now runs
 > end to end — outcome-evidence snapshots (before/after canonical metrics,
@@ -28,7 +28,7 @@
 
 ## 0. The one-sentence architecture
 
-**The Intelligence Layer is a contract, not a new service:** every BidRide
+**The Intelligence Layer is a contract, not a new service:** every BidiRide
 product consumes intelligence through one universal recommendation format,
 served by domain modules inside the existing `ai-service` (:3012), gated by
 the existing shadow/kill-switch machinery, remembered in one recommendation
@@ -286,7 +286,7 @@ first domain to run un-shadowed (§11).
 | **Focus brief** (SHIPPED — **weekly**, per Founder directive) | all of the above, ranked by expectedValue × confidence | "what should I focus on this week" — top 3 standing recommendations with full format |
 
 "Which cities are ready for launch" and "what businesses should we recruit"
-require data BidRide doesn't collect yet (external market data, merchant
+require data BidiRide doesn't collect yet (external market data, merchant
 signals) — the brief framework holds slots for them; honest answer today is
 "insufficient evidence," which the format forces it to say (`sampleSize`).
 

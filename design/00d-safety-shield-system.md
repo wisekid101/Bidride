@@ -65,7 +65,7 @@ These principles govern every decision in this document and cannot be overridden
 
 ```
 ╔══════════════════════════════════════════════════════════════════════╗
-║                   BIDRIDE SAFETY SHIELD SYSTEM                       ║
+║                   BIDIRIDE SAFETY SHIELD SYSTEM                      ║
 ║                                                                      ║
 ║  DATA INPUTS                                                         ║
 ║  ┌──────────────────────────────────────────────────────────────┐   ║

@@ -1,5 +1,5 @@
 /**
- * Real-PostgreSQL integration tests for Bidiride retry-safe payout submission
+ * Real-PostgreSQL integration tests for BidiRide retry-safe payout submission
  * and exactly-once settlement (Commit 3). Stripe is MOCKED; financial state,
  * uniqueness, concurrency and transactions are real. REQUIRES TEST_DATABASE_URL.
  */

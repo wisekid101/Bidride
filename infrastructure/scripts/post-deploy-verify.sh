@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# BidRide — Post-Deploy Verification Script
+# BidiRide — Post-Deploy Verification Script
 # Runs functional checks after a production deployment:
 #   1. All 12 health checks
 #   2. Auth OTP request (non-destructive — just verifies the endpoint responds)
@@ -64,7 +64,7 @@ http_code() {
 
 echo ""
 echo "════════════════════════════════════════════════════"
-echo "  BidRide Post-Deploy Verification"
+echo "  BidiRide Post-Deploy Verification"
 echo "  $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "  Target: ${BASE_URL}"
 echo "════════════════════════════════════════════════════"

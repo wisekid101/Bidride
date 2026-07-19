@@ -5,7 +5,7 @@ import { resolveFounderSeed } from './founder-seed';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding BidRide database...');
+  console.log('Seeding BidiRide database...');
 
   // Platform config — founder-controlled values
   await prisma.platformConfig.upsert({

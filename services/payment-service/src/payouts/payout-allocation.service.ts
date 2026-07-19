@@ -3,7 +3,7 @@ import { Prisma } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
- * Bidiride durable payout allocation (payout integrity, Commit 2).
+ * BidiRide durable payout allocation (payout integrity, Commit 2).
  *
  * Reserves whole, immutable driver-earning ledger entries against an idempotent
  * PayoutRequest, creating a durable ALLOCATED boundary between EARNED funds

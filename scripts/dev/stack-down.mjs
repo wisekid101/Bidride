@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────────────────────
-// BidRide DEVELOPMENT-ONLY stack shutdown.
+// BidiRide DEVELOPMENT-ONLY stack shutdown.
 //
 // Stops ONLY this repo's dev processes: for every managed port it finds the
 // listeners and terminates one ONLY if its working directory is inside this

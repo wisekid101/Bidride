@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────────────────────
-// BidRide DEVELOPMENT-ONLY iOS Simulator GPS harness
+// BidiRide DEVELOPMENT-ONLY iOS Simulator GPS harness
 //
 // Drives simulated CoreLocation on the rider/driver simulators via the official
 // `xcrun simctl location` interface. Development/acceptance use only. It contains

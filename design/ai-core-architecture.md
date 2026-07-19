@@ -3,7 +3,7 @@
 **Status:** Pending Founder Approval
 **Author:** Engineering
 **Date:** 2026-07-10
-**Scope:** Implementation architecture for the first version of the BidRide AI Core
+**Scope:** Implementation architecture for the first version of the BidiRide AI Core
 **Companions:** `ai-core-data-readiness.md` (this phase) · `ai-architecture-diagram.md`, `ai-event-catalog.md`, `ai-feature-registry.md`, `ai-governance-rules.md`, `ai-model-registry.md`, `ai-versioning-strategy.md` (v1.0 suite, 2026-07-02)
 
 > This document turns the approved-in-principle AI design suite into a buildable

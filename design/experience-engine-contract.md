@@ -1,4 +1,4 @@
-# BidRide — Rider & Driver Experience Engine Contract v1.0 (Phase 3.1, contract only)
+# BidiRide — Rider & Driver Experience Engine Contract v1.0 (Phase 3.1, contract only)
 
 **Status:** Contract approved for future implementation — NOT implemented
 **Date:** 2026-07-11

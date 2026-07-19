@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────────────────────
-// BidRide DEVELOPMENT-ONLY one-command stack startup (acceptance-demo harness).
+// BidiRide DEVELOPMENT-ONLY one-command stack startup (acceptance-demo harness).
 //
 // Order: pre-flight foreign-port check → repo-scoped shutdown → dev-proxy →
 // backend services (incl. ai-service in its default shadow posture) → admin
@@ -104,7 +104,7 @@ function assertNoForeignCollisions() {
 }
 
 async function main() {
-  console.log(`BidRide dev stack — logs in ${LOG_DIR}\n`);
+  console.log(`BidiRide dev stack — logs in ${LOG_DIR}\n`);
 
   // 0. Refuse to proceed if an unrelated process holds one of our ports.
   assertNoForeignCollisions();

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────────────────────
-// BidRide DEVELOPMENT-ONLY readiness check.
+// BidiRide DEVELOPMENT-ONLY readiness check.
 //
 // Verifies the demo stack is healthy AND (once the driver is logged in + Online)
 // that the driver socket heartbeat is live. Read-only: TCP port probes + Redis

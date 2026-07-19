@@ -5,7 +5,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 export default function App() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>BidRide</Text>
+      <Text style={styles.title}>BidiRide</Text>
       <Text style={styles.welcome}>Welcome</Text>
       <TouchableOpacity style={styles.button}>
         <Text style={styles.buttonText}>Request Ride</Text>

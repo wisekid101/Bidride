@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
 
 /**
- * Bidiride retry-safe payout submission & exactly-once settlement (Commit 3).
+ * BidiRide retry-safe payout submission & exactly-once settlement (Commit 3).
  *
  * Moves a durable PayoutRequest from ALLOCATED through an external Stripe
  * Transfer to PAID, writing the canonical FinancialLedger payout debit exactly
