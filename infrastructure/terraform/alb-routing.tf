@@ -44,7 +44,7 @@ locals {
     auth-rest    = { priority = 20, service = "auth", paths = ["/auth/*"] }
     trip         = { priority = 30, service = "trip", paths = ["/trips/*", "/bids/*"] }
     pricing      = { priority = 35, service = "pricing", paths = ["/pricing/*"] }
-    driver       = { priority = 40, service = "driver", paths = ["/drivers/*", "/driver/*"] }
+    driver       = { priority = 40, service = "driver", paths = ["/drivers/*", "/driver/*", "/vehicles", "/vehicles/*"] }
     rider        = { priority = 50, service = "rider", paths = ["/riders/*"] }
     safety       = { priority = 60, service = "safety", paths = ["/safety/*"] }
     payment      = { priority = 70, service = "payment", paths = ["/payments/*"] }

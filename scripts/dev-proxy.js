@@ -20,6 +20,7 @@ const ROUTES = [
   { prefixes: ['/trips/', '/bids/'],            port: 3002 }, // trip service
   { prefixes: ['/pricing/'],                    port: 3005 }, // pricing service
   { prefixes: ['/drivers/', '/driver/'],        port: 3003 }, // driver service
+  { prefixes: ['/vehicles/'],                   port: 3003 }, // driver service — vehicles (also add to alb-routing.tf)
   { prefixes: ['/geocode/'],                    port: 3004 }, // geocoding (rider service)
   { prefixes: ['/riders/'],                     port: 3004 }, // rider service
   { prefixes: ['/safety/'],                     port: 3006 }, // safety service
