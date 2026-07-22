@@ -17,12 +17,16 @@ interface DriverStore {
   accessToken: string | null;
   refreshToken: string | null;
   isAuthenticated: boolean;
+  // Set when a token refresh fails and the session is force-cleared, so the
+  // auth screen can show a friendly "your session expired" message on return.
+  sessionExpired: boolean;
 
   setOnlineStatus: (online: boolean) => void;
   setTodayEarnings: (earnings: Partial<TodayEarnings>) => void;
   setTokens: (access: string, refresh: string, userId: string) => Promise<void>;
   clearTokens: () => Promise<void>;
   loadTokens: () => Promise<void>;
+  setSessionExpired: (value: boolean) => void;
 }
 
 export const useDriverStore = create<DriverStore>((set, get) => ({
@@ -33,6 +37,9 @@ export const useDriverStore = create<DriverStore>((set, get) => ({
   accessToken: null,
   refreshToken: null,
   isAuthenticated: false,
+  sessionExpired: false,
+
+  setSessionExpired: (value) => set({ sessionExpired: value }),
 
   setOnlineStatus: (online) =>
     set({
@@ -49,7 +56,7 @@ export const useDriverStore = create<DriverStore>((set, get) => ({
     await SecureStore.setItemAsync('driver_access_token', access);
     await SecureStore.setItemAsync('driver_refresh_token', refresh);
     await SecureStore.setItemAsync('driver_user_id', userId);
-    set({ accessToken: access, refreshToken: refresh, userId, isAuthenticated: true });
+    set({ accessToken: access, refreshToken: refresh, userId, isAuthenticated: true, sessionExpired: false });
 
     // A socket created with an expired token fails its handshake and exhausts
     // socket.io's retry budget before any HTTP call can refresh the token.
