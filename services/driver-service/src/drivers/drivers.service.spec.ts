@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { DriversService } from './drivers.service';
 
 // Mock PrismaClient
@@ -62,6 +63,12 @@ const mockRedis = {
   get: jest.fn().mockResolvedValue(null),
 } as any;
 
+// The shared activation authority — mocked; DriversService only delegates to it.
+const mockActivation = {
+  maybeActivate: jest.fn(),
+  computeMissingRequirements: jest.fn().mockReturnValue([]),
+} as any;
+
 describe('DriversService — Redis location key format', () => {
   let service: DriversService;
 
@@ -70,7 +77,7 @@ describe('DriversService — Redis location key format', () => {
     mockPrisma.driver.findUnique.mockResolvedValue(mockApprovedDriver);
     mockPrisma.driver.update.mockResolvedValue({});
     const { CheckrService } = jest.requireMock('./checkr.service');
-    service = new DriversService(new CheckrService());
+    service = new DriversService(new CheckrService(), mockActivation);
   });
 
   // ── updateAvailability — go online ───────────────────────────────────────
@@ -158,5 +165,37 @@ describe('DriversService — Redis location key format', () => {
         expect.stringContaining(DRIVER_USER_ID),
       );
     });
+  });
+});
+
+describe('DriversService.approveDriver — delegates to the shared activation evaluator', () => {
+  let service: DriversService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const { CheckrService } = jest.requireMock('./checkr.service');
+    service = new DriversService(new CheckrService(), mockActivation);
+  });
+
+  it('C1: throws APPROVAL_REQUIREMENTS_NOT_MET when the evaluator blocks (same gate as the webhook)', async () => {
+    mockActivation.maybeActivate.mockResolvedValue({ outcome: 'blocked', missing: ['no_active_vehicle'] });
+    await expect(service.approveDriver('d1', { notes: 'x' } as any, 'admin-1')).rejects.toMatchObject({
+      response: { code: 'APPROVAL_REQUIREMENTS_NOT_MET', missing: ['no_active_vehicle'] },
+    });
+  });
+
+  it('C2: approves via the shared evaluator and forwards admin notes', async () => {
+    mockActivation.maybeActivate.mockResolvedValue({ outcome: 'activated' });
+    await expect(service.approveDriver('d1', { notes: 'ok' } as any, 'admin-1')).resolves.toEqual({
+      success: true,
+    });
+    expect(mockActivation.maybeActivate).toHaveBeenCalledWith('d1', { notes: 'ok' });
+  });
+
+  it('C3: throws Conflict when the driver is already approved', async () => {
+    mockActivation.maybeActivate.mockResolvedValue({ outcome: 'already_active' });
+    await expect(service.approveDriver('d1', {} as any, 'admin-1')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 });

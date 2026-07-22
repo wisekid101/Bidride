@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaClient, DriverStatus, BackgroundCheckStatus } from '@bidride/database';
 import { Redis } from 'ioredis';
+import { DriverActivationService } from './driver-activation.service';
 
 interface CheckrCandidateInput {
   legalFirstName: string;
@@ -34,7 +35,7 @@ export class CheckrService {
   private readonly prisma = new PrismaClient();
   private readonly redis: Redis;
 
-  constructor() {
+  constructor(private readonly activation: DriverActivationService) {
     this.redis = new Redis({
       host: process.env.REDIS_HOST ?? 'localhost',
       port: parseInt(process.env.REDIS_PORT ?? '6379'),
@@ -126,25 +127,24 @@ export class CheckrService {
         DriverStatus.under_review,
         DriverStatus.action_required,
       ];
+      // Guard: only record a `clear` decision for a driver still in an
+      // activatable state, so a late/duplicate clear can never overwrite a
+      // terminal-negative background decision (adverse_action) on a
+      // suspended/declined driver.
       if (!approveableStatuses.includes(driver.status)) return;
 
+      // Record ONLY the background-check evidence. Activation is decided
+      // exclusively by maybeActivate() — the webhook never writes status or
+      // onboardingStep directly, and publishes driver:approved only when that
+      // gated, atomic transition actually succeeds.
       await this.prisma.driver.update({
         where: { id: driver.id },
         data: {
           backgroundCheckStatus: BackgroundCheckStatus.clear,
           backgroundCheckClearedAt: new Date(),
-          status: DriverStatus.approved,
-          onboardingStep: 'complete',
         },
       });
-      await this.redis.publish(
-        'driver:approved',
-        JSON.stringify({
-          driverId: driver.id,
-          userId: driver.userId,
-          notes: 'Background check cleared',
-        }),
-      );
+      await this.activation.maybeActivate(driver.id, { notes: 'Background check cleared' });
     } else if (status === 'consider') {
       await this.prisma.driver.update({
         where: { id: driver.id },

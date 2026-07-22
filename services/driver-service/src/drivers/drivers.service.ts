@@ -10,6 +10,7 @@ import {
   SuspendDriverDto,
 } from './dto';
 import { CheckrService } from './checkr.service';
+import { DriverActivationService } from './driver-activation.service';
 
 // driver:{userId}:location is shared with the auth-service gateway, which
 // refreshes it on every GPS emit / heartbeat with the SAME env-driven TTL —
@@ -25,7 +26,10 @@ export class DriversService {
   private prisma = new PrismaClient();
   private redis: Redis;
 
-  constructor(private readonly checkrService: CheckrService) {
+  constructor(
+    private readonly checkrService: CheckrService,
+    private readonly activation: DriverActivationService,
+  ) {
     this.redis = new Redis({
       host: process.env.REDIS_HOST ?? 'localhost',
       port: parseInt(process.env.REDIS_PORT ?? '6379'),
@@ -314,83 +318,25 @@ export class DriversService {
 
     // Same computation approveDriver enforces — the admin UI renders this
     // checklist and gates its Approve button on it.
-    const missing = this.computeMissingRequirements(driver);
+    const missing = this.activation.computeMissingRequirements(driver);
     return { ...driver, approvalRequirements: { met: missing.length === 0, missing } };
   }
 
-  // Each entry lists the accepted documentType spellings for one required doc
-  // (the app uploads 'insurance'/'registration'; the schema enum names them
-  // 'insurance_card'/'vehicle_registration').
-  private static readonly REQUIRED_DOCUMENTS: Array<{ label: string; types: string[] }> = [
-    { label: 'drivers_license', types: ['drivers_license'] },
-    { label: 'insurance_card', types: ['insurance', 'insurance_card'] },
-    { label: 'vehicle_registration', types: ['registration', 'vehicle_registration'] },
-  ];
-
-  private computeMissingRequirements(driver: {
-    documents: Array<{ documentType: string; status: string }>;
-    vehicles: Array<{ isActive: boolean }>;
-    backgroundCheckStatus: BackgroundCheckStatus;
-    insuranceProvider: string | null;
-    insurancePolicyNumber: string | null;
-    insuranceExpiry: Date | null;
-  }): string[] {
-    const missing: string[] = [];
-    for (const req of DriversService.REQUIRED_DOCUMENTS) {
-      const ok = driver.documents.some(
-        (d) => req.types.includes(d.documentType) && d.status === 'approved',
-      );
-      if (!ok) missing.push(`document_not_approved:${req.label}`);
-    }
-    if (driver.backgroundCheckStatus !== BackgroundCheckStatus.clear) {
-      missing.push(`background_check:${driver.backgroundCheckStatus}`);
-    }
-    if (!driver.vehicles.some((v) => v.isActive)) {
-      missing.push('no_active_vehicle');
-    }
-    if (!driver.insuranceProvider || !driver.insurancePolicyNumber || !driver.insuranceExpiry) {
-      missing.push('insurance_info_missing');
-    } else if (driver.insuranceExpiry <= new Date()) {
-      missing.push('insurance_expired');
-    }
-    return missing;
-  }
-
   async approveDriver(driverId: string, dto: ApproveDriverDto, adminId: string) {
-    const driver = await this.prisma.driver.findUnique({
-      where: { id: driverId },
-      include: {
-        documents: { select: { documentType: true, status: true } },
-        vehicles: { select: { isActive: true } },
-      },
-    });
-    if (!driver) throw new NotFoundException('Driver not found');
-
-    if (driver.status === DriverStatus.approved) {
+    // Admin approval flows through the single activation authority, so the
+    // admin door and the Checkr webhook enforce the identical gate (no override
+    // path — decline or wait).
+    const result = await this.activation.maybeActivate(driverId, { notes: dto.notes });
+    if (result.outcome === 'already_active') {
       throw new ConflictException('Driver is already approved');
     }
-
-    // Production gate: an admin cannot approve a driver who hasn't cleared
-    // every onboarding requirement. No override path — decline or wait.
-    const missing = this.computeMissingRequirements(driver);
-    if (missing.length > 0) {
+    if (result.outcome === 'blocked') {
       throw new BadRequestException({
         message: 'Driver does not meet approval requirements',
         code: 'APPROVAL_REQUIREMENTS_NOT_MET',
-        missing,
+        missing: result.missing,
       });
     }
-
-    await this.prisma.driver.update({
-      where: { id: driverId },
-      data: { status: DriverStatus.approved, onboardingStep: 'complete' },
-    });
-
-    await this.redis.publish(
-      'driver:approved',
-      JSON.stringify({ driverId, userId: driver.userId, notes: dto.notes }),
-    );
-
     return { success: true };
   }
 

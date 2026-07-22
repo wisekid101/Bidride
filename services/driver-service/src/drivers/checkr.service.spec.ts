@@ -55,6 +55,8 @@ const mockRedis = {
   publish: jest.fn().mockResolvedValue(1),
 } as any;
 
+const mockActivation = { maybeActivate: jest.fn() } as any;
+
 function makeEvent(
   type: string,
   status: 'pending' | 'clear' | 'consider' | 'suspended' | 'canceled',
@@ -75,7 +77,8 @@ describe('CheckrService', () => {
     jest.clearAllMocks();
     // Default: NX succeeds (event not yet processed)
     mockRedis.set.mockResolvedValue('OK');
-    service = new CheckrService();
+    mockActivation.maybeActivate.mockResolvedValue({ outcome: 'activated' });
+    service = new CheckrService(mockActivation);
   });
 
   // ── verifyWebhookSignature ───────────────────────────────────────────────
@@ -150,38 +153,48 @@ describe('CheckrService', () => {
       expect(mockPrisma.driver.update).not.toHaveBeenCalled();
     });
 
-    describe('clear result', () => {
-      it('auto-approves driver and publishes driver:approved event', async () => {
+    describe('clear result — delegates activation, never writes status directly', () => {
+      it('records ONLY the background-check clear evidence and delegates to maybeActivate', async () => {
         await service.handleWebhookEvent(makeEvent('report.completed', 'clear'));
 
         expect(mockPrisma.driver.update).toHaveBeenCalledWith({
           where: { id: mockDriver.id },
-          data: expect.objectContaining({
-            backgroundCheckStatus: 'clear',
-            status: 'approved',
-            onboardingStep: 'complete',
-          }),
+          data: { backgroundCheckStatus: 'clear', backgroundCheckClearedAt: expect.any(Date) },
         });
-        expect(mockRedis.publish).toHaveBeenCalledWith(
-          'driver:approved',
-          expect.stringContaining(mockDriver.id),
+        expect(mockActivation.maybeActivate).toHaveBeenCalledWith(
+          mockDriver.id,
+          expect.objectContaining({ notes: expect.any(String) }),
         );
       });
 
-      it('does not auto-approve a driver that is already approved', async () => {
+      it('never writes status=approved or onboardingStep=complete, and never publishes directly', async () => {
+        await service.handleWebhookEvent(makeEvent('report.completed', 'clear'));
+
+        const badWrite = mockPrisma.driver.update.mock.calls.find(
+          ([arg]: [any]) =>
+            arg?.data?.status === 'approved' || arg?.data?.onboardingStep === 'complete',
+        );
+        expect(badWrite).toBeUndefined();
+        // Only maybeActivate publishes driver:approved — the webhook never does.
+        expect(mockRedis.publish).not.toHaveBeenCalledWith('driver:approved', expect.anything());
+      });
+
+      it('does not record or activate when the driver is already approved', async () => {
         mockPrisma.driver.findFirst.mockResolvedValue({ ...mockDriver, status: 'approved' });
 
         await service.handleWebhookEvent(makeEvent('report.completed', 'clear'));
 
         expect(mockPrisma.driver.update).not.toHaveBeenCalled();
+        expect(mockActivation.maybeActivate).not.toHaveBeenCalled();
       });
 
-      it('does not auto-approve a declined driver', async () => {
+      it('does not overwrite a declined driver (guards terminal-negative states)', async () => {
         mockPrisma.driver.findFirst.mockResolvedValue({ ...mockDriver, status: 'declined' });
 
         await service.handleWebhookEvent(makeEvent('report.completed', 'clear'));
 
         expect(mockPrisma.driver.update).not.toHaveBeenCalled();
+        expect(mockActivation.maybeActivate).not.toHaveBeenCalled();
       });
     });
 
