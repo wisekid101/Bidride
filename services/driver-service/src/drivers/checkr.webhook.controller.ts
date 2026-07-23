@@ -35,7 +35,18 @@ export class CheckrWebhookController {
       throw new BadRequestException('Invalid webhook signature.');
     }
 
-    const event: CheckrWebhookEvent = JSON.parse(rawBody.toString('utf8'));
+    let event: CheckrWebhookEvent;
+    try {
+      event = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      // Signature already verified, but the body is permanently un-parseable —
+      // 400 (non-retryable) so Checkr doesn't loop forever on the same bad bytes.
+      throw new BadRequestException('Malformed JSON payload.');
+    }
+
+    // A thrown ServiceUnavailableException (transient / in-flight / driver not
+    // yet linked) propagates as 503 so Checkr redelivers; @HttpCode(OK) governs
+    // only the success return below.
     await this.checkr.handleWebhookEvent(event);
     return { received: true };
   }
