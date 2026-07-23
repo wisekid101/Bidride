@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient, DriverStatus, BackgroundCheckStatus } from '@bidride/database';
+import { PrismaClient, DriverStatus } from '@bidride/database';
 import { Redis } from 'ioredis';
+import { ComplianceEngine } from './compliance/compliance-engine';
+import { buildComplianceContext, DriverComplianceRecord } from './compliance/compliance-context';
 
 export type ActivationResult =
   | { outcome: 'activated' }
@@ -33,6 +35,11 @@ const ACTIVATABLE_STATUSES: DriverStatus[] = [
 export class DriverActivationService {
   private readonly prisma = new PrismaClient();
   private readonly redis: Redis;
+  // SB2A Batch 3A: the centralized Compliance Requirements Engine. The four
+  // existing activation gates now live as pure requirement modules; this service
+  // no longer knows the individual rules — it asks the engine. Behavior is
+  // identical (guarded by a golden-equivalence test).
+  private readonly compliance = new ComplianceEngine();
 
   constructor() {
     this.redis = new Redis({
@@ -41,47 +48,16 @@ export class DriverActivationService {
     });
   }
 
-  // Each entry lists the accepted documentType spellings for one required doc
-  // (the app uploads 'insurance'/'registration'; the schema enum names them
-  // 'insurance_card'/'vehicle_registration').
-  private static readonly REQUIRED_DOCUMENTS: Array<{ label: string; types: string[] }> = [
-    { label: 'drivers_license', types: ['drivers_license'] },
-    { label: 'insurance_card', types: ['insurance', 'insurance_card'] },
-    { label: 'vehicle_registration', types: ['registration', 'vehicle_registration'] },
-  ];
-
   /**
-   * The four existing activation gates, derived from real records (never from
+   * The existing activation gates, derived from real records (never from
    * onboardingStep). Returns the list of unmet requirements; empty = eligible.
    * Public so the admin driver-detail view can render the same checklist.
+   *
+   * Now delegates to the Compliance Engine — the returned string[] (keys and
+   * order) is byte-identical to the pre-refactor implementation.
    */
-  computeMissingRequirements(driver: {
-    documents: Array<{ documentType: string; status: string }>;
-    vehicles: Array<{ isActive: boolean }>;
-    backgroundCheckStatus: BackgroundCheckStatus;
-    insuranceProvider: string | null;
-    insurancePolicyNumber: string | null;
-    insuranceExpiry: Date | null;
-  }): string[] {
-    const missing: string[] = [];
-    for (const req of DriverActivationService.REQUIRED_DOCUMENTS) {
-      const ok = driver.documents.some(
-        (d) => req.types.includes(d.documentType) && d.status === 'approved',
-      );
-      if (!ok) missing.push(`document_not_approved:${req.label}`);
-    }
-    if (driver.backgroundCheckStatus !== BackgroundCheckStatus.clear) {
-      missing.push(`background_check:${driver.backgroundCheckStatus}`);
-    }
-    if (!driver.vehicles.some((v) => v.isActive)) {
-      missing.push('no_active_vehicle');
-    }
-    if (!driver.insuranceProvider || !driver.insurancePolicyNumber || !driver.insuranceExpiry) {
-      missing.push('insurance_info_missing');
-    } else if (driver.insuranceExpiry <= new Date()) {
-      missing.push('insurance_expired');
-    }
-    return missing;
+  computeMissingRequirements(driver: DriverComplianceRecord): string[] {
+    return this.compliance.evaluate(buildComplianceContext(driver)).missing;
   }
 
   /**
