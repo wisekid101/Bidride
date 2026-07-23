@@ -4,20 +4,35 @@ import {
   IsEnum,
   IsOptional,
   IsBoolean,
+  IsNotEmpty,
   Length,
   Matches,
 } from 'class-validator';
 
-// Canonical onboarding cursor values (SB2A Batch 1). Order:
+// Canonical onboarding cursor values (SB2A Batch 2). Order:
 // personal_info -> vehicle_info -> document_upload -> bank_account ->
-// background_check -> complete. `vehicle_inspection` and `review` are retired.
+// background_check -> zero_tolerance -> complete. `vehicle_inspection` and
+// `review` are retired.
 export enum OnboardingStep {
   PERSONAL_INFO = 'personal_info',
   VEHICLE_INFO = 'vehicle_info',
   DOCUMENT_UPLOAD = 'document_upload',
   BANK_ACCOUNT = 'bank_account',
   BACKGROUND_CHECK = 'background_check',
+  ZERO_TOLERANCE = 'zero_tolerance',
   COMPLETE = 'complete',
+}
+
+// SB2A Batch 2 — Zero Tolerance acceptance. The driver echoes back the exact
+// policy version they were shown; the server validates it equals the current
+// active version and rejects stale-version acceptances (forcing a refresh).
+export class AcceptZeroToleranceDto {
+  @IsString()
+  @IsNotEmpty()
+  policyVersion: string;
+
+  @IsBoolean()
+  acknowledged: boolean;
 }
 
 export class UpdateOnboardingStepDto {

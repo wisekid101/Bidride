@@ -52,6 +52,9 @@ const mockPrisma = {
   },
   driverEarnings: { findMany: jest.fn().mockResolvedValue([]) },
   earningsFloorLog: { findMany: jest.fn().mockResolvedValue([]) },
+  // SB2A Batch 2: getProfile reads the active Zero Tolerance policy. Default =
+  // no active policy (gate inert), so Batch 1 derivation tests are unaffected.
+  zeroTolerancePolicy: { findFirst: jest.fn().mockResolvedValue(null) },
 } as any;
 
 const mockRedis = {
@@ -219,9 +222,27 @@ describe('DriversService.getProfile — Batch 1 derives the resume step from fac
     avgRating: null,
     isAvailable: false,
     payoutBankVerified: false,
+    zeroToleranceAcceptedVersion: null,
     vehicles: [],
     documents: [],
     user: { phone: '+1', email: 'd@x.com', profilePhotoUrl: null, createdAt: new Date() },
+  };
+
+  // A driver who has finished every step EXCEPT Zero Tolerance.
+  const fullyOnboardedExceptZt = {
+    ...baseProfileDriver,
+    status: 'under_review',
+    legalFirstName: 'Jane',
+    dateOfBirth: new Date('1990-01-01'),
+    licenseNumber: 'D123456',
+    stripeAccountId: 'acct_1',
+    backgroundCheckStatus: 'pending',
+    vehicles: [{ isActive: true }],
+    documents: [
+      { documentType: 'drivers_license', status: 'approved' },
+      { documentType: 'insurance', status: 'approved' },
+      { documentType: 'registration', status: 'approved' },
+    ],
   };
 
   beforeEach(() => {
@@ -276,6 +297,48 @@ describe('DriversService.getProfile — Batch 1 derives the resume step from fac
     });
     const res = await service.getProfile(DRIVER_USER_ID);
     expect(res.activeVehicle).toBe(active);
+  });
+
+  // ── Batch 2: Zero Tolerance gate ──
+  it('derives zero_tolerance when a policy is active and the driver has not accepted it', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({ ...fullyOnboardedExceptZt });
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue({ version: 'zt-v1' });
+    const res = await service.getProfile(DRIVER_USER_ID);
+    expect(res.onboardingStep).toBe('zero_tolerance');
+  });
+
+  it('derives complete once the driver has accepted the CURRENT policy version', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({
+      ...fullyOnboardedExceptZt,
+      zeroToleranceAcceptedVersion: 'zt-v1',
+    });
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue({ version: 'zt-v1' });
+    const res = await service.getProfile(DRIVER_USER_ID);
+    expect(res.onboardingStep).toBe('complete');
+  });
+
+  it('re-derives zero_tolerance when the policy version has advanced past the accepted one', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({
+      ...fullyOnboardedExceptZt,
+      zeroToleranceAcceptedVersion: 'zt-v1',
+    });
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue({ version: 'zt-v2' });
+    const res = await service.getProfile(DRIVER_USER_ID);
+    expect(res.onboardingStep).toBe('zero_tolerance');
+  });
+
+  it('gate is INERT when no policy is published (fully-onboarded driver → complete)', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({ ...fullyOnboardedExceptZt });
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue(null);
+    const res = await service.getProfile(DRIVER_USER_ID);
+    expect(res.onboardingStep).toBe('complete');
+  });
+
+  it('getProfile issues NO driver write (derive-without-rewrite invariant, Batch 2)', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({ ...fullyOnboardedExceptZt });
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue({ version: 'zt-v1' });
+    await service.getProfile(DRIVER_USER_ID);
+    expect(mockPrisma.driver.update).not.toHaveBeenCalled();
   });
 });
 
@@ -360,6 +423,7 @@ describe('DriversService.requestBackgroundCheck — Batch 1 must NOT regress the
     const updateArg = mockPrisma.driver.update.mock.calls[0][0];
     expect(updateArg.data).not.toHaveProperty('onboardingStep');
     expect(updateArg.data.backgroundCheckStatus).toBe('pending');
-    expect(res).toEqual({ success: true, nextStep: 'complete' });
+    // Batch 2: the next canonical step after background is Zero Tolerance.
+    expect(res).toEqual({ success: true, nextStep: 'zero_tolerance' });
   });
 });

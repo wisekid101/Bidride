@@ -373,6 +373,7 @@ model Driver {
   isAvailable               Boolean               @default(false) @map("is_available")
   pushToken                 String?               @map("push_token") @db.VarChar(500)
   onboardingStep            String                @default("personal_info") @map("onboarding_step") @db.VarChar(50)
+  zeroToleranceAcceptedVersion String?            @map("zero_tolerance_accepted_version") @db.VarChar(50)
   appliedAt                 DateTime              @default(now()) @map("applied_at")
   approvedAt                DateTime?             @map("approved_at")
   declinedAt                DateTime?             @map("declined_at")
@@ -396,6 +397,7 @@ model Driver {
   wallet                DriverWallet?
   payoutAttempts        PayoutAttempt[]
   payoutRequests        PayoutRequest[]
+  zeroToleranceAcceptances ZeroToleranceAcceptance[]
 
   @@map("drivers")
 }
@@ -1647,4 +1649,46 @@ model AiBrief {
 
   @@index([briefType, generatedAt(sort: Desc)])
   @@map("ai_briefs")
+}
+
+// ─── Zero Tolerance (SB2A Batch 2) ────────────────────────────────────────────
+
+// Versioned registry of Zero Tolerance policy documents. The server is always
+// authoritative for the current version; policy versions are never hardcoded.
+// Exactly one row should have isActive = true at a time (the current version).
+model ZeroTolerancePolicy {
+  version       String   @id @db.VarChar(50)
+  contentHash   String   @map("content_hash") @db.VarChar(128)
+  body          String   @db.Text
+  minAppVersion String   @map("min_app_version") @db.VarChar(20)
+  isActive      Boolean  @default(false) @map("is_active")
+  effectiveAt   DateTime @map("effective_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  acceptances ZeroToleranceAcceptance[]
+
+  @@index([isActive, effectiveAt(sort: Desc)])
+  @@map("zero_tolerance_policies")
+}
+
+// Immutable, append-only audit trail of driver Zero Tolerance acceptances.
+// Exactly one row per (driver, policyVersion) — enforced by the unique
+// constraint, giving idempotent exactly-once acceptance. Rows are never updated
+// or deleted. `source` is 'mobile' | 'grandfather'.
+model ZeroToleranceAcceptance {
+  id                String   @id @default(uuid()) @db.Uuid
+  driverId          String   @map("driver_id") @db.Uuid
+  policyVersion     String   @map("policy_version") @db.VarChar(50)
+  policyContentHash String   @map("policy_content_hash") @db.VarChar(128)
+  source            String   @default("mobile") @db.VarChar(20)
+  appVersion        String?  @map("app_version") @db.VarChar(20)
+  ipAddress         String?  @map("ip_address") @db.VarChar(45)
+  acceptedAt        DateTime @default(now()) @map("accepted_at")
+
+  driver Driver              @relation(fields: [driverId], references: [id])
+  policy ZeroTolerancePolicy @relation(fields: [policyVersion], references: [version])
+
+  @@unique([driverId, policyVersion], name: "driverId_policyVersion")
+  @@index([driverId, acceptedAt(sort: Desc)])
+  @@map("zero_tolerance_acceptances")
 }

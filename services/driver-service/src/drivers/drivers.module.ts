@@ -4,6 +4,8 @@ import { DriversService } from './drivers.service';
 import { CheckrService } from './checkr.service';
 import { DriverActivationService } from './driver-activation.service';
 import { CheckrWebhookController } from './checkr.webhook.controller';
+import { ZeroToleranceController } from './zero-tolerance.controller';
+import { ZeroToleranceService } from './zero-tolerance.service';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
@@ -17,7 +19,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       inject: [ConfigService],
     }),
   ],
-  controllers: [DriversController, CheckrWebhookController],
-  providers: [DriversService, CheckrService, DriverActivationService],
+  controllers: [DriversController, CheckrWebhookController, ZeroToleranceController],
+  providers: [DriversService, CheckrService, DriverActivationService, ZeroToleranceService],
 })
 export class DriversModule {}

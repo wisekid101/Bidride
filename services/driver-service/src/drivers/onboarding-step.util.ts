@@ -6,8 +6,10 @@
 // database rewrite and no progress reset. Vehicle inspection is an
 // administrative `Vehicle` attribute and is never an onboarding cursor.
 //
-// Canonical order: personal_info -> vehicle_info -> document_upload ->
-// bank_account -> background_check -> complete.
+// Canonical order (SB2A Batch 2): personal_info -> vehicle_info ->
+// document_upload -> bank_account -> background_check -> zero_tolerance ->
+// complete. `zero_tolerance` is a Zero Tolerance policy acknowledgement the
+// driver must accept before onboarding can complete.
 
 export type OnboardingStepValue =
   | 'personal_info'
@@ -15,6 +17,7 @@ export type OnboardingStepValue =
   | 'document_upload'
   | 'bank_account'
   | 'background_check'
+  | 'zero_tolerance'
   | 'complete';
 
 // The single source of the canonical step-string set (also asserted by the
@@ -25,6 +28,7 @@ export const CANONICAL_ONBOARDING_STEPS: readonly OnboardingStepValue[] = [
   'document_upload',
   'bank_account',
   'background_check',
+  'zero_tolerance',
   'complete',
 ] as const;
 
@@ -37,6 +41,11 @@ export interface OnboardingFacts {
   documents: Array<{ documentType: string; status: string }>;
   stripeAccountId: string | null;
   backgroundCheckStatus: string;
+  // True IFF the driver has an acceptance for the CURRENT Zero Tolerance policy
+  // version. Computed by the caller (getProfile) by comparing the denormalized
+  // Driver.zeroToleranceAcceptedVersion against the current policy version, so
+  // the resolver stays a pure function that needs no policy lookup.
+  zeroToleranceAccepted: boolean;
 }
 
 // Accepted documentType spellings per required document — the app uploads
@@ -72,6 +81,10 @@ export function isBackgroundRequested(f: OnboardingFacts): boolean {
   return f.backgroundCheckStatus !== 'not_started';
 }
 
+export function isZeroToleranceAccepted(f: OnboardingFacts): boolean {
+  return f.zeroToleranceAccepted;
+}
+
 // Fact-based canonical resolver. Forward-only: returns the FIRST unmet step in
 // canonical order, so a driver is never routed backward and completed progress
 // is never reset. NEVER returns `vehicle_inspection` (retired as a cursor).
@@ -82,6 +95,7 @@ export function resolveOnboardingStep(f: OnboardingFacts): OnboardingStepValue {
   if (!areDocumentsComplete(f)) return 'document_upload';
   if (!isBankConnected(f)) return 'bank_account';
   if (!isBackgroundRequested(f)) return 'background_check';
+  if (!isZeroToleranceAccepted(f)) return 'zero_tolerance';
   return 'complete';
 }
 

@@ -56,11 +56,25 @@ export class DriversService {
 
     if (!driver) throw new NotFoundException('Driver profile not found');
 
-    // Batch 1: the resume step is DERIVED from completion facts (canonical order
-    // personal -> vehicle -> documents -> bank -> background -> complete), NOT
-    // read blindly from the stored cursor. Legacy/obsolete stored values
-    // normalize forward with no DB rewrite and no progress reset; the stored
-    // cursor is left untouched (secondary marker for the transition guards).
+    // Batch 1/2: the resume step is DERIVED from completion facts (canonical
+    // order personal -> vehicle -> documents -> bank -> background ->
+    // zero_tolerance -> complete), NOT read blindly from the stored cursor.
+    // Legacy/obsolete stored values normalize forward with no DB rewrite and no
+    // progress reset; the stored cursor is left untouched (secondary marker).
+    //
+    // Batch 2: the Zero Tolerance gate. The denormalized
+    // Driver.zeroToleranceAcceptedVersion is compared against the current active
+    // policy version so this stays a single Driver read for the resolver. The
+    // gate is INERT until a policy is published (no active policy => accepted),
+    // so it can never strand drivers before legal publishes one.
+    const activeZtPolicy = await this.prisma.zeroTolerancePolicy.findFirst({
+      where: { isActive: true },
+      orderBy: { effectiveAt: 'desc' },
+      select: { version: true },
+    });
+    const zeroToleranceAccepted =
+      !activeZtPolicy || driver.zeroToleranceAcceptedVersion === activeZtPolicy.version;
+
     const facts: OnboardingFacts = {
       status: driver.status,
       legalFirstName: driver.legalFirstName,
@@ -70,6 +84,7 @@ export class DriversService {
       documents: driver.documents,
       stripeAccountId: driver.stripeAccountId,
       backgroundCheckStatus: driver.backgroundCheckStatus,
+      zeroToleranceAccepted,
     };
     const derivedStep = resolveOnboardingStep(facts);
 
@@ -197,12 +212,13 @@ export class DriversService {
         backgroundCheckId: reportId,
         backgroundCheckStatus: BackgroundCheckStatus.pending,
         backgroundCheckOrderedAt: new Date(),
-        // Batch 1: background is the LAST driver-facing step; requesting it must
-        // NOT regress the cursor. The resume step is derived from facts.
+        // Batch 1/2: requesting the background check must NOT regress the cursor.
+        // The resume step is derived from facts; after this, the next canonical
+        // step is Zero Tolerance (Batch 2), not complete.
       },
     });
 
-    return { success: true, nextStep: 'complete' };
+    return { success: true, nextStep: 'zero_tolerance' };
   }
 
   async updateAvailability(userId: string, dto: UpdateAvailabilityDto) {

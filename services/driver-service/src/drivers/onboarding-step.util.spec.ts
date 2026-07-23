@@ -20,6 +20,7 @@ function facts(overrides: Partial<OnboardingFacts> = {}): OnboardingFacts {
     ],
     stripeAccountId: 'acct_1',
     backgroundCheckStatus: 'pending',
+    zeroToleranceAccepted: true,
     ...overrides,
   };
 }
@@ -89,7 +90,32 @@ describe('resolveOnboardingStep — canonical order (personal→vehicle→docume
     );
   });
 
-  it('everything submitted, awaiting decision → complete', () => {
+  it('ZERO TOLERANCE AFTER BACKGROUND: background requested but ZT not accepted → zero_tolerance', () => {
+    expect(resolveOnboardingStep(facts({ zeroToleranceAccepted: false }))).toBe('zero_tolerance');
+  });
+
+  it('background requested and ZT accepted, awaiting decision → complete', () => {
+    expect(resolveOnboardingStep(facts({ zeroToleranceAccepted: true }))).toBe('complete');
+  });
+
+  it('ZT is the LAST gate: everything else done but ZT not accepted → zero_tolerance (not complete)', () => {
+    expect(resolveOnboardingStep(facts())).toBe('complete'); // default accepts ZT
+    expect(resolveOnboardingStep(facts({ zeroToleranceAccepted: false }))).toBe('zero_tolerance');
+  });
+
+  it('ZT not accepted does NOT mask an earlier unmet step (no bank → bank_account first)', () => {
+    expect(
+      resolveOnboardingStep(facts({ stripeAccountId: null, zeroToleranceAccepted: false })),
+    ).toBe('bank_account');
+  });
+
+  it('approved driver → complete even if ZT flag is false (grandfathered/short-circuit)', () => {
+    expect(resolveOnboardingStep(facts({ status: 'approved', zeroToleranceAccepted: false }))).toBe(
+      'complete',
+    );
+  });
+
+  it('everything submitted incl. ZT, awaiting decision → complete', () => {
     expect(resolveOnboardingStep(facts())).toBe('complete');
   });
 
@@ -159,6 +185,7 @@ describe('CANONICAL_ONBOARDING_STEPS — backend↔mobile contract (order-sensit
       'document_upload',
       'bank_account',
       'background_check',
+      'zero_tolerance',
       'complete',
     ]);
   });

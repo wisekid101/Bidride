@@ -7,8 +7,8 @@ export interface DriverRouteInput {
   onboardingStep: string;
 }
 
-// Canonical onboarding screen order (SB2A Batch 1) — used to prevent skipping
-// ahead and to size the progress bar (Step X of 6). The backend derives the
+// Canonical onboarding screen order (SB2A Batch 2) — used to prevent skipping
+// ahead and to size the progress bar (Step X of 7). The backend derives the
 // current `onboardingStep` from completion facts, so the value routed here is
 // always one of these canonical steps.
 export const ONBOARDING_ORDER = [
@@ -17,6 +17,7 @@ export const ONBOARDING_ORDER = [
   '/onboarding/document-upload',
   '/onboarding/bank-account',
   '/onboarding/background-check',
+  '/onboarding/zero-tolerance',
   '/onboarding/complete',
 ] as const;
 
@@ -34,6 +35,8 @@ export function resolveDriverRoute({ status, onboardingStep }: DriverRouteInput)
       return '/onboarding/bank-account';
     case 'background_check':
       return '/onboarding/background-check';
+    case 'zero_tolerance':
+      return '/onboarding/zero-tolerance';
     case 'complete':
       return '/onboarding/complete';
     // Unknown/stale value (incl. the retired `vehicle_inspection`/`review`) →

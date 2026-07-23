@@ -15,6 +15,7 @@ const CANONICAL_STEPS = [
   'document_upload',
   'bank_account',
   'background_check',
+  'zero_tolerance',
   'complete',
 ] as const;
 
@@ -43,9 +44,24 @@ describe('resolveDriverRoute — canonical Batch 1 routing', () => {
     expect(resolveDriverRoute({ status: 'under_review', onboardingStep: 'background_check' })).toBe(
       '/onboarding/background-check',
     );
+    expect(resolveDriverRoute({ status: 'under_review', onboardingStep: 'zero_tolerance' })).toBe(
+      '/onboarding/zero-tolerance',
+    );
     expect(resolveDriverRoute({ status: 'under_review', onboardingStep: 'complete' })).toBe(
       '/onboarding/complete',
     );
+  });
+
+  it('zero_tolerance falls between background_check and complete (Batch 2 order)', () => {
+    const bgIdx = onboardingStepIndex(
+      resolveDriverRoute({ status: 'under_review', onboardingStep: 'background_check' }),
+    );
+    const ztIdx = onboardingStepIndex(
+      resolveDriverRoute({ status: 'under_review', onboardingStep: 'zero_tolerance' }),
+    );
+    const completeIdx = onboardingStepIndex('/onboarding/complete');
+    expect(bgIdx).toBeLessThan(ztIdx);
+    expect(ztIdx).toBeLessThan(completeIdx);
   });
 
   it('vehicle precedes documents (regression guard for the old inverted order)', () => {
@@ -76,14 +92,14 @@ describe('resolveDriverRoute — canonical Batch 1 routing', () => {
   });
 });
 
-describe('onboardingStepIndex — progress "Step X of 6"', () => {
-  it('exposes exactly six canonical stages', () => {
-    expect(ONBOARDING_ORDER).toHaveLength(6);
+describe('onboardingStepIndex — progress "Step X of 7"', () => {
+  it('exposes exactly seven canonical stages', () => {
+    expect(ONBOARDING_ORDER).toHaveLength(7);
   });
 
   it('reports a strictly increasing index across the canonical order', () => {
     const indices = ONBOARDING_ORDER.map((route) => onboardingStepIndex(route));
-    expect(indices).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(indices).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 
   it('clamps an unknown route to the first stage', () => {
@@ -110,6 +126,7 @@ describe('backend↔mobile canonical contract', () => {
       'document_upload',
       'bank_account',
       'background_check',
+      'zero_tolerance',
       'complete',
     ]);
   });
