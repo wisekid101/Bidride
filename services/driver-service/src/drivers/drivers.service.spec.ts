@@ -199,3 +199,167 @@ describe('DriversService.approveDriver — delegates to the shared activation ev
     );
   });
 });
+
+describe('DriversService.getProfile — Batch 1 derives the resume step from facts', () => {
+  let service: DriversService;
+
+  const baseProfileDriver = {
+    id: DRIVER_DB_ID,
+    userId: DRIVER_USER_ID,
+    status: 'pending',
+    onboardingStep: 'personal_info',
+    legalFirstName: null,
+    legalLastName: null,
+    dateOfBirth: null,
+    licenseNumber: null,
+    stripeAccountId: null,
+    backgroundCheckStatus: 'not_started',
+    currentBadge: 'verified',
+    totalTrips: 0,
+    avgRating: null,
+    isAvailable: false,
+    payoutBankVerified: false,
+    vehicles: [],
+    documents: [],
+    user: { phone: '+1', email: 'd@x.com', profilePhotoUrl: null, createdAt: new Date() },
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const { CheckrService } = jest.requireMock('./checkr.service');
+    service = new DriversService(new CheckrService(), mockActivation);
+  });
+
+  it('returns the DERIVED step, not the stored cursor, for a legacy obsolete value', async () => {
+    // Legacy driver: vehicle + all docs + background done, no bank, stored cursor
+    // is the retired `vehicle_inspection`. Canonical resume = bank_account.
+    mockPrisma.driver.findUnique.mockResolvedValue({
+      ...baseProfileDriver,
+      onboardingStep: 'vehicle_inspection',
+      legalFirstName: 'Jane',
+      dateOfBirth: new Date('1990-01-01'),
+      licenseNumber: 'D123456',
+      backgroundCheckStatus: 'clear',
+      vehicles: [{ isActive: true }],
+      documents: [
+        { documentType: 'drivers_license', status: 'approved' },
+        { documentType: 'insurance', status: 'approved' },
+        { documentType: 'registration', status: 'approved' },
+      ],
+    });
+
+    const res = await service.getProfile(DRIVER_USER_ID);
+    expect(res.onboardingStep).toBe('bank_account');
+  });
+
+  it('derives personal_info for a brand-new driver regardless of stored cursor', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({ ...baseProfileDriver });
+    const res = await service.getProfile(DRIVER_USER_ID);
+    expect(res.onboardingStep).toBe('personal_info');
+  });
+
+  it('derives complete for an approved driver', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({
+      ...baseProfileDriver,
+      status: 'approved',
+      onboardingStep: 'background_check',
+    });
+    const res = await service.getProfile(DRIVER_USER_ID);
+    expect(res.onboardingStep).toBe('complete');
+  });
+
+  it('exposes the active vehicle from the included vehicles', async () => {
+    const active = { isActive: true, make: 'Toyota' };
+    mockPrisma.driver.findUnique.mockResolvedValue({
+      ...baseProfileDriver,
+      vehicles: [{ isActive: false }, active],
+    });
+    const res = await service.getProfile(DRIVER_USER_ID);
+    expect(res.activeVehicle).toBe(active);
+  });
+});
+
+describe('DriversService.submitPersonalInfo — Batch 1 lands on vehicle_info', () => {
+  let service: DriversService;
+
+  const validPersonalInfo = {
+    legalFirstName: 'Jane',
+    legalLastName: 'Doe',
+    dateOfBirth: '1990-01-01',
+    streetAddress: '1 Main St',
+    city: 'Newark',
+    state: 'NJ',
+    zipCode: '07102',
+    ssn: '123456789',
+    licenseNumber: 'D1234567',
+    licenseState: 'NJ',
+    licenseExpiry: '2030-01-01',
+    insuranceProvider: 'Acme',
+    insurancePolicyNumber: 'P123',
+    insuranceExpiry: '2030-01-01',
+  } as any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.driver.update.mockResolvedValue({});
+    mockPrisma.driver.findFirst.mockResolvedValue(null);
+    const { CheckrService } = jest.requireMock('./checkr.service');
+    service = new DriversService(new CheckrService(), mockActivation);
+  });
+
+  it('advances the cursor to vehicle_info (vehicle precedes documents) and reports it as nextStep', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({
+      id: DRIVER_DB_ID,
+      userId: DRIVER_USER_ID,
+      status: 'pending',
+      onboardingStep: 'personal_info',
+    });
+
+    const res = await service.submitPersonalInfo(DRIVER_USER_ID, validPersonalInfo);
+
+    expect(mockPrisma.driver.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ onboardingStep: 'vehicle_info' }),
+      }),
+    );
+    expect(res).toEqual({ success: true, nextStep: 'vehicle_info' });
+  });
+});
+
+describe('DriversService.requestBackgroundCheck — Batch 1 must NOT regress the cursor', () => {
+  let service: DriversService;
+  const checkr = {
+    createCandidate: jest.fn().mockResolvedValue('cand_1'),
+    createReport: jest.fn().mockResolvedValue('rpt_1'),
+  } as any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.driver.update.mockResolvedValue({});
+    mockRedis.setex.mockResolvedValue('OK');
+    service = new DriversService(checkr, mockActivation);
+  });
+
+  it('orders the check without writing onboardingStep, and reports nextStep=complete', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue({
+      id: DRIVER_DB_ID,
+      userId: DRIVER_USER_ID,
+      status: 'under_review',
+      onboardingStep: 'background_check',
+      backgroundCheckStatus: 'not_started',
+      legalFirstName: 'Jane',
+      legalLastName: 'Doe',
+      dateOfBirth: new Date('1990-01-01'),
+      homeZip: '07102',
+      user: { email: 'd@x.com', phone: '+1' },
+    });
+
+    const res = await service.requestBackgroundCheck(DRIVER_USER_ID, { fcraConsentGiven: true });
+
+    // The cursor is a derived value now — this write must not touch onboardingStep.
+    const updateArg = mockPrisma.driver.update.mock.calls[0][0];
+    expect(updateArg.data).not.toHaveProperty('onboardingStep');
+    expect(updateArg.data.backgroundCheckStatus).toBe('pending');
+    expect(res).toEqual({ success: true, nextStep: 'complete' });
+  });
+});

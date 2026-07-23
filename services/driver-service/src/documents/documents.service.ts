@@ -61,7 +61,7 @@ export class DocumentsService {
     if (allSubmitted && driver.onboardingStep === 'document_upload') {
       await this.prisma.driver.update({
         where: { id: driver.id },
-        data: { onboardingStep: 'background_check', status: 'under_review' },
+        data: { onboardingStep: 'bank_account', status: 'under_review' },
       });
     }
 

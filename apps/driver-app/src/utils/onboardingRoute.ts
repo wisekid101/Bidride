@@ -7,13 +7,16 @@ export interface DriverRouteInput {
   onboardingStep: string;
 }
 
-// Onboarding screen order — used to prevent skipping ahead.
+// Canonical onboarding screen order (SB2A Batch 1) — used to prevent skipping
+// ahead and to size the progress bar (Step X of 6). The backend derives the
+// current `onboardingStep` from completion facts, so the value routed here is
+// always one of these canonical steps.
 export const ONBOARDING_ORDER = [
   '/onboarding/personal-info',
-  '/onboarding/document-upload',
-  '/onboarding/background-check',
   '/onboarding/vehicle-info',
+  '/onboarding/document-upload',
   '/onboarding/bank-account',
+  '/onboarding/background-check',
   '/onboarding/complete',
 ] as const;
 
@@ -23,18 +26,19 @@ export function resolveDriverRoute({ status, onboardingStep }: DriverRouteInput)
   switch (onboardingStep) {
     case 'personal_info':
       return '/onboarding/personal-info';
-    case 'document_upload':
-      return '/onboarding/document-upload';
-    case 'background_check':
-      return '/onboarding/background-check';
     case 'vehicle_info':
       return '/onboarding/vehicle-info';
-    // vehicle_inspection is an admin-side action; the driver continues to the
-    // bank step while the inspection is pending (matches the normal flow).
-    case 'vehicle_inspection':
+    case 'document_upload':
+      return '/onboarding/document-upload';
     case 'bank_account':
       return '/onboarding/bank-account';
-    // review/complete (or anything unknown) while not approved → under review
+    case 'background_check':
+      return '/onboarding/background-check';
+    case 'complete':
+      return '/onboarding/complete';
+    // Unknown/stale value (incl. the retired `vehicle_inspection`/`review`) →
+    // the under-review screen. Never resets valid progress; the backend now
+    // derives the canonical step, so this is only a safety net.
     default:
       return '/onboarding/complete';
   }

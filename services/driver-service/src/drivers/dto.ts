@@ -8,14 +8,16 @@ import {
   Matches,
 } from 'class-validator';
 
+// Canonical onboarding cursor values (SB2A Batch 1). Order:
+// personal_info -> vehicle_info -> document_upload -> bank_account ->
+// background_check -> complete. `vehicle_inspection` and `review` are retired.
 export enum OnboardingStep {
   PERSONAL_INFO = 'personal_info',
-  DOCUMENT_UPLOAD = 'document_upload',
-  BACKGROUND_CHECK = 'background_check',
   VEHICLE_INFO = 'vehicle_info',
-  VEHICLE_INSPECTION = 'vehicle_inspection',
+  DOCUMENT_UPLOAD = 'document_upload',
   BANK_ACCOUNT = 'bank_account',
-  REVIEW = 'review',
+  BACKGROUND_CHECK = 'background_check',
+  COMPLETE = 'complete',
 }
 
 export class UpdateOnboardingStepDto {

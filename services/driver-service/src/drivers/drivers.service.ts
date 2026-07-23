@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaClient, DriverStatus, BackgroundCheckStatus } from '@bidride/database';
 import { Redis } from 'ioredis';
 import {
@@ -11,6 +17,7 @@ import {
 } from './dto';
 import { CheckrService } from './checkr.service';
 import { DriverActivationService } from './driver-activation.service';
+import { resolveOnboardingStep, isNonCanonicalCursor, OnboardingFacts } from './onboarding-step.util';
 
 // driver:{userId}:location is shared with the auth-service gateway, which
 // refreshes it on every GPS emit / heartbeat with the SAME env-driven TTL —
@@ -25,6 +32,7 @@ const DRIVER_LOCATION_TTL_SEC = (() => {
 export class DriversService {
   private prisma = new PrismaClient();
   private redis: Redis;
+  private readonly logger = new Logger(DriversService.name);
 
   constructor(
     private readonly checkrService: CheckrService,
@@ -41,22 +49,52 @@ export class DriversService {
       where: { userId },
       include: {
         user: { select: { phone: true, email: true, profilePhotoUrl: true, createdAt: true } },
-        vehicles: { where: { isActive: true }, take: 1 },
+        vehicles: true,
+        documents: { select: { documentType: true, status: true } },
       },
     });
 
     if (!driver) throw new NotFoundException('Driver profile not found');
 
+    // Batch 1: the resume step is DERIVED from completion facts (canonical order
+    // personal -> vehicle -> documents -> bank -> background -> complete), NOT
+    // read blindly from the stored cursor. Legacy/obsolete stored values
+    // normalize forward with no DB rewrite and no progress reset; the stored
+    // cursor is left untouched (secondary marker for the transition guards).
+    const facts: OnboardingFacts = {
+      status: driver.status,
+      legalFirstName: driver.legalFirstName,
+      dateOfBirth: driver.dateOfBirth,
+      licenseNumber: driver.licenseNumber,
+      vehicleCount: driver.vehicles.length,
+      documents: driver.documents,
+      stripeAccountId: driver.stripeAccountId,
+      backgroundCheckStatus: driver.backgroundCheckStatus,
+    };
+    const derivedStep = resolveOnboardingStep(facts);
+
+    // Non-sensitive observability (driver id + cursor strings only — never PII,
+    // license, DOB, documents, Stripe, or Checkr data).
+    if (isNonCanonicalCursor(driver.onboardingStep)) {
+      this.logger.log(
+        `onboarding cursor obsolete/stale: driverId=${driver.id} stored=${driver.onboardingStep} derived=${derivedStep}`,
+      );
+    } else if (driver.onboardingStep !== derivedStep) {
+      this.logger.log(
+        `onboarding cursor normalized: driverId=${driver.id} stored=${driver.onboardingStep} derived=${derivedStep}`,
+      );
+    }
+
     return {
       id: driver.id,
       status: driver.status,
-      onboardingStep: driver.onboardingStep,
+      onboardingStep: derivedStep,
       legalFirstName: driver.legalFirstName,
       legalLastName: driver.legalLastName,
       phone: driver.user.phone,
       email: driver.user.email,
       profilePhotoUrl: driver.user.profilePhotoUrl,
-      activeVehicle: driver.vehicles[0] ?? null,
+      activeVehicle: driver.vehicles.find((v) => v.isActive) ?? null,
       badge: driver.currentBadge ?? 'verified',
       totalTrips: driver.totalTrips,
       avgRating: driver.avgRating,
@@ -117,11 +155,11 @@ export class DriversService {
         insuranceProvider: dto.insuranceProvider,
         insurancePolicyNumber: dto.insurancePolicyNumber,
         insuranceExpiry,
-        onboardingStep: 'document_upload',
+        onboardingStep: 'vehicle_info',
       },
     });
 
-    return { success: true, nextStep: 'document_upload' };
+    return { success: true, nextStep: 'vehicle_info' };
   }
 
   async requestBackgroundCheck(userId: string, dto: RequestBackgroundCheckDto) {
@@ -159,11 +197,12 @@ export class DriversService {
         backgroundCheckId: reportId,
         backgroundCheckStatus: BackgroundCheckStatus.pending,
         backgroundCheckOrderedAt: new Date(),
-        onboardingStep: 'vehicle_info',
+        // Batch 1: background is the LAST driver-facing step; requesting it must
+        // NOT regress the cursor. The resume step is derived from facts.
       },
     });
 
-    return { success: true, nextStep: 'vehicle_info' };
+    return { success: true, nextStep: 'complete' };
   }
 
   async updateAvailability(userId: string, dto: UpdateAvailabilityDto) {

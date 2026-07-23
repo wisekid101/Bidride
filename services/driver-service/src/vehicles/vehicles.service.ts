@@ -63,11 +63,13 @@ export class VehiclesService {
       },
     });
 
-    // If driver is mid-onboarding, advance step
+    // Batch 1: advance the onboarding cursor to Documents. Inspection is an
+    // administrative Vehicle attribute (inspectionStatus), NOT an onboarding
+    // cursor step.
     if (driver.onboardingStep === 'vehicle_info') {
       await this.prisma.driver.update({
         where: { id: driver.id },
-        data: { onboardingStep: 'vehicle_inspection' },
+        data: { onboardingStep: 'document_upload' },
       });
     }
 
@@ -125,17 +127,10 @@ export class VehiclesService {
       },
     });
 
-    const driver = await this.prisma.driver.findUnique({
-      where: { id: vehicle.driverId },
-    });
-
-    if (driver?.onboardingStep === 'vehicle_inspection') {
-      await this.prisma.driver.update({
-        where: { id: driver.id },
-        data: { onboardingStep: 'bank_account' },
-      });
-    }
-
+    // Batch 1: inspection is administrative and no longer advances the
+    // onboarding cursor (it is tracked on Vehicle.inspectionStatus). Driver
+    // resume is derived from completion facts, so a passed inspection needs no
+    // cursor write here.
     return { success: true };
   }
 
