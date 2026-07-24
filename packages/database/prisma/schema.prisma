@@ -398,6 +398,7 @@ model Driver {
   payoutAttempts        PayoutAttempt[]
   payoutRequests        PayoutRequest[]
   zeroToleranceAcceptances ZeroToleranceAcceptance[]
+  taxCompliance            DriverTaxCompliance?
 
   @@map("drivers")
 }
@@ -1691,4 +1692,87 @@ model ZeroToleranceAcceptance {
   @@unique([driverId, policyVersion], name: "driverId_policyVersion")
   @@index([driverId, acceptedAt(sort: Desc)])
   @@map("zero_tolerance_acceptances")
+}
+
+// ─── Tax Compliance (SB2A Phase 4A — foundation; requirement DISABLED) ─────────
+
+// Normalized, BidiRide-owned tax-compliance status language. Provider-specific
+// statuses are mapped to these by an adapter and never persisted raw.
+enum TaxComplianceStatus {
+  not_started
+  session_created
+  pending_provider
+  verified
+  rejected
+  needs_update
+  provider_confirmed_exempt
+  unavailable
+  superseded
+}
+
+// Current-state record (one-to-one with Driver). Holds NO raw SSN/TIN/EIN/ITIN —
+// only normalized status + opaque provider references + non-sensitive metadata.
+model DriverTaxCompliance {
+  id                          String              @id @default(uuid()) @db.Uuid
+  driverId                    String              @unique @map("driver_id") @db.Uuid
+  provider                    String              @db.VarChar(40)
+  providerAccountReference    String?             @map("provider_account_reference") @db.VarChar(255)
+  providerSubmissionReference String?             @map("provider_submission_reference") @db.VarChar(255)
+  status                      TaxComplianceStatus @default(not_started)
+  requiredFormType            String              @map("required_form_type") @db.VarChar(20)
+  requiredVersion             String              @map("required_version") @db.VarChar(50)
+  taxYear                     Int                 @map("tax_year")
+  certifiedAt                 DateTime?           @map("certified_at")
+  verifiedAt                  DateTime?           @map("verified_at")
+  lastProviderSyncAt          DateTime?           @map("last_provider_sync_at")
+  failureCode                 String?             @map("failure_code") @db.VarChar(50)
+  createdAt                   DateTime            @default(now()) @map("created_at")
+  updatedAt                   DateTime            @updatedAt @map("updated_at")
+
+  driver Driver                     @relation(fields: [driverId], references: [id])
+  events DriverTaxComplianceEvent[]
+
+  @@index([status])
+  @@map("driver_tax_compliance")
+}
+
+// Immutable, append-only transition history. `providerEventId` is the webhook
+// idempotency key (nullable-unique: provider events carry one, non-provider
+// events — client_return/admin/system/grandfather — do not).
+model DriverTaxComplianceEvent {
+  id                 String              @id @default(uuid()) @db.Uuid
+  driverId           String              @map("driver_id") @db.Uuid
+  complianceRecordId String              @map("compliance_record_id") @db.Uuid
+  providerEventId    String?             @unique @map("provider_event_id") @db.VarChar(255)
+  previousStatus     TaxComplianceStatus? @map("previous_status")
+  newStatus          TaxComplianceStatus @map("new_status")
+  source             String              @db.VarChar(30)
+  reasonCode         String?             @map("reason_code") @db.VarChar(50)
+  providerReference  String?             @map("provider_reference") @db.VarChar(255)
+  occurredAt         DateTime            @map("occurred_at")
+  receivedAt         DateTime            @map("received_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+
+  record DriverTaxCompliance @relation(fields: [complianceRecordId], references: [id])
+
+  @@index([driverId, occurredAt(sort: Desc)])
+  @@map("driver_tax_compliance_events")
+}
+
+// Server-authoritative configuration. `requirementEnabled` defaults to FALSE —
+// the gate is inert until explicitly enabled in a later phase.
+model TaxComplianceConfig {
+  id                        String   @id @default(uuid()) @db.Uuid
+  requirementEnabled        Boolean  @default(false) @map("requirement_enabled")
+  provider                  String   @db.VarChar(40)
+  requiredFormType          String   @map("required_form_type") @db.VarChar(20)
+  requiredVersion           String   @map("required_version") @db.VarChar(50)
+  effectiveAt               DateTime? @map("effective_at")
+  minimumAppVersion         String?  @map("minimum_app_version") @db.VarChar(20)
+  supportedJurisdictions    Json     @default("[]") @map("supported_jurisdictions")
+  failClosedOnProviderError Boolean  @default(true) @map("fail_closed_on_provider_error")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@map("tax_compliance_config")
 }
