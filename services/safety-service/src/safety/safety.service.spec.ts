@@ -12,7 +12,13 @@
  */
 
 import { SafetyService } from './safety.service';
-import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
+import { promises as fsPromises } from 'node:fs';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +35,7 @@ const mockPrisma = {
     count: jest.fn().mockResolvedValue(0),
   },
   panicEvent: { create: jest.fn() },
-  safetyRecording: { create: jest.fn() },
+  safetyRecording: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
   safeCheckIn: {
     create: jest.fn(),
     findUnique: jest.fn(),
@@ -496,5 +502,102 @@ describe('SafetyService — escalation on deviation', () => {
         }),
       }),
     );
+  });
+});
+
+// ─── SOS Audio Encryption (S0-B6) ────────────────────────────────────────────
+
+describe('SafetyService.storeRecordingAudio — SOS audio server-side encryption', () => {
+  const recording = {
+    id: 'rec-1',
+    tripId: 'trip-1',
+    storageBucket: 'bidride-safety-recordings',
+    storageKey: 'sos/trip-1/rec-1.m4a',
+  };
+  const audio = Buffer.from('sos-audio-bytes').toString('base64');
+  const mockS3 = { putObject: jest.fn() };
+
+  // Isolated ConfigService so per-key values don't leak into other suites.
+  function makeServiceWithConfig(vals: Record<string, string | undefined>): SafetyService {
+    const localConfig = {
+      get: jest.fn((k: string, dflt?: string) => (k in vals ? vals[k] : dflt)),
+      getOrThrow: jest.fn().mockReturnValue('test-value'),
+    } as any;
+    const svc = new SafetyService(mockPrisma, localConfig, mockRedis, mockRouteService);
+    (svc as any).s3 = mockS3;
+    return svc;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockS3.putObject.mockReturnValue({ promise: () => Promise.resolve({}) });
+    mockPrisma.sosEvent.findUnique.mockResolvedValue(mockSos); // initiatedByUserId 'user-1'
+    mockPrisma.safetyRecording.findFirst.mockResolvedValue(recording);
+    mockPrisma.safetyRecording.update.mockResolvedValue({});
+  });
+
+  it('real S3 upload encrypts with aws:kms + the configured SSEKMSKeyId, preserving bucket/key/body/content-type', async () => {
+    const svc = makeServiceWithConfig({
+      AWS_ACCESS_KEY_ID: 'AKIAREALKEY',
+      KMS_RECORDINGS_KEY_ID: 'arn:aws:kms:us-east-1:1:key/abc',
+    });
+    const res = await svc.storeRecordingAudio('sos-1', 'user-1', audio, 12);
+
+    expect(res.backend).toBe('S3');
+    expect(mockS3.putObject).toHaveBeenCalledTimes(1);
+    const arg = mockS3.putObject.mock.calls[0][0];
+    expect(arg).toEqual(
+      expect.objectContaining({
+        Bucket: 'bidride-safety-recordings',
+        Key: 'sos/trip-1/rec-1.m4a',
+        ContentType: 'audio/m4a',
+        ServerSideEncryption: 'aws:kms',
+        SSEKMSKeyId: 'arn:aws:kms:us-east-1:1:key/abc',
+      }),
+    );
+    expect(Buffer.isBuffer(arg.Body)).toBe(true);
+  });
+
+  it('FAILS CLOSED when the KMS key is absent — rejects BEFORE calling S3, no successful upload', async () => {
+    const svc = makeServiceWithConfig({ AWS_ACCESS_KEY_ID: 'AKIAREALKEY' }); // no KMS key
+    await expect(svc.storeRecordingAudio('sos-1', 'user-1', audio, 12)).rejects.toBeInstanceOf(
+      InternalServerErrorException,
+    );
+    expect(mockS3.putObject).not.toHaveBeenCalled();
+    expect(mockPrisma.safetyRecording.update).not.toHaveBeenCalled();
+  });
+
+  it('FAILS CLOSED for the dev-local sentinel key in a real-S3 environment', async () => {
+    const svc = makeServiceWithConfig({
+      AWS_ACCESS_KEY_ID: 'AKIAREALKEY',
+      KMS_RECORDINGS_KEY_ID: 'dev-local-no-kms',
+    });
+    await expect(svc.storeRecordingAudio('sos-1', 'user-1', audio, 12)).rejects.toBeInstanceOf(
+      InternalServerErrorException,
+    );
+    expect(mockS3.putObject).not.toHaveBeenCalled();
+  });
+
+  it('local-development disk branch works without a KMS key and never calls S3', async () => {
+    const svc = makeServiceWithConfig({ AWS_ACCESS_KEY_ID: 'dev-placeholder' });
+    const mkdirSpy = jest.spyOn(fsPromises, 'mkdir').mockResolvedValue(undefined as never);
+    const writeSpy = jest.spyOn(fsPromises, 'writeFile').mockResolvedValue(undefined);
+
+    const res = await svc.storeRecordingAudio('sos-1', 'user-1', audio, 12);
+
+    expect(res.backend).toBe('local-dev');
+    expect(mockS3.putObject).not.toHaveBeenCalled();
+    expect(writeSpy).toHaveBeenCalled();
+    mkdirSpy.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  it('rejects an upload for a SOS the caller does not own (ownership preserved)', async () => {
+    const svc = makeServiceWithConfig({ AWS_ACCESS_KEY_ID: 'AKIAREALKEY', KMS_RECORDINGS_KEY_ID: 'k' });
+    mockPrisma.sosEvent.findUnique.mockResolvedValue({ ...mockSos, initiatedByUserId: 'someone-else' });
+    await expect(svc.storeRecordingAudio('sos-1', 'user-1', audio, 12)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(mockS3.putObject).not.toHaveBeenCalled();
   });
 });

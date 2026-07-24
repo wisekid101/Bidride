@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  InternalServerErrorException,
+  Logger,
   Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -31,6 +33,7 @@ export interface TripSafetyScoreResult {
 
 @Injectable()
 export class SafetyService {
+  private readonly logger = new Logger(SafetyService.name);
   private readonly s3: AWS.S3;
 
   constructor(
@@ -553,8 +556,26 @@ export class SafetyService {
     let backend: 'S3' | 'local-dev';
 
     if (awsKey && awsKey !== 'dev-placeholder') {
+      const kmsKeyId = this.config.get<string>('KMS_RECORDINGS_KEY_ID');
+      if (!kmsKeyId || kmsKeyId === 'dev-local-no-kms') {
+        // Fail CLOSED: safety-service has a dedicated customer-managed
+        // recordings KMS key. In a deployed environment we must never store SOS
+        // audio unencrypted or silently fall back to a bucket/AWS-managed key —
+        // reject BEFORE touching S3, never reporting a successful upload.
+        this.logger.error(
+          'KMS_RECORDINGS_KEY_ID is not configured — refusing to upload SOS audio (fail closed)',
+        );
+        throw new InternalServerErrorException('Recording encryption key is not configured');
+      }
       await this.s3
-        .putObject({ Bucket: recording.storageBucket, Key: key, Body: bytes, ContentType: 'audio/m4a' })
+        .putObject({
+          Bucket: recording.storageBucket,
+          Key: key,
+          Body: bytes,
+          ContentType: 'audio/m4a',
+          ServerSideEncryption: 'aws:kms',
+          SSEKMSKeyId: kmsKeyId,
+        })
         .promise();
       backend = 'S3';
     } else {
