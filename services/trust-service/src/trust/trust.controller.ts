@@ -1,6 +1,7 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { IsString, IsNotEmpty } from 'class-validator';
 import { TrustService } from './trust.service';
+import { InternalKeyGuard } from './internal-key.guard';
 
 class RecalculateDto {
   @IsString()
@@ -9,6 +10,7 @@ class RecalculateDto {
 }
 
 @Controller('internal/trust')
+@UseGuards(InternalKeyGuard)
 export class TrustController {
   constructor(private readonly trust: TrustService) {}
 
