@@ -10,6 +10,7 @@ import {
 import { IsString, Min, IsInt, IsNumber, IsOptional } from 'class-validator';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
+import { InternalKeyGuard } from './internal-key.guard';
 
 class AuthorizeHoldDto {
   @IsString()
@@ -71,9 +72,11 @@ class CreditWalletDto {
   amount: number;
 }
 
-// Internal controller — only reachable from within the VPC (not exposed via public ALB)
+// Internal controller. Authenticated by InternalKeyGuard (fail-closed in
+// production) so it is safe even though the ALB currently forwards /payments/*
+// (ALB path separation is a separate, later infra batch — defense in depth).
 @Controller('payments/internal')
-@UseGuards(ThrottlerGuard)
+@UseGuards(InternalKeyGuard, ThrottlerGuard)
 export class PaymentsInternalController {
   constructor(private readonly payments: PaymentService) {}
 

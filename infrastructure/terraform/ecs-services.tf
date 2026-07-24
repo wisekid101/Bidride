@@ -316,7 +316,7 @@ locals {
       memory        = 512
       desired_count = 2
       alb_key       = "payment"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "stripe-secret-key", "stripe-webhook-secret", "stripe-platform-account-id"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "stripe-secret-key", "stripe-webhook-secret", "stripe-platform-account-id", "internal-service-key"]
     }
     notification-service = {
       port          = 3008
