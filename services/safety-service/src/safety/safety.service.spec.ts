@@ -141,6 +141,74 @@ describe('SafetyService — SOS', () => {
     });
   });
 
+  // ─── SOS trusted-contact notification: authenticated internal call ──────────
+  // The SOS emergency-contact path must NOT regress when notification-service is
+  // guarded. These tests prove confirmSos still reaches notification-service and,
+  // in deployed posture, authenticates with x-internal-key.
+  describe('confirmSos → notifyTrustedContacts (authenticated SOS call)', () => {
+    let fetchSpy: jest.SpyInstance;
+    const ORIGINAL_KEY = process.env.INTERNAL_SERVICE_KEY;
+
+    const tripWithContacts = {
+      rider: {
+        user: { firstName: 'Ada', lastName: 'Lovelace' },
+        trustedContacts: [{ phone: '+15551234567', name: 'Kin' }],
+      },
+    };
+
+    beforeEach(() => {
+      mockPrisma.sosEvent.findUnique.mockResolvedValue(mockSos);
+      mockPrisma.sosEvent.update.mockResolvedValue({});
+      mockPrisma.safetyRecording.create.mockResolvedValue({});
+      mockPrisma.trip.findUnique.mockResolvedValue(tripWithContacts);
+      fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+    });
+
+    afterEach(() => {
+      fetchSpy.mockRestore();
+      if (ORIGINAL_KEY === undefined) delete process.env.INTERNAL_SERVICE_KEY;
+      else process.env.INTERNAL_SERVICE_KEY = ORIGINAL_KEY;
+    });
+
+    it('sends x-internal-key on the sos-contacts request in deployed posture', async () => {
+      process.env.INTERNAL_SERVICE_KEY = 'deployed-secret-key';
+
+      await service.confirmSos('sos-1', 'user-1');
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(String(url)).toContain('/internal/notifications/sos-contacts');
+      expect((init as RequestInit).method).toBe('POST');
+      expect((init as any).headers['x-internal-key']).toBe('deployed-secret-key');
+    });
+
+    it('preserves the SOS payload unchanged (contacts, riderName, tripId)', async () => {
+      process.env.INTERNAL_SERVICE_KEY = 'deployed-secret-key';
+
+      await service.confirmSos('sos-1', 'user-1');
+
+      const [, init] = fetchSpy.mock.calls[0];
+      const payload = JSON.parse((init as any).body);
+      expect(payload).toEqual({
+        contacts: [{ phone: '+15551234567', name: 'Kin' }],
+        riderName: 'Ada Lovelace',
+        tripId: 'trip-1',
+      });
+    });
+
+    it('still delivers the SOS notification keyless (dev/test), header omitted', async () => {
+      delete process.env.INTERNAL_SERVICE_KEY;
+
+      await service.confirmSos('sos-1', 'user-1');
+
+      // SOS path must not regress: the call still happens…
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [, init] = fetchSpy.mock.calls[0];
+      // …and no bogus/empty auth header is attached.
+      expect((init as any).headers['x-internal-key']).toBeUndefined();
+    });
+  });
+
   describe('cancelSos', () => {
     it('cancels SOS during countdown window', async () => {
       mockPrisma.sosEvent.findUnique.mockResolvedValue(mockSos);

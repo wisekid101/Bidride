@@ -1,7 +1,8 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { IsArray, IsString, IsOptional, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { NotificationService } from './notification.service';
+import { InternalKeyGuard } from './internal-key.guard';
 
 class TrustedContactDto {
   @IsString()
@@ -54,6 +55,7 @@ class PushMultipleDto {
 }
 
 @Controller('internal/notifications')
+@UseGuards(InternalKeyGuard)
 export class InternalNotificationsController {
   constructor(private readonly notifications: NotificationService) {}
 

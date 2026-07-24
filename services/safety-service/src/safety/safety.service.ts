@@ -618,7 +618,12 @@ export class SafetyService {
 
     await fetch(`${NOTIFICATION_URL}/internal/notifications/sos-contacts`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Authenticate to notification-service's InternalKeyGuard. Sent only when
+        // configured, so dev/test (keyless, guard allows) still deliver.
+        ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+      },
       body: JSON.stringify({
         contacts: trip.rider.trustedContacts.map((c) => ({ phone: c.phone, name: c.name })),
         riderName,

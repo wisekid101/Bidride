@@ -308,7 +308,7 @@ locals {
       memory        = 512
       desired_count = 2
       alb_key       = "safety"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "twilio-account-sid", "twilio-auth-token", "twilio-proxy-service-sid"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "twilio-account-sid", "twilio-auth-token", "twilio-proxy-service-sid", "internal-service-key"]
     }
     payment-service = {
       port          = 3007
@@ -324,7 +324,7 @@ locals {
       memory        = 512
       desired_count = 1
       alb_key       = "notification"
-      secrets       = ["database-url", "redis-url", "twilio-account-sid", "twilio-auth-token", "twilio-phone-number", "twilio-proxy-service-sid", "fcm-project-id", "fcm-service-account-email", "fcm-service-account-private-key"]
+      secrets       = ["database-url", "redis-url", "twilio-account-sid", "twilio-auth-token", "twilio-phone-number", "twilio-proxy-service-sid", "fcm-project-id", "fcm-service-account-email", "fcm-service-account-private-key", "internal-service-key"]
     }
     trust-service = {
       port          = 3009

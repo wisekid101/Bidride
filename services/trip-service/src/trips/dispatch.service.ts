@@ -482,7 +482,10 @@ export class DispatchService {
   ): Promise<void> {
     await fetch(`${NOTIFICATION_SERVICE}/internal/notifications/push`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+      },
       body: JSON.stringify({ token, title, body, data }),
     });
   }
@@ -495,7 +498,10 @@ export class DispatchService {
   ): Promise<void> {
     await fetch(`${NOTIFICATION_SERVICE}/internal/notifications/push-multiple`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+      },
       body: JSON.stringify({ tokens, title, body, data }),
     });
   }
