@@ -49,15 +49,39 @@ export class DriverActivationService {
   }
 
   /**
-   * The existing activation gates, derived from real records (never from
-   * onboardingStep). Returns the list of unmet requirements; empty = eligible.
-   * Public so the admin driver-detail view can render the same checklist.
-   *
-   * Now delegates to the Compliance Engine — the returned string[] (keys and
-   * order) is byte-identical to the pre-refactor implementation.
+   * The active Zero Tolerance policy version, or null if none is published.
+   * Resolved OUTSIDE the pure engine (this is the only I/O) so callers can inject
+   * it into the ComplianceContext. Mirrors the resolution used by getProfile.
    */
-  computeMissingRequirements(driver: DriverComplianceRecord): string[] {
-    return this.compliance.evaluate(buildComplianceContext(driver)).missing;
+  async getActiveZeroTolerancePolicyVersion(): Promise<string | null> {
+    const policy = await this.prisma.zeroTolerancePolicy.findFirst({
+      where: { isActive: true },
+      orderBy: { effectiveAt: 'desc' },
+      select: { version: true },
+    });
+    return policy?.version ?? null;
+  }
+
+  /**
+   * The activation gates, derived from real records (never from onboardingStep).
+   * Returns the list of unmet requirements; empty = eligible. Public so the admin
+   * driver-detail view can render the same checklist.
+   *
+   * Delegates to the Compliance Engine. The legacy four gates produce
+   * byte-identical keys/order; Phase 3B appends `zero_tolerance:not_accepted`
+   * when a current policy is published and unaccepted. `currentZeroTolerancePolicyVersion`
+   * MUST be resolved by the caller (see getActiveZeroTolerancePolicyVersion) and
+   * passed in — omitting it leaves the Zero Tolerance gate inert.
+   */
+  computeMissingRequirements(
+    driver: DriverComplianceRecord,
+    opts: { currentZeroTolerancePolicyVersion?: string | null } = {},
+  ): string[] {
+    return this.compliance.evaluate(
+      buildComplianceContext(driver, {
+        currentZeroTolerancePolicyVersion: opts.currentZeroTolerancePolicyVersion,
+      }),
+    ).missing;
   }
 
   /**
@@ -85,7 +109,11 @@ export class DriverActivationService {
       return { outcome: 'blocked', missing: [`driver_status:${driver.status}`] };
     }
 
-    const missing = this.computeMissingRequirements(driver);
+    // Phase 3B: resolve the current Zero Tolerance policy version BEFORE the pure
+    // engine, and inject it. A read failure here fails closed (aborts activation)
+    // — it never silently approves without Zero Tolerance.
+    const currentZeroTolerancePolicyVersion = await this.getActiveZeroTolerancePolicyVersion();
+    const missing = this.computeMissingRequirements(driver, { currentZeroTolerancePolicyVersion });
     if (missing.length > 0) {
       return { outcome: 'blocked', missing };
     }

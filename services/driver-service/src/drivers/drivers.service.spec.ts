@@ -70,6 +70,7 @@ const mockRedis = {
 const mockActivation = {
   maybeActivate: jest.fn(),
   computeMissingRequirements: jest.fn().mockReturnValue([]),
+  getActiveZeroTolerancePolicyVersion: jest.fn().mockResolvedValue(null),
 } as any;
 
 describe('DriversService — Redis location key format', () => {
@@ -200,6 +201,49 @@ describe('DriversService.approveDriver — delegates to the shared activation ev
     await expect(service.approveDriver('d1', {} as any, 'admin-1')).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+});
+
+describe('DriversService.getDriverDetailForAdmin — Phase 3B surfaces Zero Tolerance', () => {
+  let service: DriversService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const { CheckrService } = jest.requireMock('./checkr.service');
+    service = new DriversService(new CheckrService(), mockActivation);
+    mockPrisma.driver.findUnique.mockResolvedValue({
+      id: 'd1',
+      onboardingStep: 'complete',
+      documents: [],
+      vehicles: [],
+      user: { phone: '+1', email: 'd@x.com', createdAt: new Date() },
+      earningsFloorLogs: [],
+    });
+  });
+
+  it('resolves the current ZT version, passes it to the engine, and returns the ZT key in the checklist', async () => {
+    mockActivation.getActiveZeroTolerancePolicyVersion.mockResolvedValue('zt-v2');
+    mockActivation.computeMissingRequirements.mockReturnValue(['zero_tolerance:not_accepted']);
+
+    const res = await service.getDriverDetailForAdmin('d1');
+
+    expect(mockActivation.getActiveZeroTolerancePolicyVersion).toHaveBeenCalled();
+    expect(mockActivation.computeMissingRequirements).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'd1' }),
+      { currentZeroTolerancePolicyVersion: 'zt-v2' },
+    );
+    expect(res.approvalRequirements.met).toBe(false);
+    expect(res.approvalRequirements.missing).toContain('zero_tolerance:not_accepted');
+  });
+
+  it('does not surface a ZT key when no policy is published (inert)', async () => {
+    mockActivation.getActiveZeroTolerancePolicyVersion.mockResolvedValue(null);
+    mockActivation.computeMissingRequirements.mockReturnValue([]);
+
+    const res = await service.getDriverDetailForAdmin('d1');
+
+    expect(res.approvalRequirements.met).toBe(true);
+    expect(res.approvalRequirements.missing).toEqual([]);
   });
 });
 

@@ -68,6 +68,7 @@ const REQUIREMENT_LABELS: Record<string, string> = {
   no_active_vehicle: 'At least one active vehicle',
   insurance_info_missing: 'Insurance policy on file',
   insurance_expired: 'Insurance policy not expired',
+  'zero_tolerance:not_accepted': 'Zero Tolerance policy accepted (current version)',
 };
 
 // background_check:* carries the current status in the key
@@ -203,6 +204,9 @@ export default function DriverDetailPage() {
       label: 'Insurance policy on file and not expired',
       failed: req.missing.find((m) => m === 'insurance_info_missing' || m === 'insurance_expired'),
     },
+    // Phase 3B: Zero Tolerance activation gate. Present in missing[] only when a
+    // policy is published and the driver has not accepted the current version.
+    { key: 'zero_tolerance:not_accepted', label: 'Zero Tolerance policy accepted' },
   ].map((item) => ({
     ...item,
     ok: item.failed !== undefined ? false : !missingSet.has(item.key),

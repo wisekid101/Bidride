@@ -15,15 +15,25 @@ export interface DriverComplianceRecord {
   insuranceProvider: string | null;
   insurancePolicyNumber: string | null;
   insuranceExpiry: Date | null;
+  zeroToleranceAcceptedVersion?: string | null;
   jurisdiction?: string | null;
 }
 
+// Options carrying values that must be RESOLVED OUTSIDE the engine (I/O in the
+// async caller) and injected so the engine + modules stay pure.
+export interface ComplianceContextOptions {
+  now?: Date;
+  // Current active Zero Tolerance policy version, resolved by the caller.
+  // Undefined/null => no policy published => the Zero Tolerance gate is inert.
+  currentZeroTolerancePolicyVersion?: string | null;
+}
+
 // PURE mapper: builds the immutable ComplianceContext from an already-fetched
-// driver record. No I/O — Phase 3A adds no new queries. `now` is injectable for
+// driver record plus caller-resolved options. No I/O. `now` is injectable for
 // deterministic tests (defaults to the real clock, matching legacy behavior).
 export function buildComplianceContext(
   driver: DriverComplianceRecord,
-  now: Date = new Date(),
+  opts: ComplianceContextOptions = {},
 ): ComplianceContext {
   return {
     legalFirstName: driver.legalFirstName ?? null,
@@ -35,7 +45,9 @@ export function buildComplianceContext(
     insuranceProvider: driver.insuranceProvider,
     insurancePolicyNumber: driver.insurancePolicyNumber,
     insuranceExpiry: driver.insuranceExpiry,
+    zeroToleranceAcceptedVersion: driver.zeroToleranceAcceptedVersion ?? null,
+    currentZeroTolerancePolicyVersion: opts.currentZeroTolerancePolicyVersion ?? null,
     jurisdiction: driver.jurisdiction ?? null,
-    now,
+    now: opts.now ?? new Date(),
   };
 }

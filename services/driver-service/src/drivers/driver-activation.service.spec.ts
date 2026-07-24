@@ -29,6 +29,9 @@ const mockPrisma = {
     findUnique: jest.fn(),
     updateMany: jest.fn(),
   },
+  // Phase 3B: maybeActivate resolves the active Zero Tolerance policy version.
+  // Default = no policy published (gate inert), so A1–A8 are unaffected.
+  zeroTolerancePolicy: { findFirst: jest.fn().mockResolvedValue(null) },
 } as any;
 
 const mockRedis = { publish: jest.fn().mockResolvedValue(1) } as any;
@@ -148,5 +151,52 @@ describe('DriverActivationService.maybeActivate', () => {
     const res = await service.maybeActivate('driver-1');
     expect(res.outcome).toBe('already_active');
     expect(mockRedis.publish).not.toHaveBeenCalled();
+  });
+
+  // ── Phase 3B: Zero Tolerance activation gate ──
+  it('ZT-BLOCK: blocks a fully-gated driver who has NOT accepted the current policy', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue(makeDriver()); // no zeroToleranceAcceptedVersion
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue({ version: 'zt-v2' });
+    const res = await service.maybeActivate('driver-1');
+    expect(res.outcome).toBe('blocked');
+    expect((res as any).missing).toContain('zero_tolerance:not_accepted');
+    expect(mockPrisma.driver.updateMany).not.toHaveBeenCalled();
+    expect(mockRedis.publish).not.toHaveBeenCalled();
+  });
+
+  it('ZT-STALE: blocks when the accepted version is behind the current policy version', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue(
+      makeDriver({ zeroToleranceAcceptedVersion: 'zt-v1' }),
+    );
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue({ version: 'zt-v2' });
+    const res = await service.maybeActivate('driver-1');
+    expect(res.outcome).toBe('blocked');
+    expect((res as any).missing).toContain('zero_tolerance:not_accepted');
+  });
+
+  it('ZT-PASS: approves when the driver has accepted the current policy version', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue(
+      makeDriver({ zeroToleranceAcceptedVersion: 'zt-v2' }),
+    );
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue({ version: 'zt-v2' });
+    const res = await service.maybeActivate('driver-1', { notes: 'ok' });
+    expect(res.outcome).toBe('activated');
+    expect(mockRedis.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('ZT-GRANDFATHER: approves a grandfathered driver (accepted backfilled to current)', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue(
+      makeDriver({ zeroToleranceAcceptedVersion: 'zt-2026-07' }),
+    );
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue({ version: 'zt-2026-07' });
+    const res = await service.maybeActivate('driver-1');
+    expect(res.outcome).toBe('activated');
+  });
+
+  it('ZT-INERT: approves a fully-gated driver when NO policy is published (gate inert)', async () => {
+    mockPrisma.driver.findUnique.mockResolvedValue(makeDriver());
+    mockPrisma.zeroTolerancePolicy.findFirst.mockResolvedValue(null);
+    const res = await service.maybeActivate('driver-1');
+    expect(res.outcome).toBe('activated');
   });
 });

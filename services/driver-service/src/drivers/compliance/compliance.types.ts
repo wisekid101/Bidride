@@ -73,6 +73,13 @@ export interface ComplianceContext {
   insuranceProvider: string | null;
   insurancePolicyNumber: string | null;
   insuranceExpiry: Date | null;
+  // Zero Tolerance (Phase 3B). The driver's latest accepted policy version
+  // (denormalized) and the CURRENT active policy version — the latter resolved
+  // OUTSIDE the engine (a DB read in the async caller) and injected here, so the
+  // requirement module stays pure. Null current version = no policy published
+  // (gate inert).
+  zeroToleranceAcceptedVersion: string | null;
+  currentZeroTolerancePolicyVersion: string | null;
   // Reserved for future jurisdiction-scoped requirements (unused in Phase 3A).
   jurisdiction?: string | null;
   // Evaluation clock — injectable for deterministic tests; defaults to now.

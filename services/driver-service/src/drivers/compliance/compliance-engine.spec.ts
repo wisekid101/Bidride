@@ -40,7 +40,8 @@ function legacyComputeMissing(driver: DriverComplianceRecord, now: Date): string
 }
 
 const engine = new ComplianceEngine();
-const run = (d: DriverComplianceRecord) => engine.evaluate(buildComplianceContext(d, NOW)).missing;
+const run = (d: DriverComplianceRecord) =>
+  engine.evaluate(buildComplianceContext(d, { now: NOW })).missing;
 
 describe('ComplianceEngine — golden equivalence with the legacy activation check', () => {
   // Cartesian permutation over every gate dimension.
@@ -107,7 +108,7 @@ describe('ComplianceEngine — golden equivalence with the legacy activation che
       insurancePolicyNumber: 'P1',
       insuranceExpiry: FUTURE,
     };
-    const report = engine.evaluate(buildComplianceContext(driver, NOW));
+    const report = engine.evaluate(buildComplianceContext(driver, { now: NOW }));
     expect(report.missing).toEqual([]);
     expect(report.canActivate).toBe(true);
   });
@@ -150,14 +151,14 @@ describe('ComplianceEngine — informational personal-info never affects activat
   };
 
   it('missing stays empty / canActivate stays true even with personal info absent (matches legacy)', () => {
-    const report = engine.evaluate(buildComplianceContext(eligibleButNoPersonalInfo, NOW));
+    const report = engine.evaluate(buildComplianceContext(eligibleButNoPersonalInfo, { now: NOW }));
     expect(report.missing).toEqual([]);
     expect(report.canActivate).toBe(true);
     expect(legacyComputeMissing(eligibleButNoPersonalInfo, NOW)).toEqual([]);
   });
 
   it('surfaces personal info as an informational warning without contributing keys', () => {
-    const report = engine.evaluate(buildComplianceContext(eligibleButNoPersonalInfo, NOW));
+    const report = engine.evaluate(buildComplianceContext(eligibleButNoPersonalInfo, { now: NOW }));
     const personal = report.all.find((r) => r.metadata.id === 'personal_info');
     expect(personal?.metadata.severity).toBe('informational');
     expect(personal?.status).toBe('missing');
@@ -183,7 +184,7 @@ describe('requirement modules — individually testable, pure', () => {
     insuranceExpiry: FUTURE,
   };
   const ctx = (o: Partial<DriverComplianceRecord> = {}) =>
-    buildComplianceContext({ ...base, ...o }, NOW);
+    buildComplianceContext({ ...base, ...o }, { now: NOW });
 
   it('DocumentsRequirement: alias spellings count as approved', () => {
     const r = DocumentsRequirement.evaluate(
@@ -278,21 +279,31 @@ describe('requirement metadata — the future single source of truth', () => {
       background_check: 'background',
       vehicle: 'vehicle',
       insurance: 'insurance',
+      zero_tolerance: 'compliance',
     });
   });
 
-  it('blocking set is exactly the four legacy gates; personal_info is informational', () => {
+  it('blocking set is the four legacy gates plus zero_tolerance (last); personal_info is informational', () => {
     const blocking = DEFAULT_REQUIREMENTS.filter((r) => r.metadata.severity === 'blocking').map(
       (r) => r.metadata.id,
     );
-    expect(blocking).toEqual(['documents', 'background_check', 'vehicle', 'insurance']);
+    // zero_tolerance is registered LAST so its key appends after the legacy keys.
+    expect(blocking).toEqual(['documents', 'background_check', 'vehicle', 'insurance', 'zero_tolerance']);
     const informational = DEFAULT_REQUIREMENTS.filter(
       (r) => r.metadata.severity === 'informational',
     ).map((r) => r.metadata.id);
     expect(informational).toEqual(['personal_info']);
   });
 
-  it('no requirement carries a policyVersion yet (record-derived gates only)', () => {
+  it('static metadata carries no literal policyVersion (the live version is on the result)', () => {
     for (const req of DEFAULT_REQUIREMENTS) expect(req.metadata.policyVersion).toBeNull();
+  });
+
+  it('zero_tolerance metadata: compliance/activation/blocking, onboardingStep zero_tolerance', () => {
+    const zt = DEFAULT_REQUIREMENTS.find((r) => r.metadata.id === 'zero_tolerance')!.metadata;
+    expect(zt.category).toBe('compliance');
+    expect(zt.scope).toBe('activation');
+    expect(zt.severity).toBe('blocking');
+    expect(zt.onboardingStep).toBe('zero_tolerance');
   });
 });

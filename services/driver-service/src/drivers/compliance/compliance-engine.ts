@@ -9,18 +9,21 @@ import { DocumentsRequirement } from './requirements/documents.requirement';
 import { BackgroundCheckRequirement } from './requirements/background-check.requirement';
 import { VehicleRequirement } from './requirements/vehicle.requirement';
 import { InsuranceRequirement } from './requirements/insurance.requirement';
+import { ZeroToleranceRequirement } from './requirements/zero-tolerance.requirement';
 
 // Registry order is significant: the blocking modules are ordered
-// Documents -> Background -> Vehicle -> Insurance so that the flattened
-// `missing` keys match the legacy computeMissingRequirements() output order
-// exactly. PersonalInfo is informational and contributes no keys, so its
-// position is immaterial to the activation output.
+// Documents -> Background -> Vehicle -> Insurance -> ZeroTolerance so that the
+// flattened `missing` keys match the legacy computeMissingRequirements() output
+// order exactly, with the Phase 3B Zero Tolerance key APPENDED last (only when a
+// policy is published and unaccepted). PersonalInfo is informational and
+// contributes no keys, so its position is immaterial to the activation output.
 export const DEFAULT_REQUIREMENTS: readonly ComplianceRequirement[] = [
   PersonalInfoRequirement,
   DocumentsRequirement,
   BackgroundCheckRequirement,
   VehicleRequirement,
   InsuranceRequirement,
+  ZeroToleranceRequirement,
 ] as const;
 
 // Pure evaluator over a registry of requirement modules. No I/O, no writes.

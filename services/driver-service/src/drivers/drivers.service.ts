@@ -372,8 +372,13 @@ export class DriversService {
     if (!driver) throw new NotFoundException('Driver not found');
 
     // Same computation approveDriver enforces — the admin UI renders this
-    // checklist and gates its Approve button on it.
-    const missing = this.activation.computeMissingRequirements(driver);
+    // checklist and gates its Approve button on it. Phase 3B: resolve the current
+    // Zero Tolerance policy version so the checklist includes it when blocking.
+    const currentZeroTolerancePolicyVersion =
+      await this.activation.getActiveZeroTolerancePolicyVersion();
+    const missing = this.activation.computeMissingRequirements(driver, {
+      currentZeroTolerancePolicyVersion,
+    });
     return { ...driver, approvalRequirements: { met: missing.length === 0, missing } };
   }
 
