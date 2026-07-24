@@ -114,7 +114,18 @@ export class CheckrService {
   }
 
   verifyWebhookSignature(rawBody: Buffer, signature: string): boolean {
-    const secret = process.env.CHECKR_WEBHOOK_SECRET ?? '';
+    const secret = process.env.CHECKR_WEBHOOK_SECRET;
+    if (!secret) {
+      // Fail CLOSED: without a configured secret we cannot verify authenticity,
+      // so no signature is accepted. Never fall back to an empty-string HMAC key
+      // — that would let an attacker HMAC with '' and forge a valid signature,
+      // clearing a background check. The secret is provisioned in all deployed
+      // envs (Terraform: driver-service `checkr-webhook-secret`).
+      this.logger.error(
+        'CHECKR_WEBHOOK_SECRET is not configured — rejecting Checkr webhook (fail closed)',
+      );
+      return false;
+    }
     const expected = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
     const expectedBuf = Buffer.from(expected);
     const sigBuf = Buffer.from(signature);

@@ -102,6 +102,14 @@ describe('CheckrService', () => {
     it('rejects when signature has wrong length', () => {
       expect(service.verifyWebhookSignature(Buffer.from('{}'), 'sha256=abc')).toBe(false);
     });
+    it('FAILS CLOSED when the secret is not configured (no empty-string fallback)', () => {
+      delete process.env.CHECKR_WEBHOOK_SECRET;
+      const body = Buffer.from('{"id":"evt_1"}');
+      // A signature an attacker could compute with an empty HMAC key must NOT
+      // validate once the secret is absent.
+      const forgedWithEmptyKey = `sha256=${createHmac('sha256', '').update(body).digest('hex')}`;
+      expect(service.verifyWebhookSignature(body, forgedWithEmptyKey)).toBe(false);
+    });
   });
 
   describe('two-phase dedup marker', () => {
