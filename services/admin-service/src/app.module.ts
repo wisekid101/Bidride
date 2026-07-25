@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { throttlerClientIp } from './throttler-tracker';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditModule } from './audit/audit.module';
 import { AdminAuthModule } from './auth/admin-auth.module';
@@ -26,7 +27,9 @@ import { IntelligenceModule } from './intelligence/intelligence.module';
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 200 }]),
+    // S0-B3B1: getTracker resolves the real client IP from the ALB-appended
+    // X-Forwarded-For (throttling only; req.ip is untouched). Limit/window unchanged.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 200, getTracker: throttlerClientIp }]),
     AdminAuthModule,
     AnalyticsModule,
     AuditModule,

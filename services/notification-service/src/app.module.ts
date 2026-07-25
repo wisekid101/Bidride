@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { throttlerClientIp } from './throttler-tracker';
 import {
   HEALTH_CHECKERS,
   HealthChecker,
@@ -53,7 +54,9 @@ const VERSION = process.env.npm_package_version ?? '1.0.0';
   ],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 200 }]),
+    // S0-B3B1: getTracker resolves the real client IP from the ALB-appended
+    // X-Forwarded-For (throttling only; req.ip is untouched). Limit/window unchanged.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 200, getTracker: throttlerClientIp }]),
     NotificationsModule,
     ProxyModule,
     ObservabilityModule,
