@@ -300,7 +300,7 @@ locals {
       memory        = 512
       desired_count = 1
       alb_key       = "pricing"
-      secrets       = ["database-url", "redis-url", "internal-service-key"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "internal-service-key"]
     }
     safety-service = {
       port          = 3006
@@ -340,7 +340,7 @@ locals {
       memory        = 512
       desired_count = 1
       alb_key       = "airport"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "flightaware-api-key"]
+      secrets       = ["database-url", "redis-url", "flightaware-api-key"]
     }
     admin-service = {
       port          = 3011
