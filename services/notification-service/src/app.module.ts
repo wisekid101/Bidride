@@ -1,7 +1,8 @@
 import { HealthController } from './health.controller';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import {
   HEALTH_CHECKERS,
   HealthChecker,
@@ -23,6 +24,9 @@ const VERSION = process.env.npm_package_version ?? '1.0.0';
   // provided here solely for the readiness DB check.
   controllers: [HealthController, ObservabilityHealthController, ObservabilityMetricsController],
   providers: [
+    // S0-B3A: activate the already-configured ThrottlerModule globally. The
+    // internal notification controller (SOS/push) is @SkipThrottle-exempt.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     PrismaService,
     { provide: OBSERVABILITY_OPTIONS, useValue: { serviceName: SERVICE_NAME, version: VERSION } },
     {

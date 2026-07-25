@@ -1,4 +1,5 @@
 import { Controller, Get, Inject } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaService } from './prisma/prisma.service';
 import { REDIS_CLIENT } from './redis/redis.module';
 import Redis from 'ioredis';
@@ -6,6 +7,8 @@ import Redis from 'ioredis';
 const SERVICE_NAME = 'auth-service';
 const VERSION = process.env.npm_package_version ?? '1.0.0';
 
+// S0-B3A: health/readiness must never be rate-limited (ALB + container probes).
+@SkipThrottle()
 @Controller('health')
 export class HealthController {
   constructor(

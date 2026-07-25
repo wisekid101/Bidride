@@ -2,7 +2,7 @@ import {
   BadGatewayException, Body, Controller, Get, HttpCode, HttpException, HttpStatus, Param, ParseUUIDPipe,
   Post, Query, Req, UseGuards,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { IsIn, IsInt, IsISO8601, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AdminSessionGuard } from '../auth/admin-session.guard';
@@ -40,7 +40,9 @@ class OutcomeDto {
   @IsString() @IsNotEmpty() @MaxLength(2000) notes: string;
 }
 
-@UseGuards(AdminSessionGuard, FounderGuard, ThrottlerGuard)
+// S0-B3A: ThrottlerGuard now runs globally (APP_GUARD); removed here to avoid a
+// second execution. The @Throttle(60/60s), AdminSessionGuard and FounderGuard are unchanged.
+@UseGuards(AdminSessionGuard, FounderGuard)
 @Throttle({ default: { limit: 60, ttl: 60_000 } })
 @Controller('admin/intelligence')
 export class IntelligenceController {

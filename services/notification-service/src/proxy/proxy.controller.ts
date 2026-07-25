@@ -7,8 +7,15 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ProxyService } from './proxy.service';
 
+// S0-B3A: exempt from global throttling. This controller is VPC-internal only
+// (not ALB-exposed) and hosts both trip-service session-management calls and
+// Twilio provider webhooks — neither should be rate-limited; Twilio authenticity
+// is enforced upstream. Throttling here adds no security value and risks breaking
+// masked rider/driver communications.
+@SkipThrottle()
 @Controller('proxy')
 export class ProxyController {
   private readonly logger = new Logger(ProxyController.name);

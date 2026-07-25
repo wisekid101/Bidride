@@ -1,6 +1,7 @@
 import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { IsArray, IsString, IsOptional, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import { SkipThrottle } from '@nestjs/throttler';
 import { NotificationService } from './notification.service';
 import { InternalKeyGuard } from './internal-key.guard';
 
@@ -54,6 +55,10 @@ class PushMultipleDto {
   data?: Record<string, string>;
 }
 
+// S0-B3A: exempt from global throttling. Authenticated by InternalKeyGuard and
+// carries safety-critical SOS-contact delivery + fire-and-forget push dispatch —
+// generic rate-limiting must never drop these internal service-to-service calls.
+@SkipThrottle()
 @Controller('internal/notifications')
 @UseGuards(InternalKeyGuard)
 export class InternalNotificationsController {

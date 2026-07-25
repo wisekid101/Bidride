@@ -8,10 +8,14 @@ import {
   BadRequestException,
   RawBodyRequest,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { CheckrService, CheckrWebhookEvent } from './checkr.service';
 
 // Public endpoint — reachable from the internet (Checkr IPs)
 // Auth-guarded driver endpoints remain on /drivers/*
+// S0-B3A: exempt from global throttling — provider (Checkr) bursts must not be
+// rate-limited; authenticity is enforced by webhook signature verification.
+@SkipThrottle()
 @Controller('webhooks')
 export class CheckrWebhookController {
   constructor(private readonly checkr: CheckrService) {}

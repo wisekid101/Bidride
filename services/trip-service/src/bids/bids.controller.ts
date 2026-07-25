@@ -11,12 +11,14 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { BidsService } from './bids.service';
 import { SubmitBidDto, CounterBidDto } from './bids.dto';
 
 @Controller('bids')
-@UseGuards(AuthGuard('jwt'), ThrottlerGuard)
+// S0-B3A: ThrottlerGuard now runs globally (APP_GUARD); removed here to avoid a
+// second execution. Throttle limits and AuthGuard are unchanged.
+@UseGuards(AuthGuard('jwt'))
 export class BidsController {
   constructor(private readonly bids: BidsService) {}
 

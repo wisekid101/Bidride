@@ -2,7 +2,8 @@ import './observability/auth-metrics';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import type Redis from 'ioredis';
 import {
   HEALTH_CHECKERS,
@@ -26,6 +27,10 @@ const VERSION = process.env.npm_package_version ?? '1.0.0';
   // The shared controllers add standardized /health (liveness), /ready, /metrics.
   controllers: [HealthController, ObservabilityHealthController, ObservabilityMetricsController],
   providers: [
+    // S0-B3A: activate the already-configured ThrottlerModule by registering the
+    // guard globally (was configured but never enforced — @Throttle decorators
+    // were inert without this). One execution per request.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     WebSocketEventGateway,
     PrismaService,
     { provide: OBSERVABILITY_OPTIONS, useValue: { serviceName: SERVICE_NAME, version: VERSION } },

@@ -1,7 +1,8 @@
 import { HealthController } from './health.controller';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditModule } from './audit/audit.module';
 import { AdminAuthModule } from './auth/admin-auth.module';
@@ -19,6 +20,10 @@ import { IntelligenceModule } from './intelligence/intelligence.module';
 
 @Module({
   controllers: [HealthController],
+  // S0-B3A: activate the already-configured ThrottlerModule globally. The
+  // intelligence controller's redundant controller-level ThrottlerGuard is
+  // removed so the guard executes exactly once per request.
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 200 }]),

@@ -4,12 +4,12 @@ import {
   Query,
   Param,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
 import { GeocodingService } from './geocoding.service';
 
-@UseGuards(ThrottlerGuard)
+// S0-B3A: ThrottlerGuard now runs globally (APP_GUARD); the redundant
+// controller-level guard (the only guard here) is removed to avoid a second
+// execution. Throttling still applies via the global guard at the module default.
 @Controller('geocode')
 export class GeocodingController {
   constructor(private readonly geocoding: GeocodingService) {}

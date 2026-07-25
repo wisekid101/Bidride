@@ -12,12 +12,14 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { TripsService } from './trips.service';
 import { CreateTripDto, EndTripDto, RateTripDto, RateRiderDto, CancelTripDto } from './dto';
 
 @Controller('trips')
-@UseGuards(AuthGuard('jwt'), ThrottlerGuard)
+// S0-B3A: ThrottlerGuard now runs globally (APP_GUARD); removed here to avoid a
+// second execution. Throttle limits and AuthGuard are unchanged.
+@UseGuards(AuthGuard('jwt'))
 export class TripsController {
   constructor(private readonly trips: TripsService) {}
 

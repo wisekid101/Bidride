@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { IsString, Min, IsInt, IsNumber, IsOptional } from 'class-validator';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
 import { InternalKeyGuard } from './internal-key.guard';
 
@@ -76,7 +76,9 @@ class CreditWalletDto {
 // production) so it is safe even though the ALB currently forwards /payments/*
 // (ALB path separation is a separate, later infra batch — defense in depth).
 @Controller('payments/internal')
-@UseGuards(InternalKeyGuard, ThrottlerGuard)
+// S0-B3A: ThrottlerGuard now runs globally (APP_GUARD); removed here to avoid a
+// second execution. The per-route @Throttle(20/60s) and InternalKeyGuard are unchanged.
+@UseGuards(InternalKeyGuard)
 export class PaymentsInternalController {
   constructor(private readonly payments: PaymentService) {}
 

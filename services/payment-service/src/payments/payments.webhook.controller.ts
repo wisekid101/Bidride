@@ -9,10 +9,14 @@ import {
   RawBodyRequest,
 } from '@nestjs/common';
 import Stripe from 'stripe';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
 
 // Public endpoint — reachable from the internet (Stripe IPs)
 // Internal endpoints (/payments/internal/*) remain VPC-only
+// S0-B3A: exempt from global throttling — provider (Stripe) bursts must not be
+// rate-limited; authenticity is enforced by webhook signature verification.
+@SkipThrottle()
 @Controller('webhooks')
 export class StripeWebhookController {
   constructor(private readonly payments: PaymentService) {}
