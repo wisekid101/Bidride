@@ -264,6 +264,40 @@ resource "aws_kms_alias" "recordings" {
   target_key_id = aws_kms_key.recordings.key_id
 }
 
+# ─── Asymmetric JWT signing keys (B8B-1) ─────────────────────────────────────
+# RS256 signing keys for the future asymmetric-JWT rollout. Private key material
+# never leaves KMS: auth-service / admin-service call kms:Sign. User and admin
+# signing domains are kept in separate keys. Automatic rotation is intentionally
+# NOT enabled — asymmetric CMKs cannot be auto-rotated; rotation is a manual
+# new-key + new-kid operation (see the B8 spec / runbook).
+resource "aws_kms_key" "jwt_user" {
+  description              = "BidRide user JWT RS256 signing key (asymmetric)"
+  key_usage                = "SIGN_VERIFY"
+  customer_master_key_spec = "RSA_2048"
+  deletion_window_in_days  = 30
+
+  tags = { Service = "auth-service" }
+}
+
+resource "aws_kms_alias" "jwt_user" {
+  name          = "alias/bidride-jwt-user-${var.environment}"
+  target_key_id = aws_kms_key.jwt_user.key_id
+}
+
+resource "aws_kms_key" "jwt_admin" {
+  description              = "BidRide admin JWT RS256 signing key (asymmetric)"
+  key_usage                = "SIGN_VERIFY"
+  customer_master_key_spec = "RSA_2048"
+  deletion_window_in_days  = 30
+
+  tags = { Service = "admin-service" }
+}
+
+resource "aws_kms_alias" "jwt_admin" {
+  name          = "alias/bidride-jwt-admin-${var.environment}"
+  target_key_id = aws_kms_key.jwt_admin.key_id
+}
+
 # ─── ECS Cluster ─────────────────────────────────────────────────────────────
 
 resource "aws_ecs_cluster" "main" {
@@ -404,3 +438,6 @@ output "ecs_cluster_name" { value = aws_ecs_cluster.main.name }
 output "recordings_bucket" { value = aws_s3_bucket.buckets["recordings"].bucket }
 output "documents_bucket" { value = aws_s3_bucket.buckets["documents"].bucket }
 output "kms_recordings_key_id" { value = aws_kms_key.recordings.key_id }
+# JWT signing key ids — used by the public-key population runbook (kms:GetPublicKey).
+output "kms_jwt_user_key_id" { value = aws_kms_key.jwt_user.key_id }
+output "kms_jwt_admin_key_id" { value = aws_kms_key.jwt_admin.key_id }

@@ -112,12 +112,77 @@ resource "aws_iam_role_policy" "ecs_task_sqs" {
   })
 }
 
+# ─── Dedicated JWT signer task roles (B8B-1) ─────────────────────────────────
+# auth-service and admin-service run under isolated task roles so ONLY they can
+# call kms:Sign on their respective JWT key. Every other service keeps the shared
+# ecs_task role, which has NO kms:Sign. auth/admin use no S3/SQS/recordings-KMS
+# (no AWS SDK dependency), so these roles are intentionally minimal — least
+# privilege with zero baseline regression.
+
+resource "aws_iam_role" "ecs_task_auth" {
+  name = "bidride-ecs-task-auth-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = { Service = "auth-service" }
+}
+
+resource "aws_iam_role_policy" "ecs_task_auth_jwt_sign" {
+  name = "bidride-ecs-task-auth-jwt-sign-${var.environment}"
+  role = aws_iam_role.ecs_task_auth.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["kms:Sign", "kms:GetPublicKey", "kms:DescribeKey"]
+      Resource = aws_kms_key.jwt_user.arn
+    }]
+  })
+}
+
+resource "aws_iam_role" "ecs_task_admin" {
+  name = "bidride-ecs-task-admin-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = { Service = "admin-service" }
+}
+
+resource "aws_iam_role_policy" "ecs_task_admin_jwt_sign" {
+  name = "bidride-ecs-task-admin-jwt-sign-${var.environment}"
+  role = aws_iam_role.ecs_task_admin.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["kms:Sign", "kms:GetPublicKey", "kms:DescribeKey"]
+      Resource = aws_kms_key.jwt_admin.arn
+    }]
+  })
+}
+
 # ─── Secrets Manager ─────────────────────────────────────────────────────────
 # Secrets are created as empty placeholders. Actual values are set via the
 # AWS Console or CLI post-deploy — NEVER stored in Terraform state.
 
 resource "aws_secretsmanager_secret" "shared" {
-  for_each                = toset(["database-url", "redis-url", "jwt-secret", "internal-service-key"])
+  for_each                = toset(["database-url", "redis-url", "jwt-secret", "internal-service-key", "jwt-public-keys"])
   name                    = "bidride/${var.environment}/${each.key}"
   recovery_window_in_days = 7
 
@@ -141,6 +206,7 @@ resource "aws_secretsmanager_secret" "per_service" {
     "admin-jwt-secret"                = "admin-service"
     "flightaware-api-key"             = "airport-service"
     "founder-jwt-secret"              = "admin-service"
+    "jwt-admin-public-keys"           = "admin-service"
   }
 
   name                    = "bidride/${var.environment}/${each.key}"
@@ -372,7 +438,16 @@ resource "aws_ecs_task_definition" "services" {
   cpu                      = each.value.cpu
   memory                   = each.value.memory
   execution_role_arn       = aws_iam_role.ecs_execution.arn
-  task_role_arn            = aws_iam_role.ecs_task.arn
+  # B8B-1: auth/admin run under dedicated signer roles (only they may kms:Sign
+  # their JWT key); every other service keeps the shared task role.
+  task_role_arn = lookup(
+    {
+      auth-service  = aws_iam_role.ecs_task_auth.arn
+      admin-service = aws_iam_role.ecs_task_admin.arn
+    },
+    each.key,
+    aws_iam_role.ecs_task.arn,
+  )
 
   container_definitions = jsonencode([{
     name      = each.key
