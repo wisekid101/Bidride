@@ -65,7 +65,13 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
     }
 
     try {
-      const payload = this.jwt.verify<JwtPayload>(token);
+      // B8A: pin algorithm + require issuer/audience. Both user tokens and the
+      // admin WS token carry the 'bidride-user' audience for this gateway.
+      const payload = this.jwt.verify<JwtPayload>(token, {
+        algorithms: ['HS256'],
+        issuer: 'bidride-auth',
+        audience: 'bidride-user',
+      });
       socket.data.userId = payload.sub;
       socket.data.role = payload.role;
 

@@ -45,7 +45,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     try {
-      const payload = this.jwt.verify<JwtPayload>(token);
+      // B8A: pin algorithm + require issuer/audience so only bidride-user tokens pass.
+      const payload = this.jwt.verify<JwtPayload>(token, {
+        algorithms: ['HS256'],
+        issuer: 'bidride-auth',
+        audience: 'bidride-user',
+      });
       socket.data.userId = payload.sub;
       socket.data.role = payload.role;
       socket.emit('chat:connected', { userId: payload.sub });

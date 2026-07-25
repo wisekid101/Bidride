@@ -151,7 +151,12 @@ describe('AdminAuthService', () => {
         makeAudit() as any,
       );
       const result = service.verifyToken('some.token');
-      expect(jwt.verify).toHaveBeenCalledWith('some.token');
+      // B8A: verification now pins the algorithm and requires the admin issuer/audience.
+      expect(jwt.verify).toHaveBeenCalledWith('some.token', {
+        algorithms: ['HS256'],
+        issuer: 'bidride-auth',
+        audience: 'bidride-admin',
+      });
       expect(result.role).toBe('founder');
     });
 

@@ -8,7 +8,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
   imports: [
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({ secret: config.get('JWT_SECRET') }),
+      useFactory: (config: ConfigService) => ({ secret: config.getOrThrow('JWT_SECRET') }),
       inject: [ConfigService],
     }),
   ],

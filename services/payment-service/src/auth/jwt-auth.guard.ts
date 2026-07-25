@@ -11,7 +11,12 @@ export class JwtAuthGuard implements CanActivate {
     if (!auth?.startsWith('Bearer ')) throw new UnauthorizedException();
 
     try {
-      const payload = this.jwt.verify(auth.slice(7));
+      // B8A: pin algorithm + require issuer/audience so only bidride-user tokens pass.
+      const payload = this.jwt.verify(auth.slice(7), {
+        algorithms: ['HS256'],
+        issuer: 'bidride-auth',
+        audience: 'bidride-user',
+      });
       req.headers['x-user-id'] = payload.sub;
       req.headers['x-user-role'] = payload.role;
       return true;

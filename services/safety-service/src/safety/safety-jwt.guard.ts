@@ -26,7 +26,12 @@ export class SafetyJwtGuard implements CanActivate {
     const token = header && header.startsWith('Bearer ') ? header.slice(7) : null;
     if (!token) throw new UnauthorizedException('Missing bearer token.');
     try {
-      const payload = this.jwt.verify<SafetyJwtPayload>(token);
+      // B8A: pin algorithm + require issuer/audience so only bidride-user tokens pass.
+      const payload = this.jwt.verify<SafetyJwtPayload>(token, {
+        algorithms: ['HS256'],
+        issuer: 'bidride-auth',
+        audience: 'bidride-user',
+      });
       req.user = payload;
       return true;
     } catch {

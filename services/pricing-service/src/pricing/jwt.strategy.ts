@@ -10,6 +10,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: config.getOrThrow('JWT_SECRET'),
+      // B8A: pin algorithm + require our issuer/audience.
+      algorithms: ['HS256'],
+      issuer: 'bidride-auth',
+      audience: 'bidride-user',
     });
   }
 

@@ -45,9 +45,17 @@ export class AdminAuthController {
   @Get('ws-token')
   @UseGuards(AdminSessionGuard)
   wsToken(@Req() req: Request & { adminUser?: { sub: string } }) {
+    // B8A: this WS token is verified by the shared realtime gateway (a user-facing
+    // verifier), so it carries the 'bidride-user' audience. Signed with the shared
+    // JWT_SECRET (getOrThrow → fail closed if unset).
     const token = this.jwt.sign(
       { sub: req.adminUser?.sub, role: 'admin' },
-      { secret: this.config.get<string>('JWT_SECRET'), expiresIn: '15m' },
+      {
+        secret: this.config.getOrThrow<string>('JWT_SECRET'),
+        expiresIn: '15m',
+        issuer: 'bidride-auth',
+        audience: 'bidride-user',
+      },
     );
     return { token };
   }

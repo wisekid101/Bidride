@@ -41,9 +41,11 @@ export class AdminAuthService {
     }
 
     const ttl = parseInt(this.config.get('ADMIN_SESSION_TTL_SECONDS', '28800'));
+    // B8A: admin session tokens carry the dedicated admin audience so they are
+    // NEVER accepted by user-facing services (which require 'bidride-user').
     const token = this.jwt.sign(
       { sub: admin.id, email: admin.email, role: admin.adminRole },
-      { expiresIn: ttl },
+      { expiresIn: ttl, issuer: 'bidride-auth', audience: 'bidride-admin' },
     );
 
     await Promise.all([
@@ -85,6 +87,12 @@ export class AdminAuthService {
   }
 
   verifyToken(token: string): AdminTokenPayload {
-    return this.jwt.verify<AdminTokenPayload>(token);
+    // B8A: pin algorithm + require the admin issuer/audience so a user token can
+    // never be replayed as an admin session.
+    return this.jwt.verify<AdminTokenPayload>(token, {
+      algorithms: ['HS256'],
+      issuer: 'bidride-auth',
+      audience: 'bidride-admin',
+    });
   }
 }

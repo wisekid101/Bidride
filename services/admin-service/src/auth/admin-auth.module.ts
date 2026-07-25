@@ -15,7 +15,9 @@ import { PrismaService } from '../prisma/prisma.service';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
-        secret: config.get('ADMIN_JWT_SECRET', config.get('JWT_SECRET')),
+        // B8A: keep the ADMIN_JWT_SECRET→JWT_SECRET fallback, but fail startup if
+        // neither is configured (getOrThrow), never silently continue.
+        secret: config.get<string>('ADMIN_JWT_SECRET') ?? config.getOrThrow<string>('JWT_SECRET'),
       }),
       inject: [ConfigService],
     }),

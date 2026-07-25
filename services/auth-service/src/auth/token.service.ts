@@ -32,7 +32,13 @@ export class TokenService {
   async issueTokenPair(userId: string, role: UserRole): Promise<TokenPair> {
     const jti = uuidv4();
 
-    const accessToken = this.jwt.sign({ sub: userId, role, jti });
+    // B8A: stamp standard claims. iss/aud let every verifier reject foreign or
+    // mis-targeted tokens; iat/exp are added by JwtService (exp via module's
+    // expiresIn). Refresh tokens (opaque UUID in Redis) are unchanged.
+    const accessToken = this.jwt.sign(
+      { sub: userId, role, jti },
+      { issuer: 'bidride-auth', audience: 'bidride-user' },
+    );
 
     const refreshToken = uuidv4();
     const refreshKey = `refresh:${userId}:${refreshToken}`;

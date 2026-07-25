@@ -11,6 +11,12 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: true,
       secretOrKey: config.getOrThrow('JWT_SECRET'),
+      // B8A: pin algorithm + require issuer/audience. ignoreExpiration stays true
+      // (the refresh flow proves identity from an expired access token) — the
+      // opaque refresh token itself (Redis) is unchanged.
+      algorithms: ['HS256'],
+      issuer: 'bidride-auth',
+      audience: 'bidride-user',
     });
   }
 
