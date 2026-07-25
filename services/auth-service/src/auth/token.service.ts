@@ -81,15 +81,4 @@ export class TokenService {
       await this.redis.del(...keys);
     }
   }
-
-  verifyAccessToken(token: string): JwtPayload {
-    try {
-      return this.jwt.verify<JwtPayload>(token);
-    } catch {
-      throw new UnauthorizedException({
-        code: 'AUTH_TOKEN_EXPIRED',
-        message: 'Access token expired or invalid.',
-      });
-    }
-  }
 }
