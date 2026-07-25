@@ -21,6 +21,33 @@ Applies to the two Secrets Manager placeholders created by B8B-1:
 
 ---
 
+## Keyset JSON schema (canonical contract)
+
+Both secrets — `jwt-public-keys` and `jwt-admin-public-keys` — use the **same**
+schema. This is the single source of truth: the population steps below and the
+future B8C verifiers (which will load and parse these secrets) MUST agree on it.
+
+- The secret value is a **JSON object** (not an array).
+- Each **key** is a `kid` string (e.g. `"v1"`, `"v2"`).
+- Each **value** is the corresponding **public** key as an SPKI PEM string
+  (`-----BEGIN PUBLIC KEY-----\n…\n-----END PUBLIC KEY-----\n`).
+- 1 entry in steady state; ≥2 entries only during a rotation overlap window.
+- **Never** contains a private key (`PRIVATE KEY` must never appear).
+- The two domains are separate secrets and MUST NOT share `kid`/key material:
+  `jwt-public-keys` holds user-token keys; `jwt-admin-public-keys` holds admin
+  keys only.
+
+```json
+{
+  "<kid>": "-----BEGIN PUBLIC KEY-----\n<base64>\n-----END PUBLIC KEY-----\n"
+}
+```
+
+A B8C verifier reads the token header `kid`, looks it up in this object, and
+verifies with the returned PEM (RS256). An unknown `kid` → reject.
+
+---
+
 ## 0. Prerequisites
 
 - Terraform applied (KMS keys + aliases + secret placeholders exist).
