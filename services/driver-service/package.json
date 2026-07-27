@@ -7,6 +7,7 @@
     "dev": "nest start -b swc --watch",
     "start": "node dist/main",
     "test": "jest --passWithNoTests",
+    "test:int": "jest --config jest.integration.json",
     "test:cov": "jest --coverage",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
@@ -51,7 +52,7 @@
       "ts"
     ],
     "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
+    "testRegex": "(?<!integration)\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
