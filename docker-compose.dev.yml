@@ -1,0 +1,147 @@
+# BidRide — Local Developer Platform (Phase P1)
+#
+# Local, production-shaped dependencies for development. This file affects ONLY
+# local development — it deploys nothing to AWS and changes no production
+# behavior. Versions mirror CI (.github/workflows/ci-cd.yml: postgres:15,
+# redis:7) and production so "works on my laptop" == "works in CI" == prod shape.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Services & ports:
+#   postgres    5432        (Prisma target; dev db `bidride`, test db `bidride_test`)
+#   redis       6379        (sessions, refresh tokens, queues, geo)
+#   minio       9000/9001   (S3-compatible object store + web console)
+#   localstack  4566        (KMS + Secrets Manager + SQS only)
+#   mailhog     1025/8025   (SMTP sink + web UI — catches local OTP/email)
+
+name: bidride-dev
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: bidride-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bidride
+      POSTGRES_PASSWORD: bidride_dev
+      POSTGRES_DB: bidride
+    ports:
+      - "5432:5432"
+    volumes:
+      - bidride-pgdata:/var/lib/postgresql/data
+      # Creates the parallel `bidride_test` database used by *.integration.spec.ts
+      - ./scripts/dev/postgres-init.sql:/docker-entrypoint-initdb.d/10-create-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bidride -d bidride"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: bidride-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: bidride-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: bidride_dev
+      MINIO_ROOT_PASSWORD: bidride_dev_secret
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console (http://localhost:9001)
+    volumes:
+      - bidride-miniodata:/data
+    # The server image ships `curl`-less; use its built-in liveness endpoint via
+    # the bundled `mc` is unreliable (no alias). We instead gate readiness in the
+    # init container's retry loop below, and use a portable TCP-less probe here.
+    healthcheck:
+      test: ["CMD-SHELL", "mc alias set hc http://localhost:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD >/dev/null 2>&1 && mc ready hc || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # One-shot: create the dev buckets the services expect, then exit. Waits for
+  # MinIO by retrying the alias set (portable across image versions — does not
+  # depend on the server's healthcheck).
+  minio-init:
+    image: minio/mc:latest
+    container_name: bidride-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until mc alias set local http://minio:9000 bidride_dev bidride_dev_secret >/dev/null 2>&1; do
+          echo "[minio-init] waiting for minio..."; sleep 2;
+        done
+        mc mb --ignore-existing local/bidride-documents-dev &&
+        mc mb --ignore-existing local/bidride-recordings-dev &&
+        mc mb --ignore-existing local/bidride-photos-dev &&
+        mc mb --ignore-existing local/bidride-tax-docs-dev &&
+        echo "[minio-init] dev buckets ready"
+    restart: "no"
+
+  localstack:
+    image: localstack/localstack:3
+    container_name: bidride-localstack
+    restart: unless-stopped
+    environment:
+      # Scoped to exactly what BidRide will use locally — nothing else.
+      SERVICES: kms,secretsmanager,sqs
+      DEBUG: "0"
+    ports:
+      - "4566:4566"
+    volumes:
+      # LocalStack's state/cache dir. NOTE: state persistence (PERSISTENCE=1) is
+      # a Pro feature — the community image accepts the flag, writes nothing to
+      # state/, and logs no warning. This volume therefore does NOT by itself
+      # survive resources across a restart; it is the correct mount point and
+      # makes persistence work the day this moves to Pro. Stability of key IDs,
+      # aliases, secret names and the queue URL comes from the fixed `_custom_id_`
+      # values in localstack-init.sh, which re-provisions them on every boot.
+      - bidride-localstack-data:/var/lib/localstack
+      # Idempotently provisions dev KMS signing keys, secret placeholders + queue.
+      - ./scripts/dev/localstack-init.sh:/etc/localstack/init/ready.d/init.sh:ro
+    healthcheck:
+      # LocalStack ships curl; a 200 from the health endpoint means it is up.
+      # (Individual service states vary "available"/"running" by version, so we
+      # don't grep for a specific state — endpoint reachability is sufficient.)
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: bidride-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # web UI (http://localhost:8025)
+    # No curl in this image; busybox wget against the HTTP API is the portable
+    # probe. A 200 from /api/v2/messages means both the UI and the store are up.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8025/api/v2/messages || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  bidride-pgdata:
+  bidride-miniodata:
+  bidride-localstack-data:

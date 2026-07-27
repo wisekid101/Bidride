@@ -5,6 +5,11 @@
   "description": "BidiRide — AI-powered rideshare marketplace",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
+    "postinstall": "node scripts/dev/link-db-env.mjs",
+    "dev:setup": "node scripts/dev/setup.mjs",
+    "dev:up": "docker compose -f docker-compose.dev.yml up -d",
+    "dev:down": "docker compose -f docker-compose.dev.yml down",
+    "dev:rs256": "node scripts/dev/rs256.mjs",
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "test": "turbo run test",
