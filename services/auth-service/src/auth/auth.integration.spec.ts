@@ -34,6 +34,7 @@ import { Redis } from 'ioredis';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { AUTH_FIXTURE_PHONES } from '../../../../scripts/test/fixture-identifiers';
 
 // Test-owned client, explicitly pinned to the test database.
 const prisma = new PrismaClient({
@@ -44,12 +45,14 @@ const redis = new Redis(process.env.TEST_REDIS_URL!);
 
 const TEST_JWT_SECRET = 'integration-test-secret';
 
-// Reserved phone block for this suite — distinct from other services' fixtures.
-const OTP_PHONE = '+19995558001';
-const RATE_PHONE = '+19995558002';
-const TTL_PHONE = '+19995558003';
-const OWNER_PHONE = '+19995558004';
-const OTHER_PHONE = '+19995558005';
+// Reserved phone block for this suite. Allocated centrally so parallel suites
+// sharing bidride_test cannot delete each other's fixtures — see
+// scripts/test/fixture-identifiers.ts.
+const OTP_PHONE = AUTH_FIXTURE_PHONES.otp;
+const RATE_PHONE = AUTH_FIXTURE_PHONES.rateLimit;
+const TTL_PHONE = AUTH_FIXTURE_PHONES.ttl;
+const OWNER_PHONE = AUTH_FIXTURE_PHONES.owner;
+const OTHER_PHONE = AUTH_FIXTURE_PHONES.other;
 const PHONES = [OTP_PHONE, RATE_PHONE, TTL_PHONE, OWNER_PHONE, OTHER_PHONE];
 
 // Service constants mirrored for assertions (see otp.service.ts / token.service.ts).

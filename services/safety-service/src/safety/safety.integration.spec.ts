@@ -45,6 +45,7 @@ import { SafetyService } from './safety.service';
 import { RouteService, decodePolyline } from './route.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { SAFETY_FIXTURE_PHONES } from '../../../../scripts/test/fixture-identifiers';
 
 // Test-owned client, explicitly pinned to the test database.
 const prisma = new PrismaClient({
@@ -55,12 +56,14 @@ const prisma = new PrismaClient({
 const redis = new Redis(process.env.TEST_REDIS_URL!);
 const subscriber = redis.duplicate();
 
-// Reserved fixture block for this suite — distinct from other services'.
-const RIDER_PHONE = '+19995557001';
-const DRIVER_PHONE = '+19995557002';
+// Reserved phone block for this suite. Allocated centrally so parallel suites
+// sharing bidride_test cannot delete each other's fixtures — see
+// scripts/test/fixture-identifiers.ts.
+const RIDER_PHONE = SAFETY_FIXTURE_PHONES.rider;
+const DRIVER_PHONE = SAFETY_FIXTURE_PHONES.driver;
 const PHONES = [RIDER_PHONE, DRIVER_PHONE];
 const CONTACT_NAME = 'Safety Integration Contact';
-const CONTACT_PHONE = '+19995557003';
+const CONTACT_PHONE = SAFETY_FIXTURE_PHONES.trustedContact;
 
 const SOS_COUNTDOWN_TTL = 7; // SOS_COUNTDOWN_SECONDS (5) + 2
 const OFF_ROUTE_TTL = 600;
