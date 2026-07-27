@@ -15,13 +15,13 @@ import { WalletService } from './wallet.service';
 import { LedgerService } from '../ledger/ledger.service';
 
 const dbUrl = process.env.TEST_DATABASE_URL;
-const describeDb = dbUrl ? describe : describe.skip;
+// No skip fallback: jest.integration.json guarantees TEST_DATABASE_URL is set.
 
-const prisma = new PrismaClient({ datasources: { db: { url: dbUrl ?? 'postgresql://localhost/none' } } });
+const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 const DRIVER_PHONE = '+19995559001';
 const TRIP_PREFIX = 'itest-earn-';
 
-describeDb('WalletService.creditDriverEarning — DB idempotency & concurrency', () => {
+describe('WalletService.creditDriverEarning — DB idempotency & concurrency', () => {
   let wallet: WalletService;
   let driverId: string;
 

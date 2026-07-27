@@ -28,7 +28,7 @@ const prisma = new PrismaClient({
   datasources: { db: { url: process.env.TEST_DATABASE_URL } },
 });
 // Single Redis connection shared by the test and the DI container.
-const redis = new Redis(process.env.TEST_REDIS_URL ?? 'redis://localhost:6379');
+const redis = new Redis(process.env.TEST_REDIS_URL!);
 
 const RIDER_PHONE = '+19995550001';
 const DRIVER_PHONE = '+19995550002';

@@ -12,11 +12,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PayoutAllocationService, CONSUMED_ALLOCATION_STATUSES, RESERVED_ALLOCATION_STATUSES } from './payout-allocation.service';
 
 const dbUrl = process.env.TEST_DATABASE_URL;
-const describeDb = dbUrl ? describe : describe.skip;
-const prisma = new PrismaClient({ datasources: { db: { url: dbUrl ?? 'postgresql://localhost/none' } } });
+// No skip fallback: jest.integration.json guarantees TEST_DATABASE_URL is set.
+const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 const DRIVER_PHONE = '+19995558001';
 
-describeDb('PayoutAllocationService — DB idempotency, concurrency & release', () => {
+describe('PayoutAllocationService — DB idempotency, concurrency & release', () => {
   let svc: PayoutAllocationService;
   let driverId: string;
   let keyN = 0;

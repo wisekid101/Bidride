@@ -13,12 +13,12 @@ import { PayoutAllocationService } from './payout-allocation.service';
 import { PayoutSubmissionService, StripeTransfersLike, StripeTransfer } from './payout-submission.service';
 
 const dbUrl = process.env.TEST_DATABASE_URL;
-const describeDb = dbUrl ? describe : describe.skip;
-const prisma = new PrismaClient({ datasources: { db: { url: dbUrl ?? 'postgresql://localhost/none' } } });
+// No skip fallback: jest.integration.json guarantees TEST_DATABASE_URL is set.
+const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 const DRIVER_PHONE = '+19995557001';
 const STRIPE_ACCT = 'acct_bidiride_it';
 
-describeDb('PayoutSubmissionService — submission, settlement, failure & reconciliation', () => {
+describe('PayoutSubmissionService — submission, settlement, failure & reconciliation', () => {
   let alloc: PayoutAllocationService;
   let ledger: LedgerService;
   let driverId: string;
