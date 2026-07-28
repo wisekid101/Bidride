@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { BidStatus } from '@bidride/database/generated/client';
+import { BidStatus, TripStatus } from '@bidride/database/generated/client';
 import { BidsService } from './bids.service';
 import { DispatchService } from '../trips/dispatch.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -115,8 +115,14 @@ const makePrisma = (bidOverride?: Partial<typeof mockBid>) => ({
   },
   tripEvent: { create: jest.fn().mockResolvedValue({}) },
   $transaction: jest.fn().mockImplementation(async (fn: (tx: any) => Promise<any>) => fn({
-    bid: { update: jest.fn().mockResolvedValue({}) },
-    trip: { update: jest.fn().mockResolvedValue({}) },
+    bid: {
+      update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    trip: {
+      update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     tripEvent: { create: jest.fn().mockResolvedValue({}) },
   })),
 });
@@ -129,6 +135,8 @@ const makeRedis = () => ({
   keys: jest.fn().mockResolvedValue([]),
   zrange: jest.fn().mockResolvedValue([]),
   duplicate: jest.fn().mockReturnThis(),
+  // Lua compare-and-delete used to release the sweep lease.
+  eval: jest.fn().mockResolvedValue(1),
 });
 
 const makeDispatch = () => ({
@@ -385,7 +393,8 @@ describe('BidsService', () => {
       prisma.$transaction = jest.fn()
         .mockRejectedValueOnce(new Error('DB failure'))
         .mockImplementation(async (fn: any) => fn({
-          bid: { update: jest.fn() },
+          bid: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          trip: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
           tripEvent: { create: jest.fn() },
         }));
 
@@ -933,5 +942,210 @@ describe('BidsService — nearby driver eligibility filter', () => {
 
     expect(result).toEqual([]);
     expect(prisma.driver.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─── F2: bid expiry race protection ──────────────────────────────────────────
+//
+// The sweep previously updated each selected bid unconditionally, so a bid that
+// became accepted/declined/withdrawn between selection and write was silently
+// flipped to expired — and its payment hold voided, possibly after capture.
+// Every replica also swept on the same cadence with no coordination.
+
+describe('BidsService — sweep lease (F2)', () => {
+  const expiredPending = () => ({ ...mockBid, id: 'bid-1', status: BidStatus.pending, expiresAt: new Date(Date.now() - 1000) });
+
+  it('acquires the lease with a bounded TTL and NX', async () => {
+    const { service, redis } = await buildService();
+    redis.set = jest.fn().mockResolvedValue('OK');
+
+    await service.sweepExpiredBids();
+
+    expect(redis.set).toHaveBeenCalledWith('bid:sweep:lock', expect.any(String), 'EX', 25, 'NX');
+  });
+
+  it('does not query bids when the lease is not acquired', async () => {
+    const { service, prisma, redis } = await buildService();
+    redis.set = jest.fn().mockResolvedValue(null); // another replica holds it
+
+    await service.sweepExpiredBids();
+
+    expect(prisma.bid.findMany).not.toHaveBeenCalled();
+    expect(redis.eval).not.toHaveBeenCalled(); // nothing to release
+  });
+
+  it('releases with an atomic compare-and-delete carrying the owner token', async () => {
+    const { service, redis } = await buildService();
+    let token = '';
+    redis.set = jest.fn().mockImplementation((_k, t) => { token = t as string; return Promise.resolve('OK'); });
+
+    await service.sweepExpiredBids();
+
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining('redis.call("del", KEYS[1])'), 1, 'bid:sweep:lock', token,
+    );
+    // Never a bare DEL of the lock key — that could drop another owner's lease.
+    expect(redis.del).not.toHaveBeenCalledWith('bid:sweep:lock');
+  });
+
+  it('uses a fresh unguessable token per run', async () => {
+    const { service, redis } = await buildService();
+    const tokens: string[] = [];
+    redis.set = jest.fn().mockImplementation((_k, t) => { tokens.push(t as string); return Promise.resolve('OK'); });
+
+    await service.sweepExpiredBids();
+    await service.sweepExpiredBids();
+
+    expect(tokens).toHaveLength(2);
+    expect(tokens[0]).not.toBe(tokens[1]);
+    expect(tokens[0]).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('releases the lease even when the sweep throws', async () => {
+    const { service, prisma, redis } = await buildService();
+    prisma.bid.findMany = jest.fn().mockRejectedValue(new Error('db down'));
+
+    await expect(service.sweepExpiredBids()).rejects.toThrow('db down');
+
+    expect(redis.eval).toHaveBeenCalled(); // released in finally
+  });
+
+  it('a stale owner cannot delete a lease re-acquired by another replica', async () => {
+    const { service, redis } = await buildService();
+    // Simulate the Lua guard: the stored token no longer matches ours.
+    redis.eval = jest.fn().mockResolvedValue(0);
+
+    await service.sweepExpiredBids();
+
+    expect(redis.eval).toHaveBeenCalled();
+    await expect(redis.eval.mock.results[0].value).resolves.toBe(0); // delete refused
+  });
+
+  describe('conditional expiry', () => {
+    const txWith = (bidCount: number, tripCount = 1) => {
+      const bidUpdateMany = jest.fn().mockResolvedValue({ count: bidCount });
+      const tripUpdateMany = jest.fn().mockResolvedValue({ count: tripCount });
+      const tripEventCreate = jest.fn().mockResolvedValue({});
+      return {
+        bidUpdateMany, tripUpdateMany, tripEventCreate,
+        impl: async (fn: any) => fn({
+          bid: { updateMany: bidUpdateMany },
+          trip: { updateMany: tripUpdateMany },
+          tripEvent: { create: tripEventCreate },
+        }),
+      };
+    };
+
+    it('count 0 skips every side effect — another transition won', async () => {
+      const { service, prisma, dispatch } = await buildService();
+      prisma.bid.findMany = jest.fn().mockResolvedValue([expiredPending()]);
+      const tx = txWith(0);
+      prisma.$transaction = jest.fn().mockImplementation(tx.impl);
+
+      await service.sweepExpiredBids();
+
+      expect(tx.tripEventCreate).not.toHaveBeenCalled();
+      expect(tx.tripUpdateMany).not.toHaveBeenCalled();
+      expect(dispatch.notifyBidExpired).not.toHaveBeenCalled();
+      expect(dispatch.notifyCounterExpired).not.toHaveBeenCalled();
+    });
+
+    it('count 1 performs the expiry side effects exactly once', async () => {
+      const { service, prisma, dispatch } = await buildService();
+      prisma.bid.findMany = jest.fn().mockResolvedValue([expiredPending()]);
+      const tx = txWith(1);
+      prisma.$transaction = jest.fn().mockImplementation(tx.impl);
+
+      await service.sweepExpiredBids();
+
+      expect(tx.tripEventCreate).toHaveBeenCalledTimes(1);
+      expect(dispatch.notifyBidExpired).toHaveBeenCalledTimes(1);
+    });
+
+    it('only pending or countered bids are eligible for the conditional write', async () => {
+      const { service, prisma } = await buildService();
+      prisma.bid.findMany = jest.fn().mockResolvedValue([expiredPending()]);
+      const tx = txWith(1);
+      prisma.$transaction = jest.fn().mockImplementation(tx.impl);
+
+      await service.sweepExpiredBids();
+
+      expect(tx.bidUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'bid-1', status: { in: [BidStatus.pending, BidStatus.countered] } },
+      }));
+    });
+
+    it('a pending expiry notifies bid-expired', async () => {
+      const { service, prisma, dispatch } = await buildService();
+      prisma.bid.findMany = jest.fn().mockResolvedValue([expiredPending()]);
+      prisma.$transaction = jest.fn().mockImplementation(txWith(1).impl);
+
+      await service.sweepExpiredBids();
+
+      expect(dispatch.notifyBidExpired).toHaveBeenCalledTimes(1);
+      expect(dispatch.notifyCounterExpired).not.toHaveBeenCalled();
+    });
+
+    it('a countered expiry notifies counter-expired with the driver User.id', async () => {
+      const { service, prisma, dispatch } = await buildService();
+      prisma.bid.findMany = jest.fn().mockResolvedValue([{
+        ...expiredPending(), status: BidStatus.countered,
+        driverId: 'driver-1', driver: { id: 'driver-1', userId: 'user-driver-1' },
+      }]);
+      prisma.$transaction = jest.fn().mockImplementation(txWith(1).impl);
+
+      await service.sweepExpiredBids();
+
+      // F1 must remain intact: the driver channel is keyed by User.id.
+      expect(dispatch.notifyCounterExpired).toHaveBeenCalledWith('trip-1', 'bid-1', 'user-driver-1');
+      expect(dispatch.notifyBidExpired).not.toHaveBeenCalled();
+    });
+
+    it('cancels the trip with the expected reason, conditionally', async () => {
+      const { service, prisma } = await buildService();
+      prisma.bid.findMany = jest.fn().mockResolvedValue([expiredPending()]);
+      const tx = txWith(1);
+      prisma.$transaction = jest.fn().mockImplementation(tx.impl);
+
+      await service.sweepExpiredBids();
+
+      expect(tx.tripUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'trip-1', status: { in: [TripStatus.searching] } },
+        data: expect.objectContaining({
+          status: TripStatus.cancelled,
+          cancelReason: 'bid_expired',
+          cancelledAt: expect.any(Date),
+        }),
+      }));
+    });
+
+    it('a trip that already advanced is left alone, with no error surfaced', async () => {
+      const { service, prisma, dispatch } = await buildService();
+      prisma.bid.findMany = jest.fn().mockResolvedValue([expiredPending()]);
+      // Bid expiry won, but the trip moved on: tripUpdateMany matches 0 rows.
+      prisma.$transaction = jest.fn().mockImplementation(txWith(1, 0).impl);
+
+      await expect(service.sweepExpiredBids()).resolves.not.toThrow();
+
+      // Expected concurrency, not an integrity fault: the bid still expires.
+      expect(dispatch.notifyBidExpired).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves the bid_expired event name and metadata', async () => {
+      const { service, prisma } = await buildService();
+      prisma.bid.findMany = jest.fn().mockResolvedValue([expiredPending()]);
+      const tx = txWith(1);
+      prisma.$transaction = jest.fn().mockImplementation(tx.impl);
+
+      await service.sweepExpiredBids();
+
+      expect(tx.tripEventCreate).toHaveBeenCalledWith({
+        data: {
+          tripId: 'trip-1',
+          eventType: 'bid_expired',
+          metadata: { bidId: 'bid-1', expiredStatus: BidStatus.pending },
+        },
+      });
+    });
   });
 });

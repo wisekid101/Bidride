@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { BidStatus, TripStatus, RideType } from '@bidride/database/generated/client';
 import { sanitizeRouteDistanceMiles, haversineMiles } from '../trips/distance.util';
+import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { DispatchService } from '../trips/dispatch.service';
@@ -25,6 +26,31 @@ import {
 } from './bid-state-machine';
 
 const EXPIRY_SWEEP_INTERVAL_MS = 30_000;
+
+// ─── Expiry sweep lease ──────────────────────────────────────────────────────
+// Every replica runs the sweep on the same 30s cadence, so without a lease they
+// all process the same expired bids and duplicate the void, the notification and
+// the telemetry. The lease is a plain Redis key holding a per-run token.
+//
+// TTL 25s against a 30s cadence: comfortably longer than any realistic sweep,
+// short enough that a crashed owner's lease clears before the next tick, and
+// non-overlapping so two consecutive ticks can never both hold it.
+const SWEEP_LOCK_KEY = 'bid:sweep:lock';
+const SWEEP_LOCK_TTL_SECONDS = 25;
+
+// Release must be atomic: a GET followed by a separate DEL can delete a lease
+// that expired and was re-acquired by another replica between the two commands.
+const RELEASE_LOCK_LUA = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+else
+  return 0
+end`;
+
+// A bid may only expire out of these states, and its trip may only be cancelled
+// from these. Anything else means another workflow legitimately won the race.
+const EXPIRABLE_BID_STATUSES = [BidStatus.pending, BidStatus.countered];
+const CANCELLABLE_TRIP_STATUSES = [TripStatus.searching];
 const PLATFORM_FEE_RATE = 0.20;
 
 @Injectable()
@@ -552,42 +578,94 @@ export class BidsService implements OnModuleInit {
 
   // ─── Expiration Sweep (Background) ───────────────────────────────────────
 
+  /**
+   * Acquire the sweep lease. Returns the owner token, or null when another
+   * replica already holds it.
+   */
+  private async acquireSweepLock(): Promise<string | null> {
+    const token = randomUUID();
+    const acquired = await this.redis.set(
+      SWEEP_LOCK_KEY, token, 'EX', SWEEP_LOCK_TTL_SECONDS, 'NX',
+    );
+    return acquired ? token : null;
+  }
+
+  /** Release the lease ONLY if we still own it (atomic compare-and-delete). */
+  private async releaseSweepLock(token: string): Promise<void> {
+    try {
+      await this.redis.eval(RELEASE_LOCK_LUA, 1, SWEEP_LOCK_KEY, token);
+    } catch (err) {
+      // A failed release is safe: the 25s TTL reclaims the lease.
+      this.logger.debug?.(`Sweep lock release failed (lease will expire): ${String(err)}`);
+    }
+  }
+
   async sweepExpiredBids(): Promise<void> {
-    const expiredBids = await this.prisma.bid.findMany({
-      where: {
-        status: { in: [BidStatus.pending, BidStatus.countered] },
-        expiresAt: { lte: new Date() },
-      },
-      include: { driver: { select: { id: true, userId: true } } },
-    });
+    const lockToken = await this.acquireSweepLock();
+    if (!lockToken) return; // another replica is sweeping this tick
 
-    for (const bid of expiredBids) {
-      try {
-        await this.prisma.$transaction(async (tx) => {
-          await tx.bid.update({
-            where: { id: bid.id },
-            data: { status: BidStatus.expired, resolvedAt: new Date() },
-          });
-          await tx.tripEvent.create({
-            data: {
-              tripId: bid.tripId,
-              eventType: 'bid_expired',
-              metadata: { bidId: bid.id, expiredStatus: bid.status },
-            },
-          });
-        });
+    try {
+      const expiredBids = await this.prisma.bid.findMany({
+        where: {
+          status: { in: EXPIRABLE_BID_STATUSES },
+          expiresAt: { lte: new Date() },
+        },
+        include: { driver: { select: { id: true, userId: true } } },
+      });
 
-        await this.voidStripeHold(bid.id);
-        if (bid.status === BidStatus.countered) {
-          await this.dispatch.notifyCounterExpired(bid.tripId, bid.id, bid.driver?.userId);
-        } else {
-          await this.dispatch.notifyBidExpired(bid.tripId, bid.id);
+      for (const bid of expiredBids) {
+        try {
+          // The selected row is a snapshot; the bid may have been accepted,
+          // declined or withdrawn since. Both writes are therefore conditional,
+          // and every side effect below is gated on the bid transition having
+          // actually happened.
+          const expired = await this.prisma.$transaction(async (tx) => {
+            const result = await tx.bid.updateMany({
+              where: { id: bid.id, status: { in: EXPIRABLE_BID_STATUSES } },
+              data: { status: BidStatus.expired, resolvedAt: new Date() },
+            });
+            if (result.count !== 1) return false; // another transition won
+
+            await tx.tripEvent.create({
+              data: {
+                tripId: bid.tripId,
+                eventType: 'bid_expired',
+                metadata: { bidId: bid.id, expiredStatus: bid.status },
+              },
+            });
+
+            // An expired bid must not leave its trip searching forever. This is
+            // conditional too: if the trip already advanced, another workflow
+            // legitimately owns it and we leave it alone — expected concurrency,
+            // not an integrity fault, so it is not logged as one.
+            await tx.trip.updateMany({
+              where: { id: bid.tripId, status: { in: CANCELLABLE_TRIP_STATUSES } },
+              data: {
+                status: TripStatus.cancelled,
+                cancelledAt: new Date(),
+                cancelReason: 'bid_expired',
+              },
+            });
+
+            return true;
+          });
+
+          if (!expired) continue; // silent skip — no void, no notify, no telemetry
+
+          await this.voidStripeHold(bid.id);
+          if (bid.status === BidStatus.countered) {
+            await this.dispatch.notifyCounterExpired(bid.tripId, bid.id, bid.driver?.userId);
+          } else {
+            await this.dispatch.notifyBidExpired(bid.tripId, bid.id);
+          }
+          this.recordRejectedBidOutcome(bid.tripId, bid.id);
+          this.logger.log(`Bid ${bid.id} expired (was ${bid.status})`);
+        } catch (err) {
+          this.logger.error(`Failed to expire bid ${bid.id}`, err);
         }
-        this.recordRejectedBidOutcome(bid.tripId, bid.id);
-        this.logger.log(`Bid ${bid.id} expired (was ${bid.status})`);
-      } catch (err) {
-        this.logger.error(`Failed to expire bid ${bid.id}`, err);
       }
+    } finally {
+      await this.releaseSweepLock(lockToken);
     }
   }
 
