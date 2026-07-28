@@ -377,13 +377,13 @@ describe('PaymentService', () => {
 
   describe('createAuthorizationHold', () => {
     it('creates a manual-capture PaymentIntent and returns paymentIntentId', async () => {
-      const result = await service.createAuthorizationHold('cus_test', 'pm_test', 2000);
+      const result = await service.createAuthorizationHold('cus_test', 'pm_test', 2000, 'attempt-1');
       expect(result).toEqual({ paymentIntentId: 'pi_test_123' });
     });
 
     it('throws BadRequestException when amountCents is below 100', async () => {
       await expect(
-        service.createAuthorizationHold('cus_test', 'pm_test', 50),
+        service.createAuthorizationHold('cus_test', 'pm_test', 50, 'attempt-1'),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -770,5 +770,112 @@ describe('PaymentService — canonical capture validation (F5)', () => {
     for (const forbidden of ['sk_', 'cus_', 'pm_', 'client_secret', 'authorization']) {
       expect(meta).not.toContain(forbidden);
     }
+  });
+});
+
+// ─── F4: bid authorization idempotency ───────────────────────────────────────
+//
+// The hold was created with no idempotency key, so a retry after a timeout or
+// an uncertain response produced a SECOND live hold. Only one payment-intent id
+// reaches Redis, so the extra hold was unreachable and never voided.
+
+describe('PaymentService — bid authorization idempotency (F4)', () => {
+  const ATTEMPT = 'e5b1e0e2-0000-4000-8000-000000000001';
+  const stripeOf = () =>
+    (service as unknown as { stripe: { paymentIntents: { create: jest.Mock } } }).stripe;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('passes bid_hold_${bidAttemptId} as the Stripe idempotency key', async () => {
+    await service.createAuthorizationHold('cus_x', 'pm_x', 2000, ATTEMPT);
+
+    expect(stripeOf().paymentIntents.create).toHaveBeenCalledWith(
+      expect.any(Object),
+      { idempotencyKey: `bid_hold_${ATTEMPT}` },
+    );
+  });
+
+  it('the same attempt id always yields the same key', async () => {
+    await service.createAuthorizationHold('cus_x', 'pm_x', 2000, ATTEMPT);
+    await service.createAuthorizationHold('cus_x', 'pm_x', 2000, ATTEMPT);
+
+    const keys = stripeOf().paymentIntents.create.mock.calls.map((c) => c[1]?.idempotencyKey);
+    expect(keys).toEqual([`bid_hold_${ATTEMPT}`, `bid_hold_${ATTEMPT}`]);
+  });
+
+  it('different attempts yield different keys', async () => {
+    await service.createAuthorizationHold('cus_x', 'pm_x', 2000, ATTEMPT);
+    await service.createAuthorizationHold('cus_x', 'pm_x', 2000, 'e5b1e0e2-0000-4000-8000-000000000002');
+
+    const keys = stripeOf().paymentIntents.create.mock.calls.map((c) => c[1]?.idempotencyKey);
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it.each([['missing', undefined], ['empty', ''], ['whitespace', '   ']])(
+    'rejects a %s bidAttemptId before Stripe', async (_label, attempt) => {
+      await expect(
+        service.createAuthorizationHold('cus_x', 'pm_x', 2000, attempt as unknown as string),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(stripeOf().paymentIntents.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('leaves the payment-intent payload untouched — only the key is added', async () => {
+    await service.createAuthorizationHold('cus_x', 'pm_x', 2000, ATTEMPT);
+
+    expect(stripeOf().paymentIntents.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 2000,
+        currency: 'usd',
+        customer: 'cus_x',
+        payment_method: 'pm_x',
+        capture_method: 'manual',
+        confirm: true,
+        metadata: { type: 'bid_hold' },
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it('AMOUNT_TOO_LOW still rejects, and still before Stripe', async () => {
+    await expect(
+      service.createAuthorizationHold('cus_x', 'pm_x', 50, ATTEMPT),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(stripeOf().paymentIntents.create).not.toHaveBeenCalled();
+  });
+
+  it('an idempotency conflict is a hard failure — no second hold is created', async () => {
+    stripeOf().paymentIntents.create.mockRejectedValueOnce(
+      Object.assign(new Error('Keys for idempotent requests can only be used with the same parameters'), {
+        type: 'StripeIdempotencyError',
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await service.createAuthorizationHold('cus_x', 'pm_x', 2000, ATTEMPT);
+    } catch (e) { caught = e; }
+
+    expect(caught).toBeInstanceOf(UnprocessableEntityException);
+    expect((caught as UnprocessableEntityException).getResponse())
+      .toMatchObject({ code: 'AUTHORIZATION_IDEMPOTENCY_CONFLICT' });
+    // Exactly one attempt — never retried under a different key.
+    expect(stripeOf().paymentIntents.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('capture and charge idempotency keys are unchanged', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue({
+      id: 'trip-bid', bidId: 'bid-1', finalFare: 20.00, winnerBid: { status: 'accepted' },
+    });
+    mockPrisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.captureAuthorizationHold('pi_k', 2000, 'trip-bid');
+
+    expect(
+      (service as unknown as { stripe: { paymentIntents: { capture: jest.Mock } } })
+        .stripe.paymentIntents.capture,
+    ).toHaveBeenCalledWith('pi_k', expect.any(Object), { idempotencyKey: 'capture_pi_k' });
   });
 });

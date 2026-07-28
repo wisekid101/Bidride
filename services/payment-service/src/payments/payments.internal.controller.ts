@@ -13,6 +13,13 @@ import { PaymentService } from './payment.service';
 import { InternalKeyGuard } from './internal-key.guard';
 
 class AuthorizeHoldDto {
+  // REQUIRED: one id per business authorization attempt. It is the Stripe
+  // idempotency key, so a retry of the same submitBid returns the original hold
+  // instead of creating a second live one. No optional fallback.
+  @IsString()
+  @IsNotEmpty()
+  bidAttemptId: string;
+
   @IsString()
   stripeCustomerId: string;
 
@@ -94,6 +101,7 @@ export class PaymentsInternalController {
       dto.stripeCustomerId,
       dto.paymentMethodId,
       dto.amountCents,
+      dto.bidAttemptId,
     );
   }
 

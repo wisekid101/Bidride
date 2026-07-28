@@ -424,9 +424,26 @@ describe('E2 — standard ride happy path (cross-service)', () => {
     });
 
     it('never uses a bid hold for a standard ride', async () => {
+      // The invariant: a standard ride never creates or consumes a bid
+      // authorization hold. It is asserted against THIS scenario's trip, never
+      // against the whole keyspace — trip-service integration fixtures run in a
+      // parallel Turbo workspace against the same Redis and legitimately own
+      // keys under `bid:*:pi`. A global scan failed on one of theirs.
       expect(await prisma.bid.count({ where: { tripId } })).toBe(0);
-      const holds = await redis.keys('bid:*:pi');
-      expect(holds).toHaveLength(0);
+
+      // Second gate, in case a hold were ever placed for a bid on this trip
+      // without the count above catching it: resolve every live handle back to
+      // its bid row and keep only the ones belonging to this trip. Keys that
+      // resolve to another trip's bid — or to no bid at all, because the owning
+      // worker has already cleaned up — are not ours and are not evidence.
+      const handleKeys = await redis.keys('bid:*:pi');
+      const bidIds = handleKeys
+        .map((k) => /^bid:(.+):pi$/.exec(k)?.[1])
+        .filter((id): id is string => !!id);
+      const ours = bidIds.length
+        ? await prisma.bid.findMany({ where: { id: { in: bidIds }, tripId }, select: { id: true } })
+        : [];
+      expect(ours).toHaveLength(0);
     });
   });
 

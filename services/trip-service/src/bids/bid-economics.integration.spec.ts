@@ -43,6 +43,7 @@ import { EarningsFloorService } from '../trips/earnings-floor.service';
 import { DispatchService } from '../trips/dispatch.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { sweepOwningLease, withExclusiveBidFixtures } from '../../test/sweep-lease';
 
 // Test-owned client, explicitly pinned to the test database.
 const prisma = new PrismaClient({
@@ -367,16 +368,21 @@ describe('trip economics & canonical fare (integration)', () => {
       expect(m.driverEarnings).toBeNull();
     });
 
-    it('an expired bid does not set a canonical fare', async () => {
-      const { trip, bid } = await seedBid({ aiFare: 30, riderOffer: 22, expiresInMs: -1000 });
+    it('an expired bid does not set a canonical fare', async () =>
+      // The sweep is database-wide, so a sweeper in another worker would
+      // otherwise expire this fixture before the assertions run.
+      withExclusiveBidFixtures(redis, async () => {
+        const { trip, bid } = await seedBid({ aiFare: 30, riderOffer: 22, expiresInMs: -1000 });
 
-      await bids.sweepExpiredBids();
+        // A contended sweep silently skips (Founder Decision 1), so own the
+        // lease for the sweep this test asserts on.
+        await sweepOwningLease(redis, () => bids.sweepExpiredBids());
 
-      const stored = await prisma.bid.findUniqueOrThrow({ where: { id: bid.id } });
-      expect(stored.status).toBe('expired');
-      expect(stored.finalFare).toBeNull();
-      expect(await money(trip.id)).toMatchObject({ finalFare: null, platformFee: null });
-    });
+        const stored = await prisma.bid.findUniqueOrThrow({ where: { id: bid.id } });
+        expect(stored.status).toBe('expired');
+        expect(stored.finalFare).toBeNull();
+        expect(await money(trip.id)).toMatchObject({ finalFare: null, platformFee: null });
+      }));
 
     it('refuses to accept a bid that is already resolved', async () => {
       const { trip, bid } = await seedBid({ aiFare: 30, riderOffer: 25 });
@@ -487,22 +493,23 @@ describe('trip economics & canonical fare (integration)', () => {
       expect(await money(trip.id)).toMatchObject({ finalFare: null, driverEarnings: null });
     });
 
-    it('an expired counter does not change the canonical fare', async () => {
-      const { trip, bid } = await seedBid({ aiFare: 40, riderOffer: 25 });
-      await bids.driverCounterBid(bid.id, driverUserId, { counterAmount: 32 } as never);
-      // Push the counter's expiry into the past, then sweep.
-      await prisma.bid.update({
-        where: { id: bid.id },
-        data: { expiresAt: new Date(Date.now() - 1000) },
-      });
+    it('an expired counter does not change the canonical fare', async () =>
+      withExclusiveBidFixtures(redis, async () => {
+        const { trip, bid } = await seedBid({ aiFare: 40, riderOffer: 25 });
+        await bids.driverCounterBid(bid.id, driverUserId, { counterAmount: 32 } as never);
+        // Push the counter's expiry into the past, then sweep.
+        await prisma.bid.update({
+          where: { id: bid.id },
+          data: { expiresAt: new Date(Date.now() - 1000) },
+        });
 
-      await bids.sweepExpiredBids();
+        await sweepOwningLease(redis, () => bids.sweepExpiredBids());
 
-      const stored = await prisma.bid.findUniqueOrThrow({ where: { id: bid.id } });
-      expect(stored.status).toBe('expired');
-      expect(stored.finalFare).toBeNull();
-      expect(await money(trip.id)).toMatchObject({ finalFare: null });
-    });
+        const stored = await prisma.bid.findUniqueOrThrow({ where: { id: bid.id } });
+        expect(stored.status).toBe('expired');
+        expect(stored.finalFare).toBeNull();
+        expect(await money(trip.id)).toMatchObject({ finalFare: null });
+      }));
 
     it('preserves counter ordering across rounds', async () => {
       const { bid } = await seedBid({ aiFare: 40, riderOffer: 25 });

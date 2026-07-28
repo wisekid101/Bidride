@@ -227,3 +227,66 @@ describe('capture canonical validation (integration)', () => {
     expect(captureSpy).not.toHaveBeenCalled();
   });
 });
+
+// ─── F4: authorization idempotency, real service path ────────────────────────
+//
+// The Stripe boundary is stubbed but the idempotency contract is exercised for
+// real: the stub keys its responses on the idempotencyKey the service supplies,
+// so a replayed attempt id genuinely returns the original PaymentIntent instead
+// of minting a second one — the behaviour Stripe itself provides.
+
+describe('bid authorization idempotency (integration)', () => {
+  let authService: PaymentService;
+  let createSpy: jest.Mock;
+  let issued: Map<string, string>;
+
+  beforeAll(() => {
+    const config = { getOrThrow: () => 'sk_test_f4_never_real', get: () => undefined } as never;
+    const redis = { set: jest.fn(), get: jest.fn(), del: jest.fn() } as never;
+    authService = new PaymentService(
+      prisma as never, config, redis, new LedgerService(prisma as never), undefined as never, undefined as never,
+    );
+
+    issued = new Map();
+    createSpy = jest.fn().mockImplementation((_params: unknown, opts?: { idempotencyKey?: string }) => {
+      const key = opts?.idempotencyKey ?? '';
+      // Stripe semantics: same key ⇒ same PaymentIntent, no new hold.
+      if (!issued.has(key)) issued.set(key, `pi_${issued.size + 1}`);
+      return Promise.resolve({ id: issued.get(key), status: 'requires_capture' });
+    });
+    (authService as unknown as { stripe: { paymentIntents: { create: jest.Mock } } }).stripe = {
+      paymentIntents: { create: createSpy },
+    } as never;
+  });
+
+  beforeEach(() => { createSpy.mockClear(); issued.clear(); });
+
+  it('a retry with the same attempt id yields ONE PaymentIntent', async () => {
+    const attempt = 'f4-attempt-retry';
+
+    const first = await authService.createAuthorizationHold('cus_a', 'pm_a', 3000, attempt);
+    const retry = await authService.createAuthorizationHold('cus_a', 'pm_a', 3000, attempt);
+
+    expect(retry.paymentIntentId).toBe(first.paymentIntentId);
+    expect(issued.size).toBe(1); // exactly one live hold
+    const keys = createSpy.mock.calls.map((c) => c[1]?.idempotencyKey);
+    expect(keys).toEqual([`bid_hold_${attempt}`, `bid_hold_${attempt}`]);
+  });
+
+  it('different attempt ids create different PaymentIntents', async () => {
+    const a = await authService.createAuthorizationHold('cus_a', 'pm_a', 3000, 'f4-attempt-1');
+    const b = await authService.createAuthorizationHold('cus_a', 'pm_a', 3000, 'f4-attempt-2');
+
+    expect(a.paymentIntentId).not.toBe(b.paymentIntentId);
+    expect(issued.size).toBe(2); // a genuine second attempt still authorizes
+  });
+
+  it('a malformed attempt id is rejected before Stripe', async () => {
+    await expect(
+      authService.createAuthorizationHold('cus_a', 'pm_a', 3000, '   '),
+    ).rejects.toThrow();
+
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(issued.size).toBe(0);
+  });
+});

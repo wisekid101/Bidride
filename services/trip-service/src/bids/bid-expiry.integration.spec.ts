@@ -21,6 +21,14 @@ import { BidsService } from './bids.service';
 import { DispatchService } from '../trips/dispatch.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import {
+  SWEEP_LOCK_KEY,
+  sweepOwningLease,
+  ourLeaseReleased,
+  holdForeignLease,
+  acquireBidFixtures,
+  type FixtureLease,
+} from '../../test/sweep-lease';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.TEST_DATABASE_URL } },
@@ -31,7 +39,6 @@ const redis = new Redis(process.env.TEST_REDIS_URL!);
 const RIDER_PHONE = '+19995550005';
 const DRIVER_PHONE = '+19995550006';
 const PHONES = [RIDER_PHONE, DRIVER_PHONE];
-const SWEEP_LOCK_KEY = 'bid:sweep:lock';
 
 describe('bid expiry race protection (integration)', () => {
   let moduleRef: TestingModule;
@@ -92,7 +99,7 @@ describe('bid expiry race protection (integration)', () => {
     return { trip, bid };
   }
 
-  const clearLock = () => redis.del(SWEEP_LOCK_KEY);
+  const sweepOwned = () => sweepOwningLease(redis, () => bids.sweepExpiredBids());
 
   beforeAll(async () => {
     await cleanupDb();
@@ -142,7 +149,6 @@ describe('bid expiry race protection (integration)', () => {
   afterAll(async () => {
     const settle = (w: Promise<unknown> | undefined) => Promise.resolve(w).catch(() => undefined);
     fetchSpy?.mockRestore();
-    await settle(clearLock());
     await settle(cleanupDb());
     await settle(moduleRef?.close());
     await settle(servicePrisma?.$disconnect());
@@ -150,10 +156,19 @@ describe('bid expiry race protection (integration)', () => {
     await settle(redis.quit());
   });
 
+  // Every test in this file seeds an expired bid, which a sweeper in a parallel
+  // worker would otherwise consume. Held per test, not per file, so other specs
+  // interleave between tests instead of waiting for the whole suite.
+  let fixtureLease: FixtureLease;
+
   beforeEach(async () => {
+    fixtureLease = await acquireBidFixtures(redis);
     for (const m of Object.values(dispatchStub)) m.mockClear();
     fetchSpy.mockClear();
-    await clearLock();
+  });
+
+  afterEach(async () => {
+    await fixtureLease?.release();
   });
 
   const voidCalls = () =>
@@ -164,7 +179,7 @@ describe('bid expiry race protection (integration)', () => {
   it('expires a pending bid and cancels its trip', async () => {
     const { trip, bid } = await seedExpiredBid(BidStatus.pending);
 
-    await bids.sweepExpiredBids();
+    await sweepOwned();
 
     expect((await prisma.bid.findUniqueOrThrow({ where: { id: bid.id } })).status).toBe('expired');
     const t = await prisma.trip.findUniqueOrThrow({ where: { id: trip.id } });
@@ -177,7 +192,7 @@ describe('bid expiry race protection (integration)', () => {
   it('expires a countered bid and notifies counter-expired', async () => {
     const { trip, bid } = await seedExpiredBid(BidStatus.countered, { withDriver: true });
 
-    await bids.sweepExpiredBids();
+    await sweepOwned();
 
     expect((await prisma.bid.findUniqueOrThrow({ where: { id: bid.id } })).status).toBe('expired');
     expect((await prisma.trip.findUniqueOrThrow({ where: { id: trip.id } })).status).toBe('cancelled');
@@ -189,7 +204,7 @@ describe('bid expiry race protection (integration)', () => {
   it('never leaves an expired bid’s trip searching', async () => {
     const { trip } = await seedExpiredBid(BidStatus.pending);
 
-    await bids.sweepExpiredBids();
+    await sweepOwned();
 
     expect((await prisma.trip.findUniqueOrThrow({ where: { id: trip.id } })).status).not.toBe('searching');
   });
@@ -203,7 +218,7 @@ describe('bid expiry race protection (integration)', () => {
   ])('a %s bid is never expired by the sweep', async (_label, status) => {
     const { trip, bid } = await seedExpiredBid(status);
 
-    await bids.sweepExpiredBids();
+    await sweepOwned();
 
     expect((await prisma.bid.findUniqueOrThrow({ where: { id: bid.id } })).status).toBe(status);
     expect((await prisma.trip.findUniqueOrThrow({ where: { id: trip.id } })).status).toBe('searching');
@@ -225,7 +240,7 @@ describe('bid expiry race protection (integration)', () => {
       return rows;
     }) as never);
     try {
-      await bids.sweepExpiredBids();
+      await sweepOwned();
     } finally {
       spy.mockRestore();
     }
@@ -259,7 +274,9 @@ describe('bid expiry race protection (integration)', () => {
     // Give the hold a recovery handle so a void would actually be attempted.
     await redis.set(`bid:${bid.id}:pi`, 'pi_expiry_race_test');
 
-    await Promise.all([bids.sweepExpiredBids(), bids.sweepExpiredBids()]);
+    await sweepOwningLease(redis, () =>
+      Promise.all([bids.sweepExpiredBids(), bids.sweepExpiredBids()]),
+    );
 
     expect((await prisma.bid.findUniqueOrThrow({ where: { id: bid.id } })).status).toBe('expired');
     expect(dispatchStub.notifyBidExpired).toHaveBeenCalledTimes(1);
@@ -271,18 +288,19 @@ describe('bid expiry race protection (integration)', () => {
 
   it('a second sweeper does no work while the lease is held', async () => {
     await seedExpiredBid(BidStatus.pending);
-    await redis.set(SWEEP_LOCK_KEY, 'someone-else', 'EX', 25);
+    const foreign = await holdForeignLease(redis);
 
     await bids.sweepExpiredBids();
 
     expect(dispatchStub.notifyBidExpired).not.toHaveBeenCalled();
     // The foreign lease is intact — never released by a non-owner.
-    expect(await redis.get(SWEEP_LOCK_KEY)).toBe('someone-else');
+    expect(await redis.get(SWEEP_LOCK_KEY)).toBe(foreign.token);
+    await foreign.release();
   });
 
   // ── Lease lifecycle ─────────────────────────────────────────────────────
 
-  it('holds a bounded lease during the sweep and releases it afterwards', async () => {
+  it('holds a bounded lease during the sweep and releases its own afterwards', async () => {
     let ttlDuringSweep = -99;
     const original = servicePrisma.bid.findMany.bind(servicePrisma.bid);
     const spy = jest.spyOn(servicePrisma.bid, 'findMany').mockImplementation((async (args: unknown) => {
@@ -290,21 +308,22 @@ describe('bid expiry race protection (integration)', () => {
       return original(args as never);
     }) as never);
 
-    await bids.sweepExpiredBids();
+    const { token } = await sweepOwned();
     spy.mockRestore();
 
     expect(ttlDuringSweep).toBeGreaterThan(0);
     expect(ttlDuringSweep).toBeLessThanOrEqual(25); // bounded, crash-recoverable
-    expect(await redis.exists(SWEEP_LOCK_KEY)).toBe(0); // released
+    expect(await ourLeaseReleased(redis, token)).toBe(true);
   });
 
-  it('leaves no lease behind when the sweep throws', async () => {
+  it('releases its own lease when the sweep throws', async () => {
     const spy = jest.spyOn(servicePrisma.bid, 'findMany')
       .mockImplementation((() => Promise.reject(new Error('db down'))) as never);
 
-    await expect(bids.sweepExpiredBids()).rejects.toThrow('db down');
+    const { token, error } = await sweepOwned();
     spy.mockRestore();
 
-    expect(await redis.exists(SWEEP_LOCK_KEY)).toBe(0);
+    expect((error as Error)?.message).toBe('db down');
+    expect(await ourLeaseReleased(redis, token)).toBe(true);
   });
 });

@@ -1149,3 +1149,77 @@ describe('BidsService — sweep lease (F2)', () => {
     });
   });
 });
+
+// ─── F4: one authorization attempt id per submitBid ──────────────────────────
+//
+// The Stripe hold is placed BEFORE the Bid and Trip rows exist, so the
+// idempotency key cannot be derived from bidId or tripId. submitBid mints a
+// single bidAttemptId up front and forwards it unchanged, so a retry of the
+// same operation reuses it and Stripe returns the original hold.
+
+describe('BidsService — bid attempt id (F4)', () => {
+  /** submitBid creates the trip and bid inside one transaction. */
+  const withCreateTx = (prisma: ReturnType<typeof makePrisma>) => {
+    prisma.$transaction = jest.fn().mockImplementation(async (fn: any) => fn({
+      trip: { create: jest.fn().mockResolvedValue({ id: 'trip-1' }) },
+      bid: { create: jest.fn().mockResolvedValue({ id: 'bid-1', expiresAt: new Date() }) },
+      tripEvent: { create: jest.fn().mockResolvedValue({}) },
+    }));
+  };
+
+  const authorizeBodies = () =>
+    (global.fetch as jest.Mock).mock.calls
+      .filter(([url]) => String(url).includes('/payments/internal/authorize'))
+      .map(([, opts]) => JSON.parse((opts as RequestInit).body as string));
+
+  it('sends exactly one bidAttemptId with the authorization request', async () => {
+    const { service, prisma } = await buildService();
+    withCreateTx(prisma);
+
+    await service.submitBid('user-rider-1', {
+      pickupLat: 40.7357, pickupLng: -74.1724,
+      dropoffLat: 40.6895, dropoffLng: -74.1745,
+      pickupAddress: 'A', dropoffAddress: 'B',
+      bidAmount: 14.0,
+    } as never);
+
+    const bodies = authorizeBodies();
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].bidAttemptId).toEqual(expect.any(String));
+    expect(bodies[0].bidAttemptId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('mints a distinct attempt id for each genuinely new bid', async () => {
+    const dto = {
+      pickupLat: 40.7357, pickupLng: -74.1724,
+      dropoffLat: 40.6895, dropoffLng: -74.1745,
+      pickupAddress: 'A', dropoffAddress: 'B',
+      bidAmount: 14.0,
+    } as never;
+
+    const { service, prisma } = await buildService();
+    withCreateTx(prisma);
+    await service.submitBid('user-rider-1', dto);
+    await service.submitBid('user-rider-1', dto);
+
+    const ids = authorizeBodies().map((b) => b.bidAttemptId);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe(ids[1]); // a second attempt is not a retry
+  });
+
+  it('does not regenerate the id later in the same invocation', async () => {
+    const { service, prisma } = await buildService();
+    withCreateTx(prisma);
+
+    await service.submitBid('user-rider-1', {
+      pickupLat: 40.7357, pickupLng: -74.1724,
+      dropoffLat: 40.6895, dropoffLng: -74.1745,
+      pickupAddress: 'A', dropoffAddress: 'B',
+      bidAmount: 14.0,
+    } as never);
+
+    // One authorize call, one id — nothing downstream mints a replacement.
+    const ids = authorizeBodies().map((b) => b.bidAttemptId);
+    expect(new Set(ids).size).toBe(1);
+  });
+});

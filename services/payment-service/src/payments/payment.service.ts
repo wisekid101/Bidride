@@ -382,27 +382,61 @@ export class PaymentService {
 
   // ─── Bid Authorization Holds (internal — called by trip-service) ─────────
 
+  /**
+   * Create a manual-capture hold for a bid attempt.
+   *
+   * `bidAttemptId` identifies one business authorization attempt and becomes
+   * the Stripe idempotency key. Without it, a retry after a timeout or an
+   * uncertain response created a SECOND live hold on the rider's card — and
+   * because only one payment-intent id reaches Redis, the extra hold was
+   * unreachable and never voided.
+   *
+   * It cannot be derived from bidId or tripId: both are created after this call.
+   */
   async createAuthorizationHold(
     stripeCustomerId: string,
     paymentMethodId: string,
     amountCents: number,
+    bidAttemptId: string,
   ): Promise<{ paymentIntentId: string }> {
+    if (typeof bidAttemptId !== 'string' || bidAttemptId.trim() === '') {
+      throw new BadRequestException({
+        code: 'BID_ATTEMPT_ID_REQUIRED',
+        message: 'A bid attempt id is required to authorize a hold.',
+      });
+    }
     if (amountCents < 100) {
       throw new BadRequestException({ code: 'AMOUNT_TOO_LOW', message: 'Amount must be at least $1.00.' });
     }
 
-    const pi = await this.stripe.paymentIntents.create({
-      amount: amountCents,
-      currency: 'usd',
-      customer: stripeCustomerId,
-      payment_method: paymentMethodId,
-      capture_method: 'manual',
-      confirm: true,
-      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
-      metadata: { type: 'bid_hold' },
-    });
+    try {
+      const pi = await this.stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: 'usd',
+        customer: stripeCustomerId,
+        payment_method: paymentMethodId,
+        capture_method: 'manual',
+        confirm: true,
+        automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+        metadata: { type: 'bid_hold' },
+      }, { idempotencyKey: `bid_hold_${bidAttemptId}` });
 
-    return { paymentIntentId: pi.id };
+      return { paymentIntentId: pi.id };
+    } catch (e: unknown) {
+      // Same attempt id replayed with a DIFFERENT body. That is an integrity
+      // failure, not a transient error: retrying under a fresh key would create
+      // exactly the duplicate hold this guard exists to prevent.
+      if ((e as { type?: string }).type === 'StripeIdempotencyError') {
+        this.logger.error(
+          `Idempotency conflict authorizing bid attempt ${bidAttemptId} — request differs from the original; refusing to create a second hold`,
+        );
+        throw new UnprocessableEntityException({
+          code: 'AUTHORIZATION_IDEMPOTENCY_CONFLICT',
+          message: 'This bid attempt was already authorized with different details.',
+        });
+      }
+      throw e;
+    }
   }
 
   /**

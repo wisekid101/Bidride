@@ -74,6 +74,13 @@ export class BidsService implements OnModuleInit {
   // ─── Submit Bid (Rider) ───────────────────────────────────────────────────
 
   async submitBid(userId: string, dto: SubmitBidDto) {
+    // One id per business authorization attempt, minted BEFORE anything else so
+    // a retry of this same operation reuses it and Stripe returns the original
+    // hold instead of creating a second live one. It cannot be bidId or tripId:
+    // both are generated in the transaction further down, long after the hold
+    // is placed. Never regenerated later in this workflow.
+    const bidAttemptId = randomUUID();
+
     const rider = await this.resolveRider(userId);
 
     // Fetch standard fare from pricing-service
@@ -101,6 +108,7 @@ export class BidsService implements OnModuleInit {
     // Create Stripe authorization hold for the full standard fare amount so any
     // accepted outcome (bid or counter up to standard fare) is covered.
     const paymentIntentId = await this.createStripeHold(
+      bidAttemptId,
       rider.stripeCustomerId,
       dto.paymentMethodId,
       standardFare,
@@ -718,6 +726,7 @@ export class BidsService implements OnModuleInit {
   }
 
   private async createStripeHold(
+    bidAttemptId: string,
     stripeCustomerId: string | null,
     paymentMethodId: string,
     amount: number,
@@ -730,7 +739,13 @@ export class BidsService implements OnModuleInit {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
-      body: JSON.stringify({ stripeCustomerId, paymentMethodId, amountCents: Math.round(amount * 100) }),
+      // bidAttemptId makes the hold idempotent across retries of this attempt.
+      body: JSON.stringify({
+        bidAttemptId,
+        stripeCustomerId,
+        paymentMethodId,
+        amountCents: Math.round(amount * 100),
+      }),
     });
 
     if (!res.ok) {
