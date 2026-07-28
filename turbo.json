@@ -22,7 +22,8 @@
         "REDIS_URL",
         "TEST_REDIS_URL",
         "JWT_SECRET",
-        "NODE_ENV"
+        "NODE_ENV",
+        "INTERNAL_SERVICE_KEY"
       ]
     },
     "lint": {},

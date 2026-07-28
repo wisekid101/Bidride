@@ -1,0 +1,21 @@
+{
+  "name": "@bidride/e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cross-service end-to-end scenarios. Composes several services over real HTTP against real PostgreSQL and Redis; owned by no single service.",
+  "scripts": {
+    "test:int": "jest --config jest.integration.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bidride/database": "workspace:*",
+    "ioredis": "^5.3.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.12.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "typescript": "^5.4.0"
+  }
+}
