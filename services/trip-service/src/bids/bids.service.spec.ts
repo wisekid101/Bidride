@@ -268,6 +268,7 @@ describe('BidsService', () => {
       ...mockBid,
       status: BidStatus.countered,
       driverId: 'driver-1',
+      driver: { id: 'driver-1', userId: 'user-driver-1' },
       counterOffer: 17.00,
       counterRound: 1,
     };
@@ -304,7 +305,7 @@ describe('BidsService', () => {
 
   describe('riderDeclineCounter', () => {
     it('declines the counter and voids hold', async () => {
-      const counteredBid = { ...mockBid, status: BidStatus.countered, driverId: 'driver-1', counterOffer: 17.00 };
+      const counteredBid = { ...mockBid, status: BidStatus.countered, driverId: 'driver-1', driver: { id: 'driver-1', userId: 'user-driver-1' }, counterOffer: 17.00 };
       const { service, dispatch } = await buildService(counteredBid);
 
       const result = await service.riderDeclineCounter('bid-1', mockRider.userId);
@@ -360,6 +361,7 @@ describe('BidsService', () => {
         ...mockBid,
         status: BidStatus.countered,
         driverId: 'driver-1',
+      driver: { id: 'driver-1', userId: 'user-driver-1' },
         counterOffer: 17.00,
         expiresAt: new Date(Date.now() - 5000),
       };
@@ -369,7 +371,8 @@ describe('BidsService', () => {
 
       await service.sweepExpiredBids();
 
-      expect(dispatch.notifyCounterExpired).toHaveBeenCalledWith('trip-1', 'bid-1', 'driver-1');
+      // F1: the driver channel is keyed by User.id — passing Driver.id here was the defect.
+      expect(dispatch.notifyCounterExpired).toHaveBeenCalledWith('trip-1', 'bid-1', 'user-driver-1');
       expect(dispatch.notifyBidExpired).not.toHaveBeenCalled();
     });
 
@@ -398,6 +401,7 @@ describe('BidsService', () => {
       ...mockBid,
       status: BidStatus.countered,
       driverId: 'driver-1',
+      driver: { id: 'driver-1', userId: 'user-driver-1' },
       counterOffer: 17.00,
       counterRound: 1,
     };
@@ -448,7 +452,7 @@ describe('BidsService', () => {
       await service.riderAcceptCounter('bid-1', mockRider.userId);
 
       expect(dispatch.notifyDriverCounterAccepted).toHaveBeenCalledWith(
-        'trip-1', 'bid-1', 'driver-1', 17.00,
+        'trip-1', 'bid-1', expect.objectContaining({ id: 'driver-1', userId: 'user-driver-1' }), 17.00,
       );
     });
 
@@ -458,7 +462,7 @@ describe('BidsService', () => {
       await service.riderDeclineCounter('bid-1', mockRider.userId);
 
       expect(dispatch.notifyDriverCounterDeclined).toHaveBeenCalledWith(
-        'trip-1', 'bid-1', 'driver-1',
+        'trip-1', 'bid-1', 'user-driver-1',
       );
     });
   });

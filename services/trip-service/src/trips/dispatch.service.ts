@@ -306,15 +306,21 @@ export class DispatchService {
     );
   }
 
+  /**
+   * `driver` carries BOTH ids on purpose. The driver-facing channel and the
+   * push lookup are keyed by User.id, while the rider-facing payload has always
+   * carried Driver.id — passing a single id conflated the two and published
+   * counter notifications to a channel nobody subscribes to.
+   */
   async notifyDriverCounterAccepted(
     tripId: string,
     bidId: string,
-    driverId: string | null,
+    driver: { id: string; userId: string } | null,
     finalFare: number,
   ): Promise<void> {
-    if (!driverId) return;
+    if (!driver) return;
     // Notify driver that rider accepted their counter
-    await this.publish(`user:${driverId}:events`, {
+    await this.publish(`user:${driver.userId}:events`, {
       event: 'bid:counterAccepted',
       bidId,
       tripId,
@@ -326,10 +332,10 @@ export class DispatchService {
       bidId,
       tripId,
       finalFare,
-      driverId,
+      driverId: driver.id,
     });
 
-    void this.pushToDriverByUserId(driverId, 'Rider accepted your counter!',
+    void this.pushToDriverByUserId(driver.userId, 'Rider accepted your counter!',
       `Trip confirmed at $${finalFare.toFixed(2)}. Head to pickup.`,
       { type: 'COUNTER_ACCEPTED', tripId, bidId },
     );
@@ -338,9 +344,9 @@ export class DispatchService {
   async notifyDriverCounterDeclined(
     tripId: string,
     bidId: string,
-    driverId: string,
+    driverUserId: string,
   ): Promise<void> {
-    await this.publish(`user:${driverId}:events`, {
+    await this.publish(`user:${driverUserId}:events`, {
       event: 'bid:counterDeclined',
       bidId,
       tripId,
@@ -350,7 +356,7 @@ export class DispatchService {
   async notifyCounterExpired(
     tripId: string,
     bidId: string,
-    driverId?: string | null,
+    driverUserId?: string | null,
   ): Promise<void> {
     await this.publish(`rider:trip:${tripId}`, {
       event: 'bid:counterExpired',
@@ -358,8 +364,8 @@ export class DispatchService {
       tripId,
       message: 'The counter offer expired. You may resubmit or take the standard fare.',
     });
-    if (driverId) {
-      await this.publish(`user:${driverId}:events`, {
+    if (driverUserId) {
+      await this.publish(`user:${driverUserId}:events`, {
         event: 'bid:counterExpired',
         bidId,
         tripId,

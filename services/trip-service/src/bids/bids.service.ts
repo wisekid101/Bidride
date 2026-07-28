@@ -450,7 +450,7 @@ export class BidsService implements OnModuleInit {
 
     await this.captureStripeHold(bidId, finalFare, bid.tripId, bid.riderId);
     await this.redis.setex(`trip:${bid.tripId}:state`, 7200, TripStatus.accepted);
-    await this.dispatch.notifyDriverCounterAccepted(bid.tripId, bidId, bid.driverId, finalFare);
+    await this.dispatch.notifyDriverCounterAccepted(bid.tripId, bidId, bid.driver, finalFare);
 
     this.logger.log(`Counter on bid ${bidId} accepted by rider at $${finalFare}`);
     return { bidId, status: BidStatus.accepted, finalFare };
@@ -484,7 +484,7 @@ export class BidsService implements OnModuleInit {
     });
 
     await this.voidStripeHold(bidId);
-    await this.dispatch.notifyDriverCounterDeclined(bid.tripId, bidId, bid.driverId!);
+    await this.dispatch.notifyDriverCounterDeclined(bid.tripId, bidId, bid.driver!.userId);
     this.recordRejectedBidOutcome(bid.tripId, bidId);
 
     this.logger.log(`Counter on bid ${bidId} declined by rider`);
@@ -558,6 +558,7 @@ export class BidsService implements OnModuleInit {
         status: { in: [BidStatus.pending, BidStatus.countered] },
         expiresAt: { lte: new Date() },
       },
+      include: { driver: { select: { id: true, userId: true } } },
     });
 
     for (const bid of expiredBids) {
@@ -578,7 +579,7 @@ export class BidsService implements OnModuleInit {
 
         await this.voidStripeHold(bid.id);
         if (bid.status === BidStatus.countered) {
-          await this.dispatch.notifyCounterExpired(bid.tripId, bid.id, bid.driverId);
+          await this.dispatch.notifyCounterExpired(bid.tripId, bid.id, bid.driver?.userId);
         } else {
           await this.dispatch.notifyBidExpired(bid.tripId, bid.id);
         }
@@ -732,7 +733,13 @@ export class BidsService implements OnModuleInit {
   // ─── Private: Helpers ─────────────────────────────────────────────────────
 
   private async getActiveBid(bidId: string) {
-    const bid = await this.prisma.bid.findUnique({ where: { id: bidId } });
+    // The driver relation is included here so the counter-resolution paths can
+    // address the driver by User.id (the notification channel key) without a
+    // second query. Driver.id and User.id are NOT interchangeable.
+    const bid = await this.prisma.bid.findUnique({
+      where: { id: bidId },
+      include: { driver: { select: { id: true, userId: true } } },
+    });
     if (!bid) throw new NotFoundException('Bid not found.');
     if (isBidTerminal(bid.status)) {
       throw new BadRequestException({ code: 'BID_ALREADY_RESOLVED', message: `Bid is already ${bid.status}.` });
