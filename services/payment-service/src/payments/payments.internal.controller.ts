@@ -7,7 +7,7 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import { IsString, Min, IsInt, IsNumber, IsOptional } from 'class-validator';
+import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
 import { InternalKeyGuard } from './internal-key.guard';
@@ -32,11 +32,12 @@ class CaptureHoldDto {
   @Min(100)
   amountCents: number;
 
-  // Optional attribution: when present the capture is booked as the trip's
-  // payment record (offer trips settle via capture, not charge-trip).
-  @IsOptional()
+  // REQUIRED: the capture amount is validated against this trip's canonical
+  // finalFare before Stripe is called. There is deliberately no unvalidated
+  // fallback path — offer trips settle via capture, not charge-trip.
   @IsString()
-  tripId?: string;
+  @IsNotEmpty()
+  tripId: string;
 
   @IsOptional()
   @IsString()

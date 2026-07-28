@@ -1,5 +1,5 @@
 import { PaymentService } from './payment.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 
 // Mock Stripe
 jest.mock('stripe', () => {
@@ -388,11 +388,24 @@ describe('PaymentService', () => {
     });
   });
 
+
+// ─── F5 canonical capture fixtures ───────────────────────────────────────────
+// Capture now validates the requested amount against the trip's canonical
+// finalFare before Stripe is called, so these tests must supply a real trip.
+const acceptedBidTrip = (finalFare: number, over: Record<string, unknown> = {}) => ({
+  id: 'trip-bid',
+  bidId: 'bid-1',
+  finalFare,
+  winnerBid: { status: 'accepted' },
+  ...over,
+});
+
   describe('captureAuthorizationHold', () => {
     it('calls stripe.capture with idempotency key and updates payment record', async () => {
       mockPrisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.trip.findUnique.mockResolvedValue(acceptedBidTrip(20.00));
 
-      const result = await service.captureAuthorizationHold('pi_test_123', 2000);
+      const result = await service.captureAuthorizationHold('pi_test_123', 2000, 'trip-bid');
 
       expect(result).toEqual({ status: 'succeeded' });
       expect(mockPrisma.payment.updateMany).toHaveBeenCalledWith({
@@ -469,6 +482,7 @@ describe('PaymentService', () => {
     it('books the capture as the trip payment record when tripId/riderId present', async () => {
       mockPrisma.payment.updateMany.mockResolvedValue({ count: 0 });
       mockPrisma.payment.create.mockResolvedValue({});
+      mockPrisma.trip.findUnique.mockResolvedValue(acceptedBidTrip(20.16));
 
       await service.captureAuthorizationHold('pi_hold_1', 2016, 'trip-bid', 'rider-1');
 
@@ -490,8 +504,9 @@ describe('PaymentService', () => {
 
     it('keeps legacy behavior (updateMany only) without attribution', async () => {
       mockPrisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.trip.findUnique.mockResolvedValue(acceptedBidTrip(5.00));
 
-      await service.captureAuthorizationHold('pi_hold_2', 500);
+      await service.captureAuthorizationHold('pi_hold_2', 500, 'trip-bid');
 
       expect(mockPrisma.payment.create).not.toHaveBeenCalled();
       expect(mockPrisma.payment.updateMany).toHaveBeenCalled();
@@ -594,5 +609,166 @@ describe('PaymentService', () => {
         service.createConnectOnboardingLink('nonexistent'),
       ).rejects.toThrow(NotFoundException);
     });
+  });
+});
+
+// ─── F5: canonical capture validation ────────────────────────────────────────
+//
+// Offer trips settle through capture rather than chargeTrip, so none of
+// chargeTrip's fare-integrity guards applied here: any amount up to the
+// authorized standard fare could be captured. Every check below must run
+// BEFORE Stripe, so a rejected capture moves no money.
+
+describe('PaymentService — canonical capture validation (F5)', () => {
+  const PI = 'pi_capture_guard';
+  const TRIP = 'trip-bid';
+  const canonical = (finalFare: number, over: Record<string, unknown> = {}) => ({
+    id: TRIP, bidId: 'bid-1', finalFare, winnerBid: { status: 'accepted' }, ...over,
+  });
+
+  // The stripe mock builds a fresh object per constructor call, so assert
+  // against the instance the service actually holds.
+  const stripeOf = () =>
+    (service as unknown as { stripe: { paymentIntents: { capture: jest.Mock } } }).stripe;
+
+  const expectRejected = async (p: Promise<unknown>) => {
+    let caught: unknown;
+    try { await p; } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(UnprocessableEntityException);
+    expect((caught as UnprocessableEntityException).getResponse())
+      .toMatchObject({ code: 'FARE_INTEGRITY_ERROR' });
+  };
+
+  /** Nothing may reach Stripe, the payment table or the ledger on rejection. */
+  const expectNoMoneyMoved = () => {
+    expect(stripeOf().paymentIntents.capture).not.toHaveBeenCalled();
+    expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+    expect(mockPrisma.payment.updateMany).not.toHaveBeenCalled();
+    expect(mockLedger.recordRiderPayment).not.toHaveBeenCalled();
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.payment.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.tripEvent.create.mockResolvedValue({});
+  });
+
+  it('captures the exact canonical amount', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical(23.64));
+
+    await expect(service.captureAuthorizationHold(PI, 2364, TRIP)).resolves.toEqual({ status: 'succeeded' });
+
+    expect(stripeOf().paymentIntents.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the existing capture idempotency key', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical(23.64));
+
+    await service.captureAuthorizationHold(PI, 2364, TRIP);
+
+    expect(stripeOf().paymentIntents.capture).toHaveBeenCalledWith(
+      PI, { amount_to_capture: 2364 }, { idempotencyKey: `capture_${PI}` },
+    );
+  });
+
+  it('rejects one cent above the canonical fare', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical(23.64));
+    await expectRejected(service.captureAuthorizationHold(PI, 2365, TRIP));
+    expectNoMoneyMoved();
+  });
+
+  it('rejects one cent below the canonical fare', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical(23.64));
+    await expectRejected(service.captureAuthorizationHold(PI, 2363, TRIP));
+    expectNoMoneyMoved();
+  });
+
+  it('rejects a capture for a trip that does not exist', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(null);
+    await expectRejected(service.captureAuthorizationHold(PI, 2364, TRIP));
+    expectNoMoneyMoved();
+    // No relational Trip row, so no tripEvent is forced against a missing FK.
+    expect(mockPrisma.tripEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-bid trip — standard rides settle via charge-trip', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical(23.64, { bidId: null, winnerBid: null }));
+    await expectRejected(service.captureAuthorizationHold(PI, 2364, TRIP));
+    expectNoMoneyMoved();
+  });
+
+  it.each([['pending'], ['countered'], ['declined'], ['expired'], ['withdrawn']])(
+    'rejects capture while the bid is %s', async (status) => {
+      mockPrisma.trip.findUnique.mockResolvedValue(canonical(23.64, { winnerBid: { status } }));
+      await expectRejected(service.captureAuthorizationHold(PI, 2364, TRIP));
+      expectNoMoneyMoved();
+    },
+  );
+
+  it('rejects when finalFare is null', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical(null as unknown as number));
+    await expectRejected(service.captureAuthorizationHold(PI, 2364, TRIP));
+    expectNoMoneyMoved();
+  });
+
+  it('rejects when the canonical fare cannot be safely converted to cents', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical(Number.NaN));
+    await expectRejected(service.captureAuthorizationHold(PI, 2364, TRIP));
+    expectNoMoneyMoved();
+  });
+
+  it.each([
+    ['zero', 0],
+    ['negative', -2364],
+    ['fractional', 2364.5],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['beyond safe-integer range', Number.MAX_SAFE_INTEGER + 2],
+  ])('rejects a %s amount before any lookup or Stripe call', async (_label, amount) => {
+    await expectRejected(service.captureAuthorizationHold(PI, amount as number, TRIP));
+    expectNoMoneyMoved();
+    // Malformed input is refused at the shape gate, before the trip is loaded.
+    expect(mockPrisma.trip.findUnique).not.toHaveBeenCalled();
+  });
+
+  it.each([['missing', undefined], ['empty', ''], ['whitespace', '   ']])(
+    'rejects a %s tripId at the request boundary', async (_label, tripId) => {
+      await expectRejected(
+        service.captureAuthorizationHold(PI, 2364, tripId as unknown as string),
+      );
+      expectNoMoneyMoved();
+      expect(mockPrisma.trip.findUnique).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects an empty paymentIntentId', async () => {
+    await expectRejected(service.captureAuthorizationHold('', 2364, TRIP));
+    expectNoMoneyMoved();
+  });
+
+  it('records fare-integrity evidence with non-sensitive metadata', async () => {
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical(23.64));
+
+    await expectRejected(service.captureAuthorizationHold(PI, 9999, TRIP));
+
+    expect(mockPrisma.tripEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tripId: TRIP,
+        eventType: 'fare_integrity_error',
+        metadata: expect.objectContaining({
+          reason: expect.stringContaining('does not match canonical finalFare'),
+          expectedAmountCents: 2364,
+          requestedAmountCents: 9999,
+          paymentIntentId: PI,
+          bidId: 'bid-1',
+        }),
+      }),
+    });
+
+    // No vendor secrets or customer payment data in the evidence.
+    const meta = JSON.stringify(mockPrisma.tripEvent.create.mock.calls[0][0].data.metadata);
+    for (const forbidden of ['sk_', 'cus_', 'pm_', 'client_secret', 'authorization']) {
+      expect(meta).not.toContain(forbidden);
+    }
   });
 });

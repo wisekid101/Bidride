@@ -11,6 +11,7 @@ import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { BidStatus } from '@bidride/database/generated/client';
 import { LedgerService } from '../ledger/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
@@ -404,19 +405,128 @@ export class PaymentService {
     return { paymentIntentId: pi.id };
   }
 
+  /**
+   * Capture an offer-trip authorization hold.
+   *
+   * The caller-supplied amount is NOT trusted. Offer trips settle through this
+   * path rather than chargeTrip, which meant the fare-integrity guards that
+   * protect standard rides did not apply here at all: any amount up to the
+   * authorized standard fare could be captured. Every validation below runs
+   * BEFORE Stripe is called, so a rejected capture moves no money.
+   *
+   * The authorized amount remains the standard fare and the captured amount
+   * remains the accepted canonical fare — that partial capture is intentional
+   * and unchanged.
+   */
   async captureAuthorizationHold(
     paymentIntentId: string,
     amountCents: number,
-    tripId?: string,
+    tripId: string,
     riderId?: string,
   ): Promise<{ status: string }> {
+    // ── 1. Request shape ────────────────────────────────────────────────────
+    // Defensive: the DTO enforces this at the HTTP boundary, but the method is
+    // also reachable directly and must never forward a malformed amount to
+    // Stripe. Caller amounts are never silently rounded.
+    if (typeof tripId !== 'string' || tripId.trim() === '') {
+      throw new UnprocessableEntityException({
+        code: 'FARE_INTEGRITY_ERROR',
+        message: 'A trip id is required to capture an authorization hold.',
+      });
+    }
+    if (typeof paymentIntentId !== 'string' || paymentIntentId.trim() === '') {
+      throw new UnprocessableEntityException({
+        code: 'FARE_INTEGRITY_ERROR',
+        message: 'A payment intent id is required to capture an authorization hold.',
+      });
+    }
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      await this.recordFareIntegrityError(tripId, {
+        reason: 'capture amount is not a positive safe integer number of cents',
+        requestedAmountCents: Number.isFinite(amountCents) ? amountCents : String(amountCents),
+        paymentIntentId,
+      });
+      throw new UnprocessableEntityException({
+        code: 'FARE_INTEGRITY_ERROR',
+        message: 'Capture amount must be a positive whole number of cents.',
+      });
+    }
+
+    // ── 2. Canonical trip ───────────────────────────────────────────────────
+    // Smallest trustworthy query: trip.bidId is written only inside the accept
+    // transactions, but the authoritative proof of acceptance is the winning
+    // bid's own status, so both are read.
+    const trip = await this.prisma.trip.findUnique({
+      where: { id: tripId },
+      select: {
+        id: true,
+        bidId: true,
+        finalFare: true,
+        winnerBid: { select: { status: true } },
+      },
+    });
+
+    if (!trip) {
+      // No relational Trip row exists, so a tripEvent cannot be written without
+      // weakening database integrity. Log and reject instead.
+      this.logger.error(
+        `FARE INTEGRITY ERROR trip=${tripId}: capture attempted for a trip that does not exist (pi=${paymentIntentId})`,
+      );
+      throw new UnprocessableEntityException({
+        code: 'FARE_INTEGRITY_ERROR',
+        message: 'Trip not found — capture refused.',
+      });
+    }
+
+    const reject = async (reason: string, extra: Record<string, unknown> = {}): Promise<never> => {
+      await this.recordFareIntegrityError(tripId, {
+        reason,
+        bidId: trip.bidId,
+        requestedAmountCents: amountCents,
+        paymentIntentId,
+        ...extra,
+      });
+      throw new UnprocessableEntityException({
+        code: 'FARE_INTEGRITY_ERROR',
+        message: 'Capture amount does not match the trip canonical fare — payment blocked.',
+      });
+    };
+
+    if (trip.bidId == null) {
+      await reject('capture attempted on a non-bid trip — standard rides settle via charge-trip');
+    }
+    if (trip.winnerBid?.status !== BidStatus.accepted) {
+      await reject('capture attempted before the bid was accepted', {
+        bidStatus: trip.winnerBid?.status ?? null,
+      });
+    }
+    if (trip.finalFare == null) {
+      await reject('capture attempted with no canonical finalFare on the trip');
+    }
+
+    // ── 3. Cent-exact comparison ────────────────────────────────────────────
+    // The DTO carries integer cents, so the dollar-level 0.005 tolerance used
+    // by chargeTrip does not apply: converting the canonical Decimal(8,2) to
+    // cents removes the float error that tolerance exists to absorb.
+    const canonicalFare = Number(trip.finalFare);
+    const expectedAmountCents = Math.round(canonicalFare * 100);
+    if (!Number.isSafeInteger(expectedAmountCents) || expectedAmountCents <= 0) {
+      await reject('canonical finalFare cannot be safely converted to cents', {
+        tripFinalFare: Number.isFinite(canonicalFare) ? canonicalFare : String(canonicalFare),
+      });
+    }
+    if (expectedAmountCents !== amountCents) {
+      await reject('capture amount does not match canonical finalFare', { expectedAmountCents });
+    }
+
+    // ── 4. Only now may money move ──────────────────────────────────────────
     const pi = await this.stripe.paymentIntents.capture(paymentIntentId, {
       amount_to_capture: amountCents,
     }, { idempotencyKey: `capture_${paymentIntentId}` });
 
     const amount = Math.round(amountCents) / 100;
 
-    if (tripId && riderId) {
+    if (riderId) {
       // The capture IS the ride's charge for offer trips — book it so
       // receipts, refunds, and analytics can see the real Stripe movement.
       // (Holds are created without a payments row, so this is usually a
