@@ -73,6 +73,19 @@ export class FinanceController {
     return this.finance.getReconciliationMismatches(Math.min(parseInt(limit, 10) || 50, 200));
   }
 
+  /**
+   * Captures that did not land. Optional ?outcome=failed|unknown narrows to
+   * definitive refusals or uncertain outcomes; omitted returns both.
+   */
+  @Get('capture-failures')
+  async getCaptureFailures(
+    @Query('limit') limit = '50',
+    @Query('outcome') outcome?: string,
+  ) {
+    const filter = outcome === 'failed' || outcome === 'unknown' ? outcome : undefined;
+    return this.finance.getCaptureFailures(Math.min(parseInt(limit, 10) || 50, 200), filter);
+  }
+
   @Post('reconciliation/:id/resolve')
   async resolveReconciliation(
     @Param('id') id: string,

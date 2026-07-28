@@ -53,6 +53,36 @@ const EXPIRABLE_BID_STATUSES = [BidStatus.pending, BidStatus.countered];
 const CANCELLABLE_TRIP_STATUSES = [TripStatus.searching];
 const PLATFORM_FEE_RATE = 0.20;
 
+/**
+ * Capture-outcome audit event type written from trip-service (F3a).
+ *
+ * Mirrors payment-service's constant deliberately rather than importing across
+ * a service boundary. trip-service only ever writes the UNKNOWN type: it never
+ * talks to Stripe, so it is never in a position to say a capture definitively
+ * failed.
+ */
+const CAPTURE_OUTCOME_UNKNOWN = 'payment_capture_outcome_unknown';
+
+/**
+ * Error codes that mean payment-service classified the failure and wrote its
+ * own durable event. Seeing one of these, trip-service logs and stays quiet.
+ */
+const PAYMENT_SERVICE_RECORDED_CODES = new Set([
+  'FARE_INTEGRITY_ERROR',
+  'CAPTURE_FAILED',
+  'CAPTURE_OUTCOME_UNKNOWN',
+]);
+
+/** Pull the machine-readable code out of an error response, tolerating anything. */
+async function readErrorCode(res: Response): Promise<string | null> {
+  try {
+    const body = await res.json() as { code?: unknown };
+    return typeof body?.code === 'string' ? body.code : null;
+  } catch {
+    return null; // HTML error page, empty body, truncated response
+  }
+}
+
 @Injectable()
 export class BidsService implements OnModuleInit {
   private readonly logger = new Logger(BidsService.name);
@@ -763,28 +793,108 @@ export class BidsService implements OnModuleInit {
     tripId: string,
     riderId: string,
   ): Promise<void> {
+    const amountCents = Math.round(finalFare * 100);
     const piId = await this.redis.get(`bid:${bidId}:pi`);
     if (!piId) {
+      // No handle means we cannot even tell whether a hold was placed and
+      // later lost, so this is uncertainty, not a definitive "no money moved".
       this.logger.warn(`No payment intent found for bid ${bidId} — skipping capture`);
+      await this.recordCaptureOutcome(tripId, CAPTURE_OUTCOME_UNKNOWN, {
+        code: 'CAPTURE_HANDLE_MISSING',
+        detail: 'no payment-intent handle in Redis for this bid — capture was never attempted',
+        paymentIntentId: null,
+        bidId,
+        requestedAmountCents: amountCents,
+      });
       return;
     }
 
     const url = `${process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007'}/payments/internal/capture`;
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
-      // tripId/riderId let payment-service book this capture as the trip's
-      // payment record — the capture IS the ride's charge for offer trips,
-      // and receipts/refunds/analytics must be able to see it.
-      body: JSON.stringify({
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
+        // tripId/riderId let payment-service book this capture as the trip's
+        // payment record — the capture IS the ride's charge for offer trips,
+        // and receipts/refunds/analytics must be able to see it.
+        body: JSON.stringify({
+          paymentIntentId: piId,
+          amountCents,
+          tripId,
+          riderId,
+        }),
+      });
+
+      // fetch resolves for 4xx and 5xx, so a rejected capture used to be
+      // indistinguishable from a successful one and was silently discarded.
+      if (!res.ok) {
+        const code = await readErrorCode(res);
+        if (code && PAYMENT_SERVICE_RECORDED_CODES.has(code)) {
+          // payment-service reached its own classifier and has already written
+          // the durable event; a second one from here would double-count.
+          this.logger.error(
+            `Capture rejected for bid ${bidId} (trip ${tripId}): ${res.status} ${code} — recorded by payment-service`,
+          );
+        } else {
+          // 5xx, a proxy error, an auth rejection: payment-service never got
+          // far enough to classify, so the outcome is unknown and ours to log.
+          await this.recordCaptureOutcome(tripId, CAPTURE_OUTCOME_UNKNOWN, {
+            code: 'CAPTURE_OUTCOME_UNKNOWN',
+            detail: `payment-service responded ${res.status}${code ? ` (${code})` : ''}`,
+            paymentIntentId: piId,
+            bidId,
+            requestedAmountCents: amountCents,
+          });
+        }
+      }
+    } catch (e: unknown) {
+      // The request may have reached payment-service and Stripe before the
+      // connection dropped. Never call this a failure.
+      this.logger.error(`Stripe capture failed for bid ${bidId}`, e);
+      await this.recordCaptureOutcome(tripId, CAPTURE_OUTCOME_UNKNOWN, {
+        code: 'CAPTURE_OUTCOME_UNKNOWN',
+        detail: 'payment-service was unreachable or the connection dropped mid-request',
         paymentIntentId: piId,
-        amountCents: Math.round(finalFare * 100),
-        tripId,
-        riderId,
-      }),
-    }).catch((e: unknown) => this.logger.error(`Stripe capture failed for bid ${bidId}`, e));
+        bidId,
+        requestedAmountCents: amountCents,
+      });
+    }
 
     await this.redis.del(`bid:${bidId}:pi`);
+  }
+
+  /**
+   * Persist a capture-outcome event from the trip-service side (F3a).
+   *
+   * Only used when payment-service could not record one itself — it was
+   * unreachable, it failed before classifying, or no capture was attempted.
+   * Best-effort: acceptance must not fail because an audit write did.
+   */
+  private async recordCaptureOutcome(
+    tripId: string,
+    eventType: typeof CAPTURE_OUTCOME_UNKNOWN,
+    fields: {
+      code: string;
+      detail: string;
+      paymentIntentId: string | null;
+      bidId: string;
+      requestedAmountCents: number;
+    },
+  ): Promise<void> {
+    const metadata = {
+      outcome: 'unknown',
+      ...fields,
+      attemptedAt: new Date().toISOString(),
+      source: 'trip-service',
+    };
+    this.logger.error(`CAPTURE OUTCOME UNKNOWN trip=${tripId}: ${JSON.stringify(metadata)}`);
+    try {
+      await this.prisma.tripEvent.create({
+        data: { tripId, eventType, metadata: metadata as object },
+      });
+    } catch (e) {
+      this.logger.error(`Failed to persist ${eventType} for trip ${tripId}`, e as Error);
+    }
   }
 
   private async voidStripeHold(bidId: string): Promise<void> {

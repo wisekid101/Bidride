@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+// Mirrors the event types payment-service and trip-service write (F3a). Two
+// types rather than one flag so operations can separate "money did not move"
+// from "we cannot tell" without parsing metadata.
+const CAPTURE_FAILED_EVENT = 'payment_capture_failed';
+const CAPTURE_UNKNOWN_EVENT = 'payment_capture_outcome_unknown';
+
 @Injectable()
 export class FinanceService {
   constructor(private readonly prisma: PrismaService) {}
@@ -197,6 +203,55 @@ export class FinanceService {
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
+  }
+
+  /**
+   * Captures that did not land (F3a) — detection surface, not a repair tool.
+   *
+   * `payment.status = 'failed'` cannot answer this: a capture that fails writes
+   * no Payment row at all, so `getFailedPayments` is structurally blind to it.
+   * The durable record is the trip event.
+   *
+   * `outcome` is derived from the event TYPE, never from metadata, so a
+   * definitive refusal ('failed' — no money moved) can never be confused with an
+   * uncertain outcome ('unknown' — funds may have moved and need checking
+   * against Stripe).
+   */
+  async getCaptureFailures(limit = 50, outcome?: 'failed' | 'unknown') {
+    const byOutcome = {
+      failed: CAPTURE_FAILED_EVENT,
+      unknown: CAPTURE_UNKNOWN_EVENT,
+    };
+    const eventTypes = outcome ? [byOutcome[outcome]] : [CAPTURE_FAILED_EVENT, CAPTURE_UNKNOWN_EVENT];
+
+    const events = await this.prisma.tripEvent.findMany({
+      where: { eventType: { in: eventTypes } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        tripId: true,
+        eventType: true,
+        metadata: true,
+        createdAt: true,
+        trip: {
+          select: {
+            id: true, status: true, riderId: true, driverId: true,
+            finalFare: true, bidId: true, completedAt: true,
+          },
+        },
+      },
+    });
+
+    return events.map((e) => ({
+      id: e.id,
+      tripId: e.tripId,
+      outcome: e.eventType === CAPTURE_FAILED_EVENT ? 'failed' : 'unknown',
+      eventType: e.eventType,
+      occurredAt: e.createdAt,
+      detail: e.metadata,
+      trip: e.trip,
+    }));
   }
 
   async resolveReconciliation(id: string, adminId: string) {

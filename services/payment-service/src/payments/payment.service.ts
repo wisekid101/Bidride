@@ -5,6 +5,8 @@ import {
   UnprocessableEntityException,
   Inject,
   Logger,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import Stripe from 'stripe';
 import Redis from 'ioredis';
@@ -15,6 +17,76 @@ import { BidStatus } from '@bidride/database/generated/client';
 import { LedgerService } from '../ledger/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
+
+/**
+ * Capture-failure audit event types (F3a).
+ *
+ * Two types, not one flag inside metadata: operations must be able to tell a
+ * definitive refusal from an uncertain outcome by the event type alone, without
+ * parsing JSON. Money did not move for the first; it may have for the second.
+ */
+export const CAPTURE_OUTCOME_FAILED = 'payment_capture_failed';
+export const CAPTURE_OUTCOME_UNKNOWN = 'payment_capture_outcome_unknown';
+
+/** Stripe accepted the call but returned a PaymentIntent that has not settled. */
+export class UnexpectedCaptureStatus extends Error {
+  constructor(readonly piStatus: string) {
+    super(`capture returned unexpected PaymentIntent status "${piStatus}"`);
+    this.name = 'UnexpectedCaptureStatus';
+  }
+}
+
+/**
+ * Did Stripe definitively refuse, or is the outcome unknown?
+ *
+ * DEFINITIVE means the request was rejected and no funds moved — a declined
+ * card, a malformed request, a rejected idempotent replay, an auth or rate-limit
+ * refusal. UNKNOWN means the request may have reached Stripe and been acted on:
+ * a dropped connection, an API-side error, an unexpected PaymentIntent status,
+ * or anything unrecognised. Unrecognised errors are UNKNOWN by default — the
+ * fail-closed direction, since assuming "no money moved" is the assumption that
+ * can quietly cost a rider.
+ */
+function classifyCaptureError(error: unknown): {
+  outcome: typeof CAPTURE_OUTCOME_FAILED | typeof CAPTURE_OUTCOME_UNKNOWN;
+  stripeErrorType: string | null;
+  stripeCode: string | null;
+  declineCode: string | null;
+  detail: string | null;
+} {
+  const e = (error ?? {}) as {
+    type?: unknown; code?: unknown; decline_code?: unknown; name?: unknown; piStatus?: unknown;
+  };
+  const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : null);
+
+  if (error instanceof UnexpectedCaptureStatus) {
+    return {
+      outcome: CAPTURE_OUTCOME_UNKNOWN,
+      stripeErrorType: null,
+      stripeCode: null,
+      declineCode: null,
+      detail: `unexpected PaymentIntent status: ${error.piStatus}`,
+    };
+  }
+
+  const type = str(e.type) ?? str(e.name);
+  const definitive = new Set([
+    'StripeCardError',           // declined — Stripe refused, no funds moved
+    'StripeInvalidRequestError', // malformed or unusable request
+    'StripeIdempotencyError',    // replayed key with different params; rejected
+    'StripeAuthenticationError',
+    'StripePermissionError',
+    'StripeRateLimitError',      // throttled before processing
+  ]);
+
+  return {
+    outcome: type && definitive.has(type) ? CAPTURE_OUTCOME_FAILED : CAPTURE_OUTCOME_UNKNOWN,
+    stripeErrorType: type,
+    stripeCode: str(e.code),
+    declineCode: str(e.decline_code),
+    detail: null,
+  };
+}
 
 const INSTANT_PAYOUT_FEE = 0.99;
 const MIN_PAYOUT_BALANCE = 10.00;
@@ -554,9 +626,35 @@ export class PaymentService {
     }
 
     // ── 4. Only now may money move ──────────────────────────────────────────
-    const pi = await this.stripe.paymentIntents.capture(paymentIntentId, {
-      amount_to_capture: amountCents,
-    }, { idempotencyKey: `capture_${paymentIntentId}` });
+    // Everything above rejects before Stripe is called (F5). From here on the
+    // request has left the building, so a failure is either DEFINITIVE — Stripe
+    // refused and no money moved — or UNKNOWN, where funds may well have been
+    // taken and we simply cannot tell. The two are recorded as different events
+    // and never conflated: calling an unknown outcome a failure would invent a
+    // fact about the rider's money.
+    let pi: Stripe.PaymentIntent;
+    try {
+      pi = await this.stripe.paymentIntents.capture(paymentIntentId, {
+        amount_to_capture: amountCents,
+      }, { idempotencyKey: `capture_${paymentIntentId}` });
+    } catch (e: unknown) {
+      throw await this.recordCaptureOutcome(tripId, e, {
+        paymentIntentId,
+        bidId: trip.bidId,
+        requestedAmountCents: amountCents,
+      });
+    }
+
+    // A capture that returns something other than `succeeded` has not settled
+    // and must not be booked as though it had. Stripe accepted the call, so we
+    // cannot claim definitive failure either — this is an unknown outcome.
+    if (pi.status !== 'succeeded') {
+      throw await this.recordCaptureOutcome(tripId, new UnexpectedCaptureStatus(pi.status), {
+        paymentIntentId,
+        bidId: trip.bidId,
+        requestedAmountCents: amountCents,
+      });
+    }
 
     const amount = Math.round(amountCents) / 100;
 
@@ -618,6 +716,67 @@ export class PaymentService {
     }
 
     return { status: pi.status };
+  }
+
+  /**
+   * Classify a capture failure and record it durably, returning the exception
+   * the caller should throw.
+   *
+   * DETECTION ONLY — nothing here retries, repairs or reconciles. It makes the
+   * failure visible and auditable, and hands back a stable code.
+   */
+  private async recordCaptureOutcome(
+    tripId: string,
+    error: unknown,
+    context: { paymentIntentId: string; bidId: string | null; requestedAmountCents: number },
+  ): Promise<Error> {
+    const { outcome, stripeErrorType, stripeCode, declineCode, detail } = classifyCaptureError(error);
+    const definitive = outcome === CAPTURE_OUTCOME_FAILED;
+
+    // Only scalar, non-sensitive fields — never the raw Stripe error object,
+    // which can carry customer ids, payment-method fingerprints and last-4.
+    const metadata = {
+      outcome: definitive ? 'failed' : 'unknown',
+      code: definitive ? 'CAPTURE_FAILED' : 'CAPTURE_OUTCOME_UNKNOWN',
+      stripeErrorType,
+      stripeCode,
+      declineCode,
+      detail,
+      paymentIntentId: context.paymentIntentId,
+      bidId: context.bidId,
+      requestedAmountCents: context.requestedAmountCents,
+      attemptedAt: new Date().toISOString(),
+      source: 'payment-service',
+    };
+
+    this.logger.error(
+      `${definitive ? 'CAPTURE FAILED' : 'CAPTURE OUTCOME UNKNOWN'} trip=${tripId}: ${JSON.stringify(metadata)}`,
+    );
+
+    // Best-effort, like recordFareIntegrityError: losing the audit row must not
+    // mask the payment failure the caller is about to be told about.
+    try {
+      await this.prisma.tripEvent.create({
+        data: { tripId, eventType: outcome, metadata: metadata as object },
+      });
+    } catch (e) {
+      this.logger.error(`Failed to persist ${outcome} for trip ${tripId}`, e as Error);
+    }
+
+    return definitive
+      ? new UnprocessableEntityException({
+          code: 'CAPTURE_FAILED',
+          message: 'Stripe refused the capture — no funds were moved.',
+        })
+      // 502, not 500: this says "upstream outcome uncertain", which operations
+      // must be able to separate from an ordinary server fault.
+      : new HttpException(
+          {
+            code: 'CAPTURE_OUTCOME_UNKNOWN',
+            message: 'The capture outcome could not be determined — funds may or may not have moved.',
+          },
+          HttpStatus.BAD_GATEWAY,
+        );
   }
 
   // Fare integrity violations block money movement but must never lose the

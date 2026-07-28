@@ -1,5 +1,5 @@
 import { PaymentService } from './payment.service';
-import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 
 // Mock Stripe
 jest.mock('stripe', () => {
@@ -877,5 +877,222 @@ describe('PaymentService — bid authorization idempotency (F4)', () => {
       (service as unknown as { stripe: { paymentIntents: { capture: jest.Mock } } })
         .stripe.paymentIntents.capture,
     ).toHaveBeenCalledWith('pi_k', expect.any(Object), { idempotencyKey: 'capture_pi_k' });
+  });
+});
+
+// ─── F3a: capture failure detection ─────────────────────────────────────────
+// Everything here is about VISIBILITY. Nothing retries, repairs or reconciles.
+// The load-bearing distinction: a definitive refusal (money did NOT move) is a
+// different EVENT TYPE from an uncertain outcome (money may have moved), so
+// operations never has to parse metadata to tell them apart.
+
+describe('PaymentService — capture failure detection (F3a)', () => {
+  const PI = 'pi_f3a';
+  const TRIP = 'trip-f3a';
+  const canonical = { id: TRIP, bidId: 'bid-f3a', finalFare: 23.64, winnerBid: { status: 'accepted' } };
+  const CENTS = 2364;
+
+  const stripeOf = () =>
+    (service as unknown as { stripe: { paymentIntents: { capture: jest.Mock } } }).stripe;
+
+  /** A Stripe SDK error carries `type`; a bare socket error carries only `name`. */
+  const stripeError = (type: string, extra: Record<string, unknown> = {}) =>
+    Object.assign(new Error(`simulated ${type}`), { type, ...extra });
+
+  const capture = () => service.captureAuthorizationHold(PI, CENTS, TRIP, 'rider-f3a');
+
+  const caught = async (p: Promise<unknown>): Promise<unknown> => {
+    try { await p; } catch (e) { return e; }
+    throw new Error('expected the capture to reject, but it resolved');
+  };
+
+  const eventOf = (): { eventType: string; metadata: Record<string, unknown> } =>
+    mockPrisma.tripEvent.create.mock.calls[0][0].data;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical);
+    mockPrisma.tripEvent.create.mockResolvedValue({});
+    mockPrisma.payment.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.payment.create.mockResolvedValue({});
+  });
+
+  // ── Definitive failure: Stripe refused, money did not move ────────────────
+
+  it.each([
+    ['StripeCardError'],
+    ['StripeInvalidRequestError'],
+    ['StripeIdempotencyError'],
+    ['StripeAuthenticationError'],
+    ['StripePermissionError'],
+    ['StripeRateLimitError'],
+  ])('%s is a definitive failure: payment_capture_failed + CAPTURE_FAILED', async (type) => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError(type));
+
+    const err = await caught(capture());
+
+    expect(err).toBeInstanceOf(UnprocessableEntityException);
+    expect((err as UnprocessableEntityException).getResponse())
+      .toMatchObject({ code: 'CAPTURE_FAILED' });
+    expect(eventOf().eventType).toBe('payment_capture_failed');
+    expect(eventOf().metadata).toMatchObject({ outcome: 'failed', stripeErrorType: type });
+  });
+
+  it('a decline records the decline code without any card details', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(
+      stripeError('StripeCardError', {
+        code: 'card_declined',
+        decline_code: 'insufficient_funds',
+        // Fields a raw Stripe error can carry that must never be persisted.
+        payment_method: { id: 'pm_secret', card: { last4: '4242', fingerprint: 'fp_x' } },
+        customer: 'cus_secret',
+      }),
+    );
+
+    await caught(capture());
+
+    const { metadata } = eventOf();
+    expect(metadata).toMatchObject({ stripeCode: 'card_declined', declineCode: 'insufficient_funds' });
+    const serialized = JSON.stringify(metadata);
+    expect(serialized).not.toContain('pm_secret');
+    expect(serialized).not.toContain('cus_secret');
+    expect(serialized).not.toContain('4242');
+    expect(serialized).not.toContain('fp_x');
+  });
+
+  // ── Unknown outcome: money may have moved ─────────────────────────────────
+
+  it.each([
+    ['StripeConnectionError'],
+    ['StripeAPIError'],
+  ])('%s is an unknown outcome: payment_capture_outcome_unknown + 502', async (type) => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError(type));
+
+    const err = await caught(capture());
+
+    expect(err).toBeInstanceOf(HttpException);
+    expect((err as HttpException).getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'CAPTURE_OUTCOME_UNKNOWN' });
+    expect(eventOf().eventType).toBe('payment_capture_outcome_unknown');
+    expect(eventOf().metadata).toMatchObject({ outcome: 'unknown', stripeErrorType: type });
+  });
+
+  it('a socket timeout is unknown, never a failure', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(
+      Object.assign(new Error('ETIMEDOUT'), { name: 'TimeoutError', code: 'ETIMEDOUT' }),
+    );
+
+    await caught(capture());
+
+    expect(eventOf().eventType).toBe('payment_capture_outcome_unknown');
+  });
+
+  it('an unrecognised error defaults to unknown — the fail-closed direction', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(new Error('something nobody modelled'));
+
+    await caught(capture());
+
+    expect(eventOf().eventType).toBe('payment_capture_outcome_unknown');
+    expect(eventOf().metadata).toMatchObject({ outcome: 'unknown' });
+  });
+
+  it.each([
+    ['requires_payment_method'],
+    ['requires_action'],
+    ['processing'],
+    ['canceled'],
+  ])('a PaymentIntent returned as %s is unknown and is never booked', async (piStatus) => {
+    stripeOf().paymentIntents.capture.mockResolvedValueOnce({ id: PI, status: piStatus });
+
+    const err = await caught(capture());
+
+    expect((err as HttpException).getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+    expect(eventOf().eventType).toBe('payment_capture_outcome_unknown');
+    expect(eventOf().metadata.detail).toContain(piStatus);
+    // Never recorded as settled money.
+    expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+    expect(mockLedger.recordRiderPayment).not.toHaveBeenCalled();
+  });
+
+  // ── Event contract ────────────────────────────────────────────────────────
+
+  it('records the fields operations needs to act on', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeCardError'));
+
+    await caught(capture());
+
+    expect(eventOf().metadata).toMatchObject({
+      code: 'CAPTURE_FAILED',
+      paymentIntentId: PI,
+      bidId: 'bid-f3a',
+      requestedAmountCents: CENTS,
+      source: 'payment-service',
+    });
+    expect(typeof eventOf().metadata.attemptedAt).toBe('string');
+  });
+
+  it('the trip event is attached to the trip that failed', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeAPIError'));
+
+    await caught(capture());
+
+    expect(mockPrisma.tripEvent.create.mock.calls[0][0].data.tripId).toBe(TRIP);
+  });
+
+  it('a failed audit write still surfaces the payment failure', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeCardError'));
+    mockPrisma.tripEvent.create.mockRejectedValueOnce(new Error('db down'));
+
+    const err = await caught(capture());
+
+    expect((err as UnprocessableEntityException).getResponse())
+      .toMatchObject({ code: 'CAPTURE_FAILED' });
+  });
+
+  // ── Never invent an outcome ───────────────────────────────────────────────
+
+  it('a failed capture books no payment, no ledger and no reconciliation', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeCardError'));
+
+    await caught(capture());
+
+    expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+    expect(mockPrisma.payment.updateMany).not.toHaveBeenCalled();
+    expect(mockLedger.recordRiderPayment).not.toHaveBeenCalled();
+  });
+
+  it('does not retry — exactly one Stripe call per capture', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeConnectionError'));
+
+    await caught(capture());
+
+    expect(stripeOf().paymentIntents.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the F5 idempotency key on the single attempt', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeCardError'));
+
+    await caught(capture());
+
+    expect(stripeOf().paymentIntents.capture)
+      .toHaveBeenCalledWith(PI, expect.any(Object), { idempotencyKey: `capture_${PI}` });
+  });
+
+  it('a successful capture writes NO failure event', async () => {
+    await expect(capture()).resolves.toEqual({ status: 'succeeded' });
+
+    const types = mockPrisma.tripEvent.create.mock.calls.map((c) => c[0].data.eventType);
+    expect(types).not.toContain('payment_capture_failed');
+    expect(types).not.toContain('payment_capture_outcome_unknown');
+  });
+
+  it('an F5 rejection stays a fare-integrity error and never reaches Stripe', async () => {
+    // Wrong amount: rejected by F5's gate, before any capture is attempted.
+    const err = await caught(service.captureAuthorizationHold(PI, CENTS + 1, TRIP, 'rider-f3a'));
+
+    expect((err as UnprocessableEntityException).getResponse())
+      .toMatchObject({ code: 'FARE_INTEGRITY_ERROR' });
+    expect(eventOf().eventType).toBe('fare_integrity_error');
+    expect(stripeOf().paymentIntents.capture).not.toHaveBeenCalled();
   });
 });

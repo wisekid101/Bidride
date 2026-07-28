@@ -1223,3 +1223,154 @@ describe('BidsService — bid attempt id (F4)', () => {
     expect(new Set(ids).size).toBe(1);
   });
 });
+
+// ─── F3a: capture failure detection (trip-service side) ─────────────────────
+// captureStripeHold used to discard everything: fetch resolves for 4xx/5xx, so
+// a rejected capture looked identical to a successful one, and the .catch only
+// logged. It now records a durable event whenever payment-service could NOT do
+// so itself — and stays quiet when payment-service already has, to avoid
+// double-counting the same failure.
+//
+// Product behaviour is unchanged: acceptance still succeeds, nothing retries,
+// and the Redis handle lifecycle is untouched.
+
+describe('BidsService — capture failure detection (F3a)', () => {
+  const CAPTURE_URL = '/payments/internal/capture';
+  const FAILED = 'payment_capture_failed';
+  const UNKNOWN = 'payment_capture_outcome_unknown';
+
+  /** Accept a bid with a capture response (or throw) supplied by the test. */
+  async function acceptWithCapture(captureImpl: (url: string) => Promise<unknown>) {
+    const { service, prisma, redis, dispatch } = await buildService();
+    redis.set = jest.fn().mockResolvedValue('OK');
+    redis.get = jest.fn().mockResolvedValue('pi_capture_f3a');
+    global.fetch = jest.fn().mockImplementation((url: string) =>
+      String(url).includes(CAPTURE_URL)
+        ? captureImpl(String(url))
+        : Promise.resolve({ ok: true, json: async () => ({ paymentIntentId: 'pi_x' }) } as Response),
+    );
+    const result = await service.driverAcceptBid('bid-1', mockDriver.userId);
+    return { result, prisma, redis, dispatch };
+  }
+
+  const response = (status: number, body: unknown) => Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  } as Response);
+
+  const eventsOf = (prisma: ReturnType<typeof makePrisma>) =>
+    (prisma.tripEvent.create as jest.Mock).mock.calls.map((c) => c[0].data);
+
+  const captureEvent = (prisma: ReturnType<typeof makePrisma>) =>
+    eventsOf(prisma).find((e) => e.eventType === FAILED || e.eventType === UNKNOWN);
+
+  afterEach(() => jest.clearAllMocks());
+
+  // ── payment-service already classified: do not double-record ──────────────
+
+  it.each([
+    ['FARE_INTEGRITY_ERROR', 422],
+    ['CAPTURE_FAILED', 422],
+    ['CAPTURE_OUTCOME_UNKNOWN', 502],
+  ])('%s from payment-service is not re-recorded here', async (code, status) => {
+    const { prisma } = await acceptWithCapture(() => response(status, { code }));
+
+    expect(captureEvent(prisma)).toBeUndefined();
+  });
+
+  // ── payment-service could not classify: record an unknown outcome ─────────
+
+  it('a 500 with no code is an unknown outcome', async () => {
+    const { prisma } = await acceptWithCapture(() => response(500, { message: 'boom' }));
+
+    const event = captureEvent(prisma);
+    expect(event.eventType).toBe(UNKNOWN);
+    expect(event.metadata).toMatchObject({
+      outcome: 'unknown',
+      code: 'CAPTURE_OUTCOME_UNKNOWN',
+      source: 'trip-service',
+      paymentIntentId: 'pi_capture_f3a',
+    });
+    expect(event.metadata.detail).toContain('500');
+  });
+
+  it('a non-JSON error body does not crash the handler', async () => {
+    const { prisma } = await acceptWithCapture(() => Promise.resolve({
+      ok: false,
+      status: 502,
+      json: async () => { throw new SyntaxError('Unexpected token < in JSON'); },
+    } as unknown as Response));
+
+    expect(captureEvent(prisma).eventType).toBe(UNKNOWN);
+  });
+
+  it('a network exception is an unknown outcome, never a failure', async () => {
+    const { prisma } = await acceptWithCapture(() => Promise.reject(new Error('ECONNREFUSED')));
+
+    const event = captureEvent(prisma);
+    expect(event.eventType).toBe(UNKNOWN);
+    expect(event.metadata.detail).toContain('unreachable');
+  });
+
+  it('a missing Redis handle is an unknown outcome, not a silent skip', async () => {
+    const { service, prisma, redis } = await buildService();
+    redis.set = jest.fn().mockResolvedValue('OK');
+    redis.get = jest.fn().mockResolvedValue(null); // no handle
+
+    await service.driverAcceptBid('bid-1', mockDriver.userId);
+
+    const event = captureEvent(prisma);
+    expect(event.eventType).toBe(UNKNOWN);
+    expect(event.metadata).toMatchObject({
+      code: 'CAPTURE_HANDLE_MISSING',
+      paymentIntentId: null,
+    });
+  });
+
+  it('trip-service never claims a definitive failure — it never calls Stripe', async () => {
+    const { prisma } = await acceptWithCapture(() => response(500, {}));
+
+    expect(eventsOf(prisma).map((e) => e.eventType)).not.toContain(FAILED);
+  });
+
+  // ── Product behaviour is unchanged ────────────────────────────────────────
+
+  it('acceptance still succeeds when capture fails', async () => {
+    const { result, dispatch } = await acceptWithCapture(() => response(500, {}));
+
+    expect(result.status).toBe(BidStatus.accepted);
+    expect(dispatch.notifyBidAcceptedByDriver).toHaveBeenCalled();
+  });
+
+  it('does not retry the capture', async () => {
+    await acceptWithCapture(() => response(500, {}));
+
+    const captureCalls = (global.fetch as jest.Mock).mock.calls
+      .filter(([url]) => String(url).includes(CAPTURE_URL));
+    expect(captureCalls).toHaveLength(1);
+  });
+
+  it('the Redis handle lifecycle is unchanged on failure', async () => {
+    const { redis } = await acceptWithCapture(() => response(500, {}));
+
+    expect(redis.del).toHaveBeenCalledWith('bid:bid-1:pi');
+  });
+
+  it('a successful capture writes no failure event', async () => {
+    const { prisma } = await acceptWithCapture(() => response(200, { status: 'succeeded' }));
+
+    expect(captureEvent(prisma)).toBeUndefined();
+  });
+
+  it('an audit-write failure does not break acceptance', async () => {
+    const { service, prisma, redis } = await buildService();
+    redis.set = jest.fn().mockResolvedValue('OK');
+    redis.get = jest.fn().mockResolvedValue(null);
+    (prisma.tripEvent.create as jest.Mock).mockRejectedValue(new Error('db down'));
+
+    await expect(service.driverAcceptBid('bid-1', mockDriver.userId)).resolves.toMatchObject({
+      status: BidStatus.accepted,
+    });
+  });
+});
