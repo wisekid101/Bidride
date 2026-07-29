@@ -5,6 +5,7 @@ import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
 import { UserRole } from '@bidride/database/generated/client';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { authMetrics } from '../observability/auth-metrics';
 
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
@@ -48,6 +49,11 @@ export class TokenService {
       JSON.stringify({ jti, role }),
     );
 
+    // A refresh key in Redis IS a live session, so the gauge tracks that set.
+    // rotateTokenPair revokes then issues, keeping the count flat, which is
+    // correct — a rotation is the same session, not a new one.
+    authMetrics.activeSessions.inc();
+
     return { accessToken, refreshToken };
   }
 
@@ -71,14 +77,19 @@ export class TokenService {
 
   async revokeRefreshToken(userId: string, refreshToken: string): Promise<void> {
     const refreshKey = `refresh:${userId}:${refreshToken}`;
-    await this.redis.del(refreshKey);
+    // Decrement only when a key was actually removed. `del` returns the number
+    // deleted, so a logout with an already-expired token does not drive the
+    // gauge negative.
+    const removed = await this.redis.del(refreshKey);
+    if (removed > 0) authMetrics.activeSessions.dec({}, removed);
   }
 
   async revokeAllRefreshTokens(userId: string): Promise<void> {
     const pattern = `refresh:${userId}:*`;
     const keys = await this.redis.keys(pattern);
     if (keys.length > 0) {
-      await this.redis.del(...keys);
+      const removed = await this.redis.del(...keys);
+      if (removed > 0) authMetrics.activeSessions.dec({}, removed);
     }
   }
 }

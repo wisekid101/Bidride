@@ -2,6 +2,7 @@ export * from './correlation';
 export * from './service-identity';
 export * from './dimensions';
 export * from './emf';
+export * from './violation-logging';
 export * from './logger';
 export * from './metrics';
 export * from './circuit-breaker';

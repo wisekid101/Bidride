@@ -3,6 +3,7 @@ import { UserRole } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OtpService } from './otp.service';
 import { TokenService, TokenPair } from './token.service';
+import { authMetrics } from '../observability/auth-metrics';
 
 @Injectable()
 export class AuthService {
@@ -45,6 +46,13 @@ export class AuthService {
     }
 
     const tokenPair = await this.tokens.issueTokenPair(user.id, role);
+
+    // A login is only a login once tokens exist. Every failure path above
+    // throws, so this counts successes and nothing else — the failure rate is
+    // carried by otpAttempts, which owns the OTP outcomes.
+    authMetrics.loginAttempts.inc({
+      outcome: 'succeeded', role, is_new: String(isNew),
+    });
 
     return {
       tokens: tokenPair,
