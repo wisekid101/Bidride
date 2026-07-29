@@ -3,6 +3,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+// PO-1B: correlation context for every request, so a trip id logged in
+// trip-service and a capture logged here share one id across the two hops.
+import { ObservabilityModule } from '@bidride/observability/nest';
 import { throttlerClientIp } from './throttler-tracker';
 import { TripsModule } from './trips/trips.module';
 import { BidsModule } from './bids/bids.module';
@@ -19,6 +22,7 @@ import { ChatModule } from './chat/chat.module';
     // S0-B3B1: getTracker resolves the real client IP from the ALB-appended
     // X-Forwarded-For (throttling only; req.ip is untouched). Limit/window unchanged.
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100, getTracker: throttlerClientIp }]),
+    ObservabilityModule,
     TripsModule,
     BidsModule,
     ChatModule,

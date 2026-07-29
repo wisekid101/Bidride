@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
+import { paymentMetrics } from '../observability/payment-metrics';
 
 /**
  * The one place an offer-trip capture becomes a booked payment (F3b-2a).
@@ -71,6 +72,20 @@ export class PaymentIntentMismatchError extends Error {
 /** Prisma's P2002 — a unique constraint decided this for us. */
 const isUniqueViolation = (e: unknown) => (e as { code?: string })?.code === 'P2002';
 
+/**
+ * Which constraint fired, as a BOUNDED dimension value.
+ *
+ * Prisma reports the target in `meta.target`; anything unrecognised collapses
+ * to `other` rather than becoming a new metric series.
+ */
+function conflictTarget(e: unknown): string {
+  const target = (e as { meta?: { target?: unknown } })?.meta?.target;
+  const text = Array.isArray(target) ? target.join(',') : String(target ?? '');
+  if (text.includes('trip_id')) return 'payment_trip';
+  if (text.includes('correlation_id')) return 'ledger_correlation';
+  return 'other';
+}
+
 const PLATFORM_ACCOUNT = 'platform';
 const COMMISSION_RATE = 0.20;
 
@@ -95,16 +110,25 @@ export class PaymentBookingService {
   ): Promise<{ outcome: BookingOutcome }> {
     const run = (client: unknown) => this.bookInTransaction(client, input);
 
+    // PO-1B: the booking metric is emitted HERE, not inside bookInTransaction.
+    // The P2002 path runs that method twice, so emitting there would count every
+    // concurrent booking twice — a financial metric that overstates itself.
+    // Emitted only after the transaction commits, so a rollback records nothing.
     try {
-      return tx ? await run(tx) : await this.prisma.$transaction((t) => run(t));
+      const result = tx ? await run(tx) : await this.prisma.$transaction((t) => run(t));
+      paymentMetrics.bookingTotal.inc({ outcome: result.outcome, source: input.source });
+      return result;
     } catch (e: unknown) {
       if (!isUniqueViolation(e)) throw e;
       // Another writer won between our read and our write. The constraint did
       // its job; re-read and report what is now true rather than failing.
+      paymentMetrics.bookingConflictTotal.inc({ constraint: conflictTarget(e) });
       this.logger.warn(
         `bookCapturedPayment: concurrent booking for trip ${input.tripId} — re-reading final state`,
       );
-      return tx ? await run(tx) : await this.prisma.$transaction((t) => run(t));
+      const result = tx ? await run(tx) : await this.prisma.$transaction((t) => run(t));
+      paymentMetrics.bookingTotal.inc({ outcome: result.outcome, source: input.source });
+      return result;
     }
   }
 

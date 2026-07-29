@@ -7,6 +7,7 @@ import {
   BookingOutcome,
 } from '../payments/payment-booking.service';
 import { assertCanonicalCaptureAmount } from '../payments/capture-validation';
+import { paymentMetrics, stripeErrorType } from '../observability/payment-metrics';
 
 /**
  * Capture recovery (F3b-1 detection, F3b-2a booking).
@@ -172,6 +173,9 @@ export class CaptureRecoveryService {
     try {
       pi = await this.retrieveWithTimeout(paymentIntentId);
     } catch (e: unknown) {
+      paymentMetrics.stripeErrorTotal.inc({
+        operation: 'retrieve', error_type: stripeErrorType(e),
+      });
       return this.afterLookupFailure(row, paymentIntentId, e);
     }
 
@@ -392,6 +396,12 @@ export class CaptureRecoveryService {
         ...(booking ?? {}),
       },
     });
+
+    // STATE-TRANSITION metric: the row update above has committed, so the
+    // transition is now a fact. terminal() is a single funnel with eleven call
+    // sites, which is why every entry point — the scheduler, an admin recheck,
+    // a webhook — is counted exactly once by owning it here and nowhere else.
+    paymentMetrics.recoveryResolutionTotal.inc({ status, resolution });
 
     // Append-only audit, separate from the mutable work item.
     const eventType = status === RECOVERY_STATUS.resolvedCaptured

@@ -16,6 +16,8 @@ import { DispatchService } from '../trips/dispatch.service';
 import { detectAirportTripFromEndpoints } from '../trips/trips.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { SubmitBidDto, CounterBidDto } from './bids.dto';
+import { getCorrelationId } from '@bidride/observability';
+import { tripMetrics } from '../observability/trip-metrics';
 import {
   assertValidBidTransition,
   isBidTerminal,
@@ -35,6 +37,24 @@ const EXPIRY_SWEEP_INTERVAL_MS = 30_000;
 // TTL 25s against a 30s cadence: comfortably longer than any realistic sweep,
 // short enough that a crashed owner's lease clears before the next tick, and
 // non-overlapping so two consecutive ticks can never both hold it.
+/**
+ * Headers for an internal service call (PO-1B).
+ *
+ * `x-correlation-id` is the header @bidride/observability already reads first
+ * in extractFromHeaders, so this introduces no new standard — the receiving
+ * service's CorrelationMiddleware picks it up and one id spans both hops.
+ * Omitted when there is no context rather than inventing one, so a background
+ * caller does not fabricate a request id.
+ */
+function internalHeaders(): Record<string, string> {
+  const correlationId = getCorrelationId();
+  return {
+    'Content-Type': 'application/json',
+    ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+    ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
+  };
+}
+
 const SWEEP_LOCK_KEY = 'bid:sweep:lock';
 const SWEEP_LOCK_TTL_SECONDS = 25;
 
@@ -688,7 +708,17 @@ export class BidsService implements OnModuleInit {
             return true;
           });
 
-          if (!expired) continue; // silent skip — no void, no notify, no telemetry
+          // PO-1B: emitted AFTER the transaction resolves, so a rollback records
+          // nothing. `transition_lost` is F2's silent skip made countable — the
+          // sweep deliberately stays quiet in the logs (Founder Decision 1), but
+          // the RATE of lost races is worth seeing.
+          const previousStatus = bid.status === BidStatus.countered ? 'countered' : 'pending';
+          tripMetrics.bidExpiryTotal.inc({
+            outcome: expired ? 'expired' : 'transition_lost',
+            previous_status: previousStatus,
+          });
+
+          if (!expired) continue; // silent skip — no void, no notify
 
           await this.voidStripeHold(bid.id);
           if (bid.status === BidStatus.countered) {
@@ -768,7 +798,7 @@ export class BidsService implements OnModuleInit {
     const url = `${process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007'}/payments/internal/authorize`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
+      headers: internalHeaders(),
       // bidAttemptId makes the hold idempotent across retries of this attempt.
       body: JSON.stringify({
         bidAttemptId,
@@ -813,7 +843,7 @@ export class BidsService implements OnModuleInit {
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
+        headers: internalHeaders(),
         // tripId/riderId let payment-service book this capture as the trip's
         // payment record — the capture IS the ride's charge for offer trips,
         // and receipts/refunds/analytics must be able to see it.
@@ -904,7 +934,7 @@ export class BidsService implements OnModuleInit {
     const url = `${process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007'}/payments/internal/void`;
     await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
+      headers: internalHeaders(),
       body: JSON.stringify({ paymentIntentId: piId }),
     }).catch((e: unknown) => this.logger.error(`Stripe void failed for bid ${bidId}`, e));
 
@@ -917,7 +947,7 @@ export class BidsService implements OnModuleInit {
     const url = `${process.env.PRICING_SERVICE_URL ?? 'http://localhost:3005'}/pricing/estimate`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
+      headers: internalHeaders(),
       body: JSON.stringify({
         pickupLat: dto.pickupLat,
         pickupLng: dto.pickupLng,
@@ -1065,7 +1095,7 @@ export class BidsService implements OnModuleInit {
     try {
       const res = await fetch(`${AI_SERVICE_URL}/ai/driver-ranking`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
+        headers: internalHeaders(),
         body: JSON.stringify({
           tripId,
           isAirportTrip,
@@ -1088,7 +1118,7 @@ export class BidsService implements OnModuleInit {
     const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
     await fetch(`${AI_SERVICE_URL}/ai/dispatch-simulate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
+      headers: internalHeaders(),
       body: JSON.stringify({
         tripId,
         candidates: rankedCandidates,

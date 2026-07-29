@@ -21,6 +21,18 @@ import { ReconciliationService } from '../reconciliation/reconciliation.service'
 import { CaptureRecoveryService } from '../recovery/capture-recovery.service';
 import { PaymentBookingService } from './payment-booking.service';
 import { assertCanonicalCaptureAmount, recordFareIntegrityError } from './capture-validation';
+import { paymentMetrics, stripeErrorType } from '../observability/payment-metrics';
+import { BidRideLogger } from '@bidride/observability';
+
+/** Raw webhook bodies are never logged — only the verified id and type. */
+const webhookLogger = new BidRideLogger('stripe-webhook');
+
+/** The eight types the switch below actually handles; anything else is `unhandled`. */
+const HANDLED_WEBHOOK_TYPES = new Set([
+  'payment_intent.succeeded', 'payment_intent.payment_failed', 'payment_intent.canceled',
+  'charge.refunded', 'charge.dispute.created', 'account.updated',
+  'payout.paid', 'payout.failed',
+]);
 
 /**
  * Capture-failure audit event types (F3a).
@@ -507,6 +519,9 @@ export class PaymentService {
 
       return { paymentIntentId: pi.id };
     } catch (e: unknown) {
+      paymentMetrics.stripeErrorTotal.inc({
+        operation: 'authorize', error_type: stripeErrorType(e),
+      });
       // Same attempt id replayed with a DIFFERENT body. That is an integrity
       // failure, not a transient error: retrying under a fresh key would create
       // exactly the duplicate hold this guard exists to prevent.
@@ -571,6 +586,9 @@ export class PaymentService {
         amount_to_capture: amountCents,
       }, { idempotencyKey: `capture_${paymentIntentId}` });
     } catch (e: unknown) {
+      paymentMetrics.stripeErrorTotal.inc({
+        operation: 'capture', error_type: stripeErrorType(e),
+      });
       throw await this.recordCaptureOutcome(tripId, e, {
         paymentIntentId,
         bidId: trip.bidId,
@@ -590,6 +608,11 @@ export class PaymentService {
     }
 
     const amount = Math.round(amountCents) / 100;
+
+    // The outcome is now authoritative: Stripe returned and the status is
+    // `succeeded`. The failure arms of this metric live in recordCaptureOutcome,
+    // the only other place a capture outcome becomes known.
+    paymentMetrics.captureTotal.inc({ outcome: 'succeeded' });
 
     if (riderId) {
       // One shared, atomic booking path for capture, webhook and recovery. The
@@ -653,6 +676,17 @@ export class PaymentService {
       attemptedAt: new Date().toISOString(),
       source: 'payment-service',
     };
+
+    // OUTCOME metric, not a state transition: emitted as soon as the
+    // classification is known, deliberately NOT gated on the audit write below.
+    // Gating it would lose the signal exactly when the database is unhealthy —
+    // the moment it matters most.
+    const outcomeValue = definitive ? 'failed' : 'unknown';
+    paymentMetrics.captureTotal.inc({ outcome: outcomeValue });
+    paymentMetrics.captureFailureTotal.inc({
+      outcome: outcomeValue,
+      stripe_error_type: stripeErrorType ?? 'unknown',
+    });
 
     this.logger.error(
       `${definitive ? 'CAPTURE FAILED' : 'CAPTURE OUTCOME UNKNOWN'} trip=${tripId}: ${JSON.stringify(metadata)}`,
@@ -790,8 +824,31 @@ export class PaymentService {
   async handleWebhookEvent(event: Stripe.Event): Promise<void> {
     // Idempotency: each Stripe event ID is processed at most once within 24 hours
     const claimed = await this.redis.set(`stripe:event:${event.id}`, '1', 'EX', 86400, 'NX');
-    if (!claimed) return;
+    if (!claimed) {
+      // Stripe redelivery is normal, not an error — but a spike in it is worth
+      // seeing, so it is an outcome value rather than a dropped event. The
+      // event ID is context for the log line, NEVER a metric dimension: Stripe
+      // has hundreds of event types and unbounded ids.
+      paymentMetrics.webhookTotal.inc({ event_type: event.type, outcome: 'duplicate' });
+      webhookLogger.info('webhook_duplicate', { eventId: event.id, eventType: event.type });
+      return;
+    }
 
+    let outcome: 'processed' | 'unhandled' | 'failed' = 'processed';
+    try {
+      await this.dispatchWebhookEvent(event);
+      outcome = HANDLED_WEBHOOK_TYPES.has(event.type) ? 'processed' : 'unhandled';
+    } catch (e) {
+      outcome = 'failed';
+      webhookLogger.error('webhook_failed', e, { eventId: event.id, eventType: event.type });
+      throw e;
+    } finally {
+      paymentMetrics.webhookTotal.inc({ event_type: event.type, outcome });
+    }
+  }
+
+  /** The original switch, unchanged — extracted so the metric wraps it once. */
+  private async dispatchWebhookEvent(event: Stripe.Event): Promise<void> {
     switch (event.type) {
       case 'payment_intent.succeeded': {
         const pi = event.data.object as Stripe.PaymentIntent;

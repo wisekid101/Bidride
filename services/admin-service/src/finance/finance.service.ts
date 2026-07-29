@@ -1,5 +1,6 @@
 import { BadGatewayException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { getCorrelationId } from '@bidride/observability';
 
 // Mirrors the event types payment-service and trip-service write (F3a). Two
 // types rather than one flag so operations can separate "money did not move"
@@ -372,6 +373,9 @@ export class FinanceService {
       headers: {
         'Content-Type': 'application/json',
         ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+        // PO-1B: carry the admin request's correlation into payment-service so
+        // a manual re-check is traceable across both services.
+        ...(getCorrelationId() ? { 'x-correlation-id': getCorrelationId()! } : {}),
       },
       signal: AbortSignal.timeout(15000),
     });

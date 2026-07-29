@@ -1,5 +1,6 @@
 import { Logger, UnprocessableEntityException } from '@nestjs/common';
 import { BidStatus } from '@bidride/database/generated/client';
+import { paymentMetrics } from '../observability/payment-metrics';
 
 /**
  * F5 — canonical capture validation, extracted verbatim from
@@ -78,6 +79,7 @@ export async function assertCanonicalCaptureAmount(
       requestedAmountCents: Number.isFinite(amountCents) ? amountCents : String(amountCents),
       paymentIntentId,
     });
+    paymentMetrics.fareValidationFailureTotal.inc({ reason: 'bad_amount' });
     throw new UnprocessableEntityException({
       code: 'FARE_INTEGRITY_ERROR',
       message: 'Capture amount must be a positive whole number of cents.',
@@ -104,13 +106,22 @@ export async function assertCanonicalCaptureAmount(
     deps.logger.error(
       `FARE INTEGRITY ERROR trip=${tripId}: capture attempted for a trip that does not exist (pi=${paymentIntentId})`,
     );
+    paymentMetrics.fareValidationFailureTotal.inc({ reason: 'trip_not_found' });
     throw new UnprocessableEntityException({
       code: 'FARE_INTEGRITY_ERROR',
       message: 'Trip not found — capture refused.',
     });
   }
 
-  const reject = async (reason: string, extra: Record<string, unknown> = {}): Promise<never> => {
+  // PO-1B: this validator has three callers — capture, the webhook booking path
+  // and recovery. Owning the metric HERE gives one emission site instead of
+  // three, and guarantees no caller can forget it.
+  const reject = async (
+    reason: string,
+    extra: Record<string, unknown> = {},
+    metricReason = 'amount_mismatch',
+  ): Promise<never> => {
+    paymentMetrics.fareValidationFailureTotal.inc({ reason: metricReason });
     await recordFareIntegrityError(deps, tripId, {
       reason,
       bidId: trip.bidId,
@@ -125,15 +136,15 @@ export async function assertCanonicalCaptureAmount(
   };
 
   if (trip.bidId == null) {
-    await reject('capture attempted on a non-bid trip — standard rides settle via charge-trip');
+    await reject('capture attempted on a non-bid trip — standard rides settle via charge-trip', {}, 'non_bid_trip');
   }
   if (trip.winnerBid?.status !== BidStatus.accepted) {
     await reject('capture attempted before the bid was accepted', {
       bidStatus: trip.winnerBid?.status ?? null,
-    });
+    }, 'bid_not_accepted');
   }
   if (trip.finalFare == null) {
-    await reject('capture attempted with no canonical finalFare on the trip');
+    await reject('capture attempted with no canonical finalFare on the trip', {}, 'no_final_fare');
   }
 
   // ── 3. Cent-exact comparison ──────────────────────────────────────────────
@@ -145,7 +156,7 @@ export async function assertCanonicalCaptureAmount(
   if (!Number.isSafeInteger(canonicalAmountCents) || canonicalAmountCents <= 0) {
     await reject('canonical finalFare cannot be safely converted to cents', {
       tripFinalFare: Number.isFinite(canonicalFare) ? canonicalFare : String(canonicalFare),
-    });
+    }, 'unsafe_cents');
   }
   if (canonicalAmountCents !== amountCents) {
     await reject('capture amount does not match canonical finalFare', {

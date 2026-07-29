@@ -1,6 +1,8 @@
 import { CaptureRecoveryScheduler, BATCH_SIZE } from './capture-recovery.scheduler';
 import { RECOVERY_STATUS } from './capture-recovery.service';
 import { RECOVERY_LOCK_KEY } from './redis-lock';
+import { testing } from '@bidride/observability';
+import { paymentMetrics } from '../observability/payment-metrics';
 
 // ─── F3b-1: the worker that drains the worklist ─────────────────────────────
 // Two independent guards against duplicate work: a Redis leader lock, and a
@@ -188,5 +190,123 @@ describe('CaptureRecoveryScheduler', () => {
     const result = await build(makePrisma([]), makeRedis(), makeRecovery()).tick();
 
     expect(result).toMatchObject({ action: 'ran', claimed: 0, resolved: 0, deferred: 0 });
+  });
+});
+
+// ─── PO-1B: scheduler metrics ───────────────────────────────────────────────
+// Tick counting and gauge sampling are pure in-process behaviour, so they are
+// asserted here rather than in an integration suite — driving them against the
+// real leader lock would only make two suites contend for one Redis key.
+//
+// The rule this pins down: ONE tick metric per tick, never one per row.
+
+describe('CaptureRecoveryScheduler — metrics (PO-1B)', () => {
+  let capture: ReturnType<typeof testing.captureMetrics>;
+
+  beforeEach(() => { testing.withTestIdentity(); capture = testing.captureMetrics(); });
+  afterEach(() => { capture.stop(); testing.restoreIdentity(); });
+
+  const gaugePrisma = (rows: Array<{ status: string; _count: number }> = [], oldest: Date | null = null) => ({
+    captureRecovery: {
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      groupBy: jest.fn().mockResolvedValue(rows),
+      findFirst: jest.fn().mockResolvedValue(oldest ? { createdAt: oldest } : null),
+    },
+  });
+
+  it.each([
+    ['ran', 'OK'],
+    ['skipped_lock_held', null],
+  ])('emits exactly one tick metric with action=%s', async (action, setResult) => {
+    const scheduler = new CaptureRecoveryScheduler(
+      gaugePrisma() as never, makeRecovery() as never, makeRedis(setResult) as never,
+    );
+
+    await scheduler.tick();
+
+    const ticks = capture.named('bidride_payment_recovery_tick_total');
+    expect(ticks).toHaveLength(1);
+    expect(ticks[0].dimensions.action).toBe(action);
+  });
+
+  it('emits skipped_redis_unavailable when there is no Redis', async () => {
+    const scheduler = new CaptureRecoveryScheduler(gaugePrisma() as never, makeRecovery() as never, undefined);
+
+    await scheduler.tick();
+
+    expect(capture.named('bidride_payment_recovery_tick_total')[0].dimensions.action)
+      .toBe('skipped_redis_unavailable');
+  });
+
+  it('emits ONE tick metric regardless of how many rows it processes', async () => {
+    const prisma = gaugePrisma();
+    prisma.captureRecovery.findMany.mockResolvedValue([
+      dueRow({ id: 'r1' }), dueRow({ id: 'r2' }), dueRow({ id: 'r3' }),
+    ]);
+    const recovery = makeRecovery();
+
+    await new CaptureRecoveryScheduler(prisma as never, recovery as never, makeRedis() as never).tick();
+
+    expect(recovery.resolveOne).toHaveBeenCalledTimes(3);
+    expect(capture.named('bidride_payment_recovery_tick_total')).toHaveLength(1);
+  });
+
+  it('publishes a gauge for EVERY status, zero-filling the absent ones', async () => {
+    // In CloudWatch "no data" and "no problem" are different things, so a status
+    // with no rows must publish 0 rather than vanish.
+    const prisma = gaugePrisma([{ status: 'unresolved', _count: 4 }]);
+
+    await new CaptureRecoveryScheduler(prisma as never, makeRecovery() as never, makeRedis() as never).tick();
+
+    const gauges = capture.named('bidride_payment_recovery_items');
+    const byStatus = Object.fromEntries(gauges.map((g) => [g.dimensions.status, g.value]));
+    expect(byStatus.unresolved).toBe(4);
+    for (const s of ['resolved_captured', 'resolved_not_captured', 'needs_admin', 'closed']) {
+      expect(byStatus[s]).toBe(0);
+    }
+  });
+
+  it('publishes the oldest unresolved age, and zero when the worklist is empty', async () => {
+    await new CaptureRecoveryScheduler(gaugePrisma() as never, makeRecovery() as never, makeRedis() as never).tick();
+
+    expect(capture.named('bidride_payment_recovery_oldest_age_seconds')[0].value).toBe(0);
+  });
+
+  it('publishes a real age when an unresolved item exists', async () => {
+    const prisma = gaugePrisma([], new Date(Date.now() - 120_000));
+
+    await new CaptureRecoveryScheduler(prisma as never, makeRecovery() as never, makeRedis() as never).tick();
+
+    expect(capture.named('bidride_payment_recovery_oldest_age_seconds')[0].value)
+      .toBeGreaterThanOrEqual(119);
+  });
+
+  it('a failing gauge query does not abort the tick', async () => {
+    // Sampling is telemetry; the recovery work it rides along with is not.
+    const prisma = gaugePrisma();
+    prisma.captureRecovery.groupBy.mockRejectedValue(new Error('db down'));
+
+    const result = await new CaptureRecoveryScheduler(
+      prisma as never, makeRecovery() as never, makeRedis() as never,
+    ).tick();
+
+    expect(result.action).toBe('ran');
+    expect(capture.named('bidride_payment_recovery_items')).toHaveLength(0);
+  });
+
+  it('a skipped tick samples no gauges — the leader will', async () => {
+    const prisma = gaugePrisma();
+
+    await new CaptureRecoveryScheduler(prisma as never, makeRecovery() as never, makeRedis(null) as never).tick();
+
+    expect(prisma.captureRecovery.groupBy).not.toHaveBeenCalled();
+  });
+
+  it('the tick metric is registered with a bounded action dimension', () => {
+    paymentMetrics.recoveryTickTotal.inc({ action: 'invented_action' });
+
+    const emitted = capture.named('bidride_payment_recovery_tick_total');
+    expect(emitted[emitted.length - 1].dimensions.action).toBe('other');
   });
 });
