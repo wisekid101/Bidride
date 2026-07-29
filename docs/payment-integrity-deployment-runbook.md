@@ -288,6 +288,20 @@ Corrections go through the admin surfaces.
 
 ## Related documentation
 
+**Release execution package** — `docs/release/`:
+
+- `production-deployment-checklist.md` — the step-by-step checklist to execute,
+  with a rollback decision point after each stage
+- `operations-verification-checklist.md` — copy-paste commands and queries for
+  every verification gate
+- `monitoring-guide.md` — what to watch afterwards, what is normal, what needs
+  investigation
+- `release-notes-payment-integrity.md` — what shipped, what changed, what is
+  deferred
+- `founder-deployment-summary.md` — one-page executive summary
+
+**General:**
+
 - `infrastructure/DEPLOYMENT_RUNBOOK.md` — general deployment phases, ECS
   mechanics, rollback procedure, backup and restore
 - `docs/OPERATIONS_RUNBOOK.md` — incident severity, payment failure handling,
