@@ -6,10 +6,12 @@ import {
   HttpStatus,
   BadRequestException,
   UseGuards,
+  Param,
 } from '@nestjs/common';
 import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
+import { CaptureRecoveryService } from '../recovery/capture-recovery.service';
 import { InternalKeyGuard } from './internal-key.guard';
 
 class AuthorizeHoldDto {
@@ -88,7 +90,10 @@ class CreditWalletDto {
 // second execution. The per-route @Throttle(20/60s) and InternalKeyGuard are unchanged.
 @UseGuards(InternalKeyGuard)
 export class PaymentsInternalController {
-  constructor(private readonly payments: PaymentService) {}
+  constructor(
+    private readonly payments: PaymentService,
+    private readonly recovery: CaptureRecoveryService,
+  ) {}
 
   @Post('authorize')
   @HttpCode(HttpStatus.CREATED)
@@ -126,6 +131,20 @@ export class PaymentsInternalController {
   @HttpCode(HttpStatus.OK)
   chargeTrip(@Body() dto: ChargeTripDto) {
     return this.payments.chargeTripByDefault(dto.tripId, dto.riderId, dto.amount);
+  }
+
+  /**
+   * Re-run capture recovery for one work item (F3b-1).
+   *
+   * Lives here because only payment-service holds the Stripe client. READ-ONLY:
+   * it retrieves the PaymentIntent and records what Stripe reports. It never
+   * captures, never books a payment and never touches the ledger.
+   */
+  @Post('capture-recovery/:id/recheck')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  recheckCaptureRecovery(@Param('id') id: string) {
+    return this.recovery.recheck(id);
   }
 
   @Post('credit-wallet')

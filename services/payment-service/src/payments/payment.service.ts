@@ -7,6 +7,7 @@ import {
   Logger,
   HttpException,
   HttpStatus,
+  Optional,
 } from '@nestjs/common';
 import Stripe from 'stripe';
 import Redis from 'ioredis';
@@ -17,6 +18,7 @@ import { BidStatus } from '@bidride/database/generated/client';
 import { LedgerService } from '../ledger/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
+import { CaptureRecoveryService } from '../recovery/capture-recovery.service';
 
 /**
  * Capture-failure audit event types (F3a).
@@ -105,6 +107,7 @@ export class PaymentService {
     private readonly ledger: LedgerService,
     private readonly wallet: WalletService,
     private readonly reconciliation: ReconciliationService,
+    @Optional() private readonly recovery?: CaptureRecoveryService,
   ) {
     this.stripe = new Stripe(config.getOrThrow('STRIPE_SECRET_KEY'), {
       apiVersion: '2024-04-10',
@@ -755,9 +758,26 @@ export class PaymentService {
 
     // Best-effort, like recordFareIntegrityError: losing the audit row must not
     // mask the payment failure the caller is about to be told about.
+    //
+    // The immutable event and the mutable work item are written in ONE
+    // transaction: an uncertainty that is recorded but never queued would be
+    // invisible to recovery, and a queued item with no evidence would have no
+    // audit trail.
     try {
-      await this.prisma.tripEvent.create({
-        data: { tripId, eventType: outcome, metadata: metadata as object },
+      await this.prisma.$transaction(async (tx) => {
+        await tx.tripEvent.create({
+          data: { tripId, eventType: outcome, metadata: metadata as object },
+        });
+        // Only uncertain outcomes need reconciling. A definitive refusal is
+        // already a known fact — there is nothing for a worker to discover.
+        if (!definitive && this.recovery) {
+          await this.recovery.enqueue(tx as never, {
+            tripId,
+            paymentIntentId: context.paymentIntentId,
+            bidId: context.bidId,
+            expectedAmountCents: context.requestedAmountCents,
+          });
+        }
       });
     } catch (e) {
       this.logger.error(`Failed to persist ${outcome} for trip ${tripId}`, e as Error);
@@ -816,6 +836,16 @@ export class PaymentService {
     );
   }
 
+  /** Best-effort webhook resolution — a webhook must never fail on our bookkeeping. */
+  private async resolveRecoveryFromWebhook(pi: Stripe.PaymentIntent): Promise<void> {
+    if (!this.recovery || !pi?.id || typeof pi.status !== 'string') return;
+    try {
+      await this.recovery.resolveFromWebhook(pi.id, pi.status);
+    } catch (e) {
+      this.logger.error(`Recovery webhook resolution failed for ${pi.id}`, e as Error);
+    }
+  }
+
   async handleWebhookEvent(event: Stripe.Event): Promise<void> {
     // Idempotency: each Stripe event ID is processed at most once within 24 hours
     const claimed = await this.redis.set(`stripe:event:${event.id}`, '1', 'EX', 86400, 'NX');
@@ -828,6 +858,10 @@ export class PaymentService {
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'succeeded' },
         });
+        // Fast path (F3b-1): the webhook carries authoritative Stripe state, so
+        // an open recovery item for this intent can be resolved now instead of
+        // waiting for the next poll. Never issues a capture.
+        await this.resolveRecoveryFromWebhook(pi);
         break;
       }
       case 'payment_intent.payment_failed': {
@@ -836,6 +870,10 @@ export class PaymentService {
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'failed' },
         });
+        // Fast path (F3b-1): the webhook carries authoritative Stripe state, so
+        // an open recovery item for this intent can be resolved now instead of
+        // waiting for the next poll. Never issues a capture.
+        await this.resolveRecoveryFromWebhook(pi);
         break;
       }
       case 'payment_intent.canceled': {
@@ -844,6 +882,10 @@ export class PaymentService {
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'failed' },
         });
+        // Fast path (F3b-1): the webhook carries authoritative Stripe state, so
+        // an open recovery item for this intent can be resolved now instead of
+        // waiting for the next poll. Never issues a capture.
+        await this.resolveRecoveryFromWebhook(pi);
         break;
       }
       case 'charge.refunded': {

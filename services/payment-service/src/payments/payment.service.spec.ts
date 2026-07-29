@@ -65,6 +65,17 @@ const mockPrisma = {
     findUnique: jest.fn(),
   },
   tripEvent: { create: jest.fn().mockResolvedValue({}) },
+  captureRecovery: {
+    findUnique: jest.fn().mockResolvedValue(null),
+    findFirst: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockResolvedValue({}),
+    update: jest.fn().mockResolvedValue({}),
+  },
+  // Interactive transactions run against the same mock, so assertions can be
+  // written against mockPrisma regardless of which side of the boundary a
+  // write happened on.
+  $transaction: jest.fn().mockImplementation((arg: unknown) =>
+    typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(mockPrisma) : Promise.all(arg as [])),
 } as any;
 
 const mockConfig = {
@@ -1094,5 +1105,105 @@ describe('PaymentService — capture failure detection (F3a)', () => {
       .toMatchObject({ code: 'FARE_INTEGRITY_ERROR' });
     expect(eventOf().eventType).toBe('fare_integrity_error');
     expect(stripeOf().paymentIntents.capture).not.toHaveBeenCalled();
+  });
+});
+
+// ─── F3b-1: worklist enqueue + webhook fast path ────────────────────────────
+// PaymentService's only role in recovery is to put uncertain outcomes on the
+// worklist, in the SAME transaction as the F3a audit event, and to hand
+// authoritative webhook state to the resolver. It never resolves anything
+// itself and it still never captures during recovery.
+
+describe('PaymentService — recovery wiring (F3b-1)', () => {
+  const TRIP = 'trip-f3b';
+  const PI = 'pi_f3b';
+  const canonical = { id: TRIP, bidId: 'bid-f3b', finalFare: 23.64, winnerBid: { status: 'accepted' } };
+
+  let recovery: { enqueue: jest.Mock; resolveFromWebhook: jest.Mock };
+  let svc: PaymentService;
+
+  const stripeOf = () =>
+    (svc as unknown as { stripe: { paymentIntents: { capture: jest.Mock } } }).stripe;
+
+  const stripeError = (type: string) => Object.assign(new Error(type), { type });
+
+  const captureAttempt = async () => {
+    try {
+      await svc.captureAuthorizationHold(PI, 2364, TRIP, 'rider-f3b');
+    } catch { /* expected */ }
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    recovery = { enqueue: jest.fn().mockResolvedValue(undefined), resolveFromWebhook: jest.fn().mockResolvedValue(undefined) };
+    svc = new PaymentService(
+      mockPrisma, mockConfig, mockRedis, mockLedger, mockWallet, mockReconciliation,
+      recovery as never,
+    );
+    mockPrisma.trip.findUnique.mockResolvedValue(canonical);
+    mockPrisma.payment.updateMany.mockResolvedValue({ count: 0 });
+  });
+
+  it('an UNKNOWN outcome is queued for recovery', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeConnectionError'));
+
+    await captureAttempt();
+
+    expect(recovery.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tripId: TRIP, paymentIntentId: PI, expectedAmountCents: 2364 }),
+    );
+  });
+
+  it('a DEFINITIVE failure is not queued — there is nothing to discover', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeCardError'));
+
+    await captureAttempt();
+
+    expect(recovery.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('the audit event and the work item are written in one transaction', async () => {
+    stripeOf().paymentIntents.capture.mockRejectedValueOnce(stripeError('StripeAPIError'));
+
+    await captureAttempt();
+
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.tripEvent.create).toHaveBeenCalled();
+    expect(recovery.enqueue).toHaveBeenCalled();
+  });
+
+  it('a successful capture queues nothing', async () => {
+    await expect(svc.captureAuthorizationHold(PI, 2364, TRIP, 'rider-f3b'))
+      .resolves.toEqual({ status: 'succeeded' });
+
+    expect(recovery.enqueue).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['payment_intent.succeeded', 'succeeded'],
+    ['payment_intent.canceled', 'canceled'],
+    ['payment_intent.payment_failed', 'requires_payment_method'],
+  ])('%s hands authoritative state to the resolver', async (type, status) => {
+    mockRedis.set.mockResolvedValueOnce('OK'); // event not yet processed
+    mockPrisma.payment.updateMany.mockResolvedValue({ count: 0 });
+
+    await svc.handleWebhookEvent({
+      id: `evt_${status}`, type,
+      data: { object: { id: PI, status } },
+    } as never);
+
+    expect(recovery.resolveFromWebhook).toHaveBeenCalledWith(PI, status);
+    expect(stripeOf().paymentIntents.capture).not.toHaveBeenCalled();
+  });
+
+  it('a resolver failure never breaks webhook handling', async () => {
+    mockRedis.set.mockResolvedValueOnce('OK');
+    recovery.resolveFromWebhook.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(svc.handleWebhookEvent({
+      id: 'evt_boom', type: 'payment_intent.succeeded',
+      data: { object: { id: PI, status: 'succeeded' } },
+    } as never)).resolves.toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 // Mirrors the event types payment-service and trip-service write (F3a). Two
@@ -6,6 +6,10 @@ import { PrismaService } from '../prisma/prisma.service';
 // from "we cannot tell" without parsing metadata.
 const CAPTURE_FAILED_EVENT = 'payment_capture_failed';
 const CAPTURE_UNKNOWN_EVENT = 'payment_capture_outcome_unknown';
+const CAPTURE_EVENT_TYPES = [CAPTURE_FAILED_EVENT, CAPTURE_UNKNOWN_EVENT];
+
+// Terminal transitions written by the recovery worker (F3b-1).
+const RECOVERY_EVENT_TYPES = ['payment_capture_recovered', 'payment_capture_recovery_failed'];
 
 @Injectable()
 export class FinanceService {
@@ -252,6 +256,182 @@ export class FinanceService {
       detail: e.metadata,
       trip: e.trip,
     }));
+  }
+
+  // ─── F3b-1: capture recovery worklist ────────────────────────────────────
+  //
+  // The mutable counterpart to the capture-failure events. Operations inspects
+  // and triages here; only Stripe's reported state ever decides a payment
+  // outcome, so nothing on this surface can force success or failure.
+
+  async getCaptureRecovery(filters: {
+    status?: string;
+    resolution?: string;
+    tripId?: string;
+    paymentIntentId?: string;
+    from?: Date;
+    to?: Date;
+    limit?: number;
+  } = {}) {
+    const { status, resolution, tripId, paymentIntentId, from, to, limit = 50 } = filters;
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+    if (resolution) where.resolution = resolution;
+    if (tripId) where.tripId = tripId;
+    if (paymentIntentId) where.paymentIntentId = paymentIntentId;
+    if (from || to) {
+      where.createdAt = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
+    }
+
+    return this.prisma.captureRecovery.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
+
+  /** One work item with the full audit trail behind it. */
+  async getCaptureRecoveryItem(id: string) {
+    const item = await this.prisma.captureRecovery.findUnique({ where: { id } });
+    if (!item) return null;
+
+    const [trip, events] = await Promise.all([
+      this.prisma.trip.findUnique({
+        where: { id: item.tripId },
+        select: {
+          id: true, status: true, riderId: true, driverId: true,
+          finalFare: true, bidId: true, completedAt: true,
+        },
+      }),
+      this.prisma.tripEvent.findMany({
+        where: {
+          tripId: item.tripId,
+          eventType: { in: [...CAPTURE_EVENT_TYPES, ...RECOVERY_EVENT_TYPES] },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, eventType: true, metadata: true, createdAt: true },
+      }),
+    ]);
+
+    return { item, trip, history: events };
+  }
+
+  /**
+   * Worklist health. No alerting yet — these are the numbers a dashboard or an
+   * alert rule would read.
+   */
+  async getCaptureRecoveryMetrics() {
+    const [byStatus, oldest, resolvedSample] = await Promise.all([
+      this.prisma.captureRecovery.groupBy({ by: ['status'], _count: true }),
+      this.prisma.captureRecovery.findFirst({
+        where: { status: 'unresolved' },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+      this.prisma.captureRecovery.findMany({
+        where: { resolvedAt: { not: null } },
+        select: { createdAt: true, resolvedAt: true },
+        orderBy: { resolvedAt: 'desc' },
+        take: 500,
+      }),
+    ]);
+
+    const counts = Object.fromEntries(byStatus.map((r) => [r.status, r._count]));
+    const durations = resolvedSample
+      .map((r) => (r.resolvedAt!.getTime() - r.createdAt.getTime()) / 1000)
+      .filter((s) => s >= 0);
+
+    return {
+      unresolvedCount: counts.unresolved ?? 0,
+      needsAdminCount: counts.needs_admin ?? 0,
+      oldestUnresolvedAgeSeconds: oldest
+        ? Math.round((Date.now() - oldest.createdAt.getTime()) / 1000)
+        : null,
+      averageResolutionSeconds: durations.length
+        ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+        : null,
+      terminalOutcomeCounts: {
+        resolved_captured: counts.resolved_captured ?? 0,
+        resolved_not_captured: counts.resolved_not_captured ?? 0,
+        needs_admin: counts.needs_admin ?? 0,
+        closed: counts.closed ?? 0,
+      },
+      sampleSize: durations.length,
+    };
+  }
+
+  /**
+   * Re-check delegates to payment-service, which owns the Stripe client. The
+   * call is READ-ONLY at the far end: it retrieves the PaymentIntent and
+   * records what Stripe reports. No capture, no booking, no ledger.
+   */
+  async recheckCaptureRecovery(id: string) {
+    const base = process.env.PAYMENT_SERVICE_URL ?? 'http://localhost:3007';
+    const res = await fetch(`${base}/payments/internal/capture-recovery/${id}/recheck`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      throw new BadGatewayException({
+        code: 'RECOVERY_RECHECK_FAILED',
+        message: `payment-service responded ${res.status} to the re-check request.`,
+      });
+    }
+    return res.json();
+  }
+
+  /**
+   * Stop tracking a work item, with a reason.
+   *
+   * An admin may close an item; an admin may NOT declare that a payment
+   * succeeded or failed. `closed` is the only status reachable here — every
+   * payment outcome comes from Stripe's own reported state.
+   */
+  async closeCaptureRecovery(id: string, adminId: string, note: string) {
+    const item = await this.prisma.captureRecovery.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException(`No capture recovery item ${id}`);
+    if (!note?.trim()) {
+      throw new BadRequestException({
+        code: 'RESOLUTION_NOTE_REQUIRED',
+        message: 'A reason is required to close a capture recovery item.',
+      });
+    }
+
+    const updated = await this.prisma.captureRecovery.update({
+      where: { id },
+      data: {
+        status: 'closed',
+        resolution: 'closed_by_admin',
+        resolvedAt: new Date(),
+        resolvedByAdminId: adminId,
+        nextAttemptAt: null,
+        lastError: note.slice(0, 200),
+      },
+    });
+
+    // Append-only audit alongside the mutable work item.
+    await this.prisma.tripEvent.create({
+      data: {
+        tripId: item.tripId,
+        eventType: 'payment_capture_recovery_failed',
+        metadata: {
+          recoveryId: id,
+          status: 'closed',
+          resolution: 'closed_by_admin',
+          detail: note.slice(0, 200),
+          adminId,
+          previousStatus: item.status,
+          resolvedAt: new Date().toISOString(),
+          source: 'admin',
+        } as object,
+      },
+    });
+
+    return updated;
   }
 
   async resolveReconciliation(id: string, adminId: string) {

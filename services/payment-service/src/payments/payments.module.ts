@@ -11,11 +11,13 @@ import { RedisModule } from '../redis/redis.module';
 import { LedgerService } from '../ledger/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
+import { CaptureRecoveryModule } from '../recovery/capture-recovery.module';
 
 @Module({
   imports: [
     ConfigModule,
     RedisModule,
+    CaptureRecoveryModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({ secret: config.getOrThrow('JWT_SECRET') }),

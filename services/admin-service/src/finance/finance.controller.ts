@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Param } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Post, Query, Param } from '@nestjs/common';
 import { FinanceService } from './finance.service';
 
 @Controller('admin/finance')
@@ -84,6 +84,55 @@ export class FinanceController {
   ) {
     const filter = outcome === 'failed' || outcome === 'unknown' ? outcome : undefined;
     return this.finance.getCaptureFailures(Math.min(parseInt(limit, 10) || 50, 200), filter);
+  }
+
+  // ─── F3b-1: capture recovery worklist ────────────────────────────────────
+
+  @Get('capture-recovery')
+  async getCaptureRecovery(
+    @Query('status') status?: string,
+    @Query('resolution') resolution?: string,
+    @Query('tripId') tripId?: string,
+    @Query('paymentIntentId') paymentIntentId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit = '50',
+  ) {
+    return this.finance.getCaptureRecovery({
+      status, resolution, tripId, paymentIntentId,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+      limit: Math.min(parseInt(limit, 10) || 50, 200),
+    });
+  }
+
+  /** Worklist health. No alerting infrastructure yet — these are the numbers. */
+  @Get('capture-recovery/metrics')
+  async getCaptureRecoveryMetrics() {
+    return this.finance.getCaptureRecoveryMetrics();
+  }
+
+  @Get('capture-recovery/:id')
+  async getCaptureRecoveryItem(@Param('id') id: string) {
+    const found = await this.finance.getCaptureRecoveryItem(id);
+    if (!found) throw new NotFoundException(`No capture recovery item ${id}`);
+    return found;
+  }
+
+  /** Re-ask Stripe now. Read-only at the far end — never issues a capture. */
+  @Post('capture-recovery/:id/recheck')
+  async recheckCaptureRecovery(@Param('id') id: string) {
+    return this.finance.recheckCaptureRecovery(id);
+  }
+
+  /** Stop tracking an item. Cannot force a payment outcome. */
+  @Post('capture-recovery/:id/close')
+  async closeCaptureRecovery(
+    @Param('id') id: string,
+    @Query('adminId') adminId = 'unknown',
+    @Body() body: { note?: string } = {},
+  ) {
+    return this.finance.closeCaptureRecovery(id, adminId, body?.note ?? '');
   }
 
   @Post('reconciliation/:id/resolve')

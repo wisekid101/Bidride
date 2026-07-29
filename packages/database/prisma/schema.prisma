@@ -1519,6 +1519,41 @@ model PayoutSubmissionAttempt {
   @@map("payout_submission_attempts")
 }
 
+/// F3b-1 — capture recovery worklist.
+///
+/// TripEvent stays the immutable audit evidence; this is the MUTABLE work item
+/// that a recovery worker drains. An append-only event log cannot express
+/// "unresolved, 2 attempts, retry after 10:04", and mutating an event to mark it
+/// resolved would destroy the very property that makes it evidence.
+///
+/// Deliberately NOT a PaymentStatus value: a capture that did not confirm writes
+/// no Payment row at all, so the status would have nowhere to live, and creating
+/// a Payment row to hold it would assert that a payment exists when the whole
+/// point is that we do not know.
+model CaptureRecovery {
+  id                  String    @id @default(uuid()) @db.Uuid
+  /// One open recovery per trip, enforced by the database rather than by convention.
+  tripId              String    @unique @map("trip_id") @db.Uuid
+  paymentIntentId     String?   @map("stripe_payment_intent_id") @db.VarChar(100)
+  bidId               String?   @map("bid_id") @db.Uuid
+  expectedAmountCents Int       @map("expected_amount_cents")
+  /// unresolved | resolved_captured | resolved_not_captured | needs_admin | closed
+  status              String    @db.VarChar(24)
+  resolution          String?   @db.VarChar(40)
+  attemptNumber       Int       @default(0) @map("attempt_number")
+  nextAttemptAt       DateTime? @map("next_attempt_at")
+  lastError           String?   @map("last_error") @db.VarChar(200)
+  holdExpiresAt       DateTime? @map("hold_expires_at")
+  resolvedAt          DateTime? @map("resolved_at")
+  resolvedByAdminId   String?   @map("resolved_by_admin_id") @db.VarChar(100)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("capture_recovery")
+}
+
 model PaymentReconciliation {
   id                String    @id @default(uuid()) @db.Uuid
   stripeObjectId    String    @unique @map("stripe_object_id") @db.VarChar(100)

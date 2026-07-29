@@ -9,6 +9,7 @@ import { LedgerModule } from './ledger/ledger.module';
 import { WalletModule } from './wallet/wallet.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { PayoutBatchModule } from './payouts/payout-batch.module';
+import { CaptureRecoveryModule } from './recovery/capture-recovery.module';
 
 @Module({
   controllers: [HealthController],
@@ -26,6 +27,7 @@ import { PayoutBatchModule } from './payouts/payout-batch.module';
     WalletModule,
     ReconciliationModule,
     PayoutBatchModule,
+    CaptureRecoveryModule,
   ],
 })
 export class AppModule {}
