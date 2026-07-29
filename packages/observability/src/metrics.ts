@@ -1,3 +1,6 @@
+import { applyDimensionPolicy, DimensionPolicy } from './dimensions';
+import { emitEmf, EmfMetricInput, EmfUnit } from './emf';
+
 export type Labels = Record<string, string>;
 
 interface CounterEntry { value: number; labels: Labels }
@@ -15,17 +18,23 @@ export class Counter {
   constructor(
     public readonly name: string,
     public readonly help: string,
+    /** Optional allow-list. Without one, only prohibited names are enforced. */
+    public readonly policy?: DimensionPolicy,
   ) {}
 
   inc(labels: Labels = {}, by = 1): void {
-    const key = JSON.stringify(labels);
-    const e = this.entries.get(key) ?? { value: 0, labels };
+    const safe = applyDimensionPolicy(this.name, labels, this.policy);
+    const key = JSON.stringify(safe);
+    const e = this.entries.get(key) ?? { value: 0, labels: safe };
     e.value += by;
     this.entries.set(key, e);
+    // A counter increment is a business event: emit it now rather than waiting
+    // for a flush, so an alarm can fire on the event that just happened.
+    emitEmf([{ name: this.name, value: by, unit: 'Count' }], safe);
   }
 
   get(labels: Labels = {}): number {
-    return this.entries.get(JSON.stringify(labels))?.value ?? 0;
+    return this.entries.get(JSON.stringify(applyDimensionPolicy(this.name, labels, this.policy)))?.value ?? 0;
   }
 
   toPrometheus(): string {
@@ -43,15 +52,18 @@ export class Gauge {
   constructor(
     public readonly name: string,
     public readonly help: string,
+    public readonly policy?: DimensionPolicy,
   ) {}
 
   set(value: number, labels: Labels = {}): void {
-    this.entries.set(JSON.stringify(labels), { value, labels });
+    const safe = applyDimensionPolicy(this.name, labels, this.policy);
+    this.entries.set(JSON.stringify(safe), { value, labels: safe });
   }
 
   inc(labels: Labels = {}, by = 1): void {
-    const key = JSON.stringify(labels);
-    const e = this.entries.get(key) ?? { value: 0, labels };
+    const safe = applyDimensionPolicy(this.name, labels, this.policy);
+    const key = JSON.stringify(safe);
+    const e = this.entries.get(key) ?? { value: 0, labels: safe };
     e.value += by;
     this.entries.set(key, e);
   }
@@ -61,7 +73,17 @@ export class Gauge {
   }
 
   get(labels: Labels = {}): number {
-    return this.entries.get(JSON.stringify(labels))?.value ?? 0;
+    return this.entries.get(JSON.stringify(applyDimensionPolicy(this.name, labels, this.policy)))?.value ?? 0;
+  }
+
+  /**
+   * Publish current values as EMF. Gauges describe a level, not an event, so
+   * they are sampled on a schedule by the owning service rather than on write.
+   */
+  publish(unit: EmfUnit = 'Count'): void {
+    for (const e of this.entries.values()) {
+      emitEmf([{ name: this.name, value: e.value, unit }], e.labels);
+    }
   }
 
   toPrometheus(): string {
@@ -81,18 +103,22 @@ export class Histogram {
     public readonly name: string,
     public readonly help: string,
     buckets: number[] = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+    public readonly policy?: DimensionPolicy,
+    /** Unit reported to CloudWatch. Seconds by default, matching the buckets. */
+    public readonly unit: EmfUnit = 'Seconds',
   ) {
     this.bounds = [...buckets].sort((a, b) => a - b);
   }
 
   observe(value: number, labels: Labels = {}): void {
-    const key = JSON.stringify(labels);
+    const safe = applyDimensionPolicy(this.name, labels, this.policy);
+    const key = JSON.stringify(safe);
     if (!this.entries.has(key)) {
       this.entries.set(key, {
         sum: 0,
         count: 0,
         buckets: new Map(this.bounds.map((b) => [b, 0])),
-        labels,
+        labels: safe,
       });
     }
     const e = this.entries.get(key)!;
@@ -101,6 +127,9 @@ export class Histogram {
     for (const bound of this.bounds) {
       if (value <= bound) e.buckets.set(bound, (e.buckets.get(bound) ?? 0) + 1);
     }
+    // CloudWatch computes its own statistics from raw observations, so each
+    // value is emitted as it arrives rather than as pre-bucketed counts.
+    emitEmf([{ name: this.name, value, unit: this.unit }], safe);
   }
 
   toPrometheus(): string {
@@ -129,19 +158,36 @@ export class MetricsRegistry {
   private readonly gauges     = new Map<string, Gauge>();
   private readonly histograms = new Map<string, Histogram>();
 
-  counter(name: string, help: string): Counter {
-    if (!this.counters.has(name)) this.counters.set(name, new Counter(name, help));
+  counter(name: string, help: string, policy?: DimensionPolicy): Counter {
+    if (!this.counters.has(name)) this.counters.set(name, new Counter(name, help, policy));
     return this.counters.get(name)!;
   }
 
-  gauge(name: string, help: string): Gauge {
-    if (!this.gauges.has(name)) this.gauges.set(name, new Gauge(name, help));
+  gauge(name: string, help: string, policy?: DimensionPolicy): Gauge {
+    if (!this.gauges.has(name)) this.gauges.set(name, new Gauge(name, help, policy));
     return this.gauges.get(name)!;
   }
 
-  histogram(name: string, help: string, buckets?: number[]): Histogram {
-    if (!this.histograms.has(name)) this.histograms.set(name, new Histogram(name, help, buckets));
+  histogram(name: string, help: string, buckets?: number[], policy?: DimensionPolicy, unit?: EmfUnit): Histogram {
+    if (!this.histograms.has(name)) {
+      this.histograms.set(name, new Histogram(name, help, buckets, policy, unit));
+    }
     return this.histograms.get(name)!;
+  }
+
+  /**
+   * Publish every gauge as EMF. Counters and histograms emit on write; gauges
+   * describe a level, so the owning service samples them on a schedule.
+   */
+  publishGauges(): void {
+    for (const g of this.gauges.values()) g.publish();
+  }
+
+  /** Test helper: forget everything. Never called in production. */
+  reset(): void {
+    this.counters.clear();
+    this.gauges.clear();
+    this.histograms.clear();
   }
 
   toPrometheusText(): string {

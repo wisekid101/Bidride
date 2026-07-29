@@ -9,9 +9,12 @@ describe('redact', () => {
   });
 
   it('redacts deeply nested sensitive keys', () => {
-    const result = redact({ user: { token: 'abc', email: 'a@b.com' } }) as any;
+    const result = redact({ user: { token: 'abc', email: 'a@b.com', role: 'rider' } }) as any;
     expect(result.user.token).toBe('[REDACTED]');
-    expect(result.user.email).toBe('a@b.com');
+    // PO-1A: email is now redacted too. It is PII, and a 30-day CloudWatch log
+    // group is not a place for it. Non-sensitive keys still pass through.
+    expect(result.user.email).toBe('[REDACTED]');
+    expect(result.user.role).toBe('rider');
   });
 
   it('handles arrays', () => {
