@@ -1,6 +1,9 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { OperationsService } from './operations.service';
+import { Roles } from '../auth/roles.guard';
 
+// SEC-1: Platform health, metrics and circuit-breaker state.
+@Roles('operations_admin')
 @Controller('admin/operations')
 export class OperationsController {
   constructor(private readonly ops: OperationsService) {}

@@ -1,7 +1,10 @@
 import { Controller, Get, Query, Param, Post, Body } from '@nestjs/common';
 import { SosStatus } from '@bidride/database/generated/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { Roles } from '../auth/roles.guard';
 
+// SEC-1: SOS and panic administration. Safety decisions override all others.
+@Roles('safety_admin')
 @Controller('admin/safety')
 export class SafetyAdminController {
   constructor(private readonly prisma: PrismaService) {}

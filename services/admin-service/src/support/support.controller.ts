@@ -20,6 +20,7 @@ import {
 } from './support.service';
 import { AdminSessionGuard } from '../auth/admin-session.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { NoAdminSession } from '../auth/public-route.decorator';
 
 interface AuthRequest extends Request {
   adminUser: { id: string; role: string };
@@ -28,6 +29,10 @@ interface AuthRequest extends Request {
 
 // ─── User-facing (rider / driver) — requires valid user JWT ──────────────────
 
+// Riders and drivers raise and read their own tickets with a USER JWT, so this
+// controller is exempt from the global admin session — JwtAuthGuard authenticates
+// it. The two admin ticket controllers below keep the admin session.
+@NoAdminSession()
 @UseGuards(JwtAuthGuard)
 @Controller('support/tickets')
 export class UserTicketController {

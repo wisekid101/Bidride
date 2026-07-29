@@ -1,7 +1,10 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Roles } from '../auth/roles.guard';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
 
+// SEC-1: Model metrics and AI health.
+@Roles('analytics_admin', 'operations_admin')
 @Controller('admin/ai')
 export class AiMetricsController {
   @Get('metrics')

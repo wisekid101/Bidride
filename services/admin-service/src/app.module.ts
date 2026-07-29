@@ -4,6 +4,8 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { throttlerClientIp } from './throttler-tracker';
+import { AdminSessionGuard } from './auth/admin-session.guard';
+import { RolesGuard } from './auth/roles.guard';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditModule } from './audit/audit.module';
 import { AdminAuthModule } from './auth/admin-auth.module';
@@ -24,7 +26,16 @@ import { IntelligenceModule } from './intelligence/intelligence.module';
   // S0-B3A: activate the already-configured ThrottlerModule globally. The
   // intelligence controller's redundant controller-level ThrottlerGuard is
   // removed so the guard executes exactly once per request.
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  // SEC-1: authentication is global and role enforcement runs behind it, so a
+  // controller is protected by default. Five admin surfaces — finance,
+  // operations, safety, marketplace and ai-metrics — were publicly reachable
+  // because the previous per-controller opt-in was silently missed on each.
+  // Guard order matters: throttle, then authenticate, then authorize.
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AdminSessionGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     // S0-B3B1: getTracker resolves the real client IP from the ALB-appended

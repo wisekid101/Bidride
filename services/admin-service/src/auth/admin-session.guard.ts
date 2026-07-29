@@ -4,7 +4,9 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { AdminAuthService, AdminTokenPayload } from './admin-auth.service';
+import { NO_ADMIN_SESSION } from './public-route.decorator';
 
 const ADMIN_ROLES = new Set([
   'founder',
@@ -19,9 +21,21 @@ const ADMIN_ROLES = new Set([
 
 @Injectable()
 export class AdminSessionGuard implements CanActivate {
-  constructor(private readonly adminAuth: AdminAuthService) {}
+  constructor(
+    private readonly adminAuth: AdminAuthService,
+    private readonly reflector: Reflector,
+  ) {}
 
   canActivate(ctx: ExecutionContext): boolean {
+    // SEC-1: this guard is registered globally, so routes that legitimately
+    // carry no admin session — the health probe, login/logout, and the
+    // user-JWT ticket endpoints — opt out explicitly with @NoAdminSession().
+    const exempt = this.reflector.getAllAndOverride<boolean | undefined>(
+      NO_ADMIN_SESSION,
+      [ctx.getHandler(), ctx.getClass()],
+    );
+    if (exempt) return true;
+
     const req = ctx.switchToHttp().getRequest();
     const token = this.extractCookie(req, 'admin_session');
 

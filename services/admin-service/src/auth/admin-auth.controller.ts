@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AdminSessionGuard } from './admin-session.guard';
+import { NoAdminSession } from './public-route.decorator';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { Request, Response } from 'express';
 import { AdminAuthService } from './admin-auth.service';
@@ -60,6 +61,8 @@ export class AdminAuthController {
     return { token };
   }
 
+  // Cannot require the session it is about to create.
+  @NoAdminSession()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
@@ -82,6 +85,8 @@ export class AdminAuthController {
     return { admin };
   }
 
+  // Must still clear the cookie when the session has already expired.
+  @NoAdminSession()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(

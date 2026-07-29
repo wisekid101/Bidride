@@ -1,4 +1,5 @@
 import { Controller, Get, Query, ServiceUnavailableException } from '@nestjs/common';
+import { Roles } from '../auth/roles.guard';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:3012';
 const internalHeaders = (): Record<string, string> =>
@@ -6,6 +7,8 @@ const internalHeaders = (): Record<string, string> =>
     ? { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }
     : {};
 
+// SEC-1: Marketplace stats and forecasting — operations and analytics both read this.
+@Roles('operations_admin', 'analytics_admin')
 @Controller('admin/marketplace')
 export class MarketplaceAdminController {
   @Get('stats')

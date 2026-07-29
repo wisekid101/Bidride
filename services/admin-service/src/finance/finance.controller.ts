@@ -1,6 +1,9 @@
 import { Body, Controller, Get, NotFoundException, Post, Query, Param } from '@nestjs/common';
 import { FinanceService } from './finance.service';
+import { Roles } from '../auth/roles.guard';
 
+// SEC-1: Financial data and capture-recovery state mutation.
+@Roles('operations_admin')
 @Controller('admin/finance')
 export class FinanceController {
   constructor(private readonly finance: FinanceService) {}
