@@ -65,6 +65,10 @@ const mockPrisma = {
     findUnique: jest.fn(),
   },
   tripEvent: { create: jest.fn().mockResolvedValue({}) },
+  financialLedger: {
+    findMany: jest.fn().mockResolvedValue([]),
+    create: jest.fn().mockResolvedValue({}),
+  },
   captureRecovery: {
     findUnique: jest.fn().mockResolvedValue(null),
     findFirst: jest.fn().mockResolvedValue(null),
@@ -96,7 +100,7 @@ const mockRedis = {
   expire: jest.fn().mockResolvedValue(1),
 } as any;
 
-const mockLedger = { createEntries: jest.fn().mockResolvedValue(undefined), recordRiderPayment: jest.fn().mockResolvedValue(undefined), recordDriverEarning: jest.fn().mockResolvedValue(undefined), recordTip: jest.fn().mockResolvedValue(undefined), recordRefund: jest.fn().mockResolvedValue(undefined), recordBonus: jest.fn().mockResolvedValue(undefined), recordPayout: jest.fn().mockResolvedValue(undefined), recordAdjustment: jest.fn().mockResolvedValue(undefined), getLedgerEntries: jest.fn().mockResolvedValue([]) } as any;
+const mockLedger = { createEntriesTx: jest.fn().mockResolvedValue(undefined), createEntries: jest.fn().mockResolvedValue(undefined), recordRiderPayment: jest.fn().mockResolvedValue(undefined), recordDriverEarning: jest.fn().mockResolvedValue(undefined), recordTip: jest.fn().mockResolvedValue(undefined), recordRefund: jest.fn().mockResolvedValue(undefined), recordBonus: jest.fn().mockResolvedValue(undefined), recordPayout: jest.fn().mockResolvedValue(undefined), recordAdjustment: jest.fn().mockResolvedValue(undefined), getLedgerEntries: jest.fn().mockResolvedValue([]) } as any;
 const mockWallet = { creditEarning: jest.fn().mockResolvedValue(undefined), creditDriverEarning: jest.fn().mockResolvedValue('credited'), releaseHold: jest.fn().mockResolvedValue(undefined), debitPayout: jest.fn().mockResolvedValue(undefined), applyAdjustment: jest.fn().mockResolvedValue(undefined), getWallet: jest.fn().mockResolvedValue({ balance: 0 }) } as any;
 const mockReconciliation = { reconcilePaymentIntent: jest.fn().mockResolvedValue(undefined), reconcileRefund: jest.fn().mockResolvedValue(undefined), recordDispute: jest.fn().mockResolvedValue(undefined), listMismatches: jest.fn().mockResolvedValue([]), resolveEntry: jest.fn().mockResolvedValue(undefined) } as any;
 
@@ -490,6 +494,10 @@ const acceptedBidTrip = (finalFare: number, over: Record<string, unknown> = {}) 
   });
 
   describe('captureAuthorizationHold with trip attribution', () => {
+    beforeEach(() => {
+      mockPrisma.payment.findUnique.mockResolvedValue(null);
+      mockPrisma.financialLedger.findMany.mockResolvedValue([]);
+    });
     it('books the capture as the trip payment record when tripId/riderId present', async () => {
       mockPrisma.payment.updateMany.mockResolvedValue({ count: 0 });
       mockPrisma.payment.create.mockResolvedValue({});
@@ -508,9 +516,21 @@ const acceptedBidTrip = (finalFare: number, over: Record<string, unknown> = {}) 
           }),
         }),
       );
-      expect(mockLedger.recordRiderPayment).toHaveBeenCalledWith(
-        expect.objectContaining({ tripId: 'trip-bid', amount: 20.16, correlationId: 'capture:trip-bid' }),
-      );
+      // Booking now runs through the shared atomic path (F3b-2a): the ledger
+      // pair is written inside the same transaction, under the correlation the
+      // webhook and recovery also use.
+      const [, entries] = mockLedger.createEntriesTx.mock.calls[0];
+      expect(entries).toHaveLength(2);
+      expect(entries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          correlationId: 'capture:trip-bid', tripId: 'trip-bid',
+          amount: 20.16, direction: 'debit', accountId: 'rider-1',
+        }),
+        expect.objectContaining({
+          correlationId: 'capture:trip-bid', tripId: 'trip-bid',
+          amount: 20.16, direction: 'credit', accountId: 'platform',
+        }),
+      ]));
     });
 
     it('keeps legacy behavior (updateMany only) without attribution', async () => {
@@ -926,6 +946,8 @@ describe('PaymentService — capture failure detection (F3a)', () => {
     mockPrisma.tripEvent.create.mockResolvedValue({});
     mockPrisma.payment.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.payment.create.mockResolvedValue({});
+    mockPrisma.payment.findUnique.mockResolvedValue(null);
+    mockPrisma.financialLedger.findMany.mockResolvedValue([]);
   });
 
   // ── Definitive failure: Stripe refused, money did not move ────────────────
@@ -1142,6 +1164,8 @@ describe('PaymentService — recovery wiring (F3b-1)', () => {
     );
     mockPrisma.trip.findUnique.mockResolvedValue(canonical);
     mockPrisma.payment.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.payment.findUnique.mockResolvedValue(null);
+    mockPrisma.financialLedger.findMany.mockResolvedValue([]);
   });
 
   it('an UNKNOWN outcome is queued for recovery', async () => {
@@ -1193,7 +1217,7 @@ describe('PaymentService — recovery wiring (F3b-1)', () => {
       data: { object: { id: PI, status } },
     } as never);
 
-    expect(recovery.resolveFromWebhook).toHaveBeenCalledWith(PI, status);
+    expect(recovery.resolveFromWebhook).toHaveBeenCalledWith(PI, status, undefined);
     expect(stripeOf().paymentIntents.capture).not.toHaveBeenCalled();
   });
 

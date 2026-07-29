@@ -1544,6 +1544,14 @@ model CaptureRecovery {
   nextAttemptAt       DateTime? @map("next_attempt_at")
   lastError           String?   @map("last_error") @db.VarChar(200)
   holdExpiresAt       DateTime? @map("hold_expires_at")
+  /// Last authoritative Stripe status observed — shown on the admin surface.
+  lastStripeStatus    String?   @map("last_stripe_status") @db.VarChar(30)
+  /// Crash-safe claim lease: a claim whose token is stale is resumable.
+  claimToken          String?   @map("claim_token") @db.VarChar(64)
+  claimedAt           DateTime? @map("claimed_at")
+  /// booked | already_booked | healed — set once Stripe-confirmed funds are on the books.
+  bookingStatus       String?   @map("booking_status") @db.VarChar(20)
+  bookedAt            DateTime? @map("booked_at")
   resolvedAt          DateTime? @map("resolved_at")
   resolvedByAdminId   String?   @map("resolved_by_admin_id") @db.VarChar(100)
   createdAt           DateTime  @default(now()) @map("created_at")

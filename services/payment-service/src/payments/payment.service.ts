@@ -19,6 +19,8 @@ import { LedgerService } from '../ledger/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
 import { CaptureRecoveryService } from '../recovery/capture-recovery.service';
+import { PaymentBookingService } from './payment-booking.service';
+import { assertCanonicalCaptureAmount, recordFareIntegrityError } from './capture-validation';
 
 /**
  * Capture-failure audit event types (F3a).
@@ -108,11 +110,18 @@ export class PaymentService {
     private readonly wallet: WalletService,
     private readonly reconciliation: ReconciliationService,
     @Optional() private readonly recovery?: CaptureRecoveryService,
+    @Optional() private readonly bookingService?: PaymentBookingService,
   ) {
     this.stripe = new Stripe(config.getOrThrow('STRIPE_SECRET_KEY'), {
       apiVersion: '2024-04-10',
     });
+    // Booking is not optional behaviour — it is how a capture becomes money on
+    // the books. When it is not injected (direct construction), build one from
+    // the same prisma and ledger this service already holds.
+    this.booking = bookingService ?? new PaymentBookingService(prisma, ledger);
   }
+
+  private readonly booking: PaymentBookingService;
 
   // ─── Rider Payment Methods ────────────────────────────────────────────────
 
@@ -533,100 +542,21 @@ export class PaymentService {
     tripId: string,
     riderId?: string,
   ): Promise<{ status: string }> {
-    // ── 1. Request shape ────────────────────────────────────────────────────
-    // Defensive: the DTO enforces this at the HTTP boundary, but the method is
-    // also reachable directly and must never forward a malformed amount to
-    // Stripe. Caller amounts are never silently rounded.
-    if (typeof tripId !== 'string' || tripId.trim() === '') {
-      throw new UnprocessableEntityException({
-        code: 'FARE_INTEGRITY_ERROR',
-        message: 'A trip id is required to capture an authorization hold.',
-      });
-    }
+    // ── 1-3. Canonical validation (F5) ──────────────────────────────────────
+    // Extracted so recovery reuses the identical rule rather than growing a
+    // second implementation of how much may move. Behaviour is unchanged.
     if (typeof paymentIntentId !== 'string' || paymentIntentId.trim() === '') {
       throw new UnprocessableEntityException({
         code: 'FARE_INTEGRITY_ERROR',
         message: 'A payment intent id is required to capture an authorization hold.',
       });
     }
-    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
-      await this.recordFareIntegrityError(tripId, {
-        reason: 'capture amount is not a positive safe integer number of cents',
-        requestedAmountCents: Number.isFinite(amountCents) ? amountCents : String(amountCents),
-        paymentIntentId,
-      });
-      throw new UnprocessableEntityException({
-        code: 'FARE_INTEGRITY_ERROR',
-        message: 'Capture amount must be a positive whole number of cents.',
-      });
-    }
+    await assertCanonicalCaptureAmount(this.validationDeps, tripId, amountCents, paymentIntentId);
 
-    // ── 2. Canonical trip ───────────────────────────────────────────────────
-    // Smallest trustworthy query: trip.bidId is written only inside the accept
-    // transactions, but the authoritative proof of acceptance is the winning
-    // bid's own status, so both are read.
     const trip = await this.prisma.trip.findUnique({
       where: { id: tripId },
-      select: {
-        id: true,
-        bidId: true,
-        finalFare: true,
-        winnerBid: { select: { status: true } },
-      },
+      select: { bidId: true },
     });
-
-    if (!trip) {
-      // No relational Trip row exists, so a tripEvent cannot be written without
-      // weakening database integrity. Log and reject instead.
-      this.logger.error(
-        `FARE INTEGRITY ERROR trip=${tripId}: capture attempted for a trip that does not exist (pi=${paymentIntentId})`,
-      );
-      throw new UnprocessableEntityException({
-        code: 'FARE_INTEGRITY_ERROR',
-        message: 'Trip not found — capture refused.',
-      });
-    }
-
-    const reject = async (reason: string, extra: Record<string, unknown> = {}): Promise<never> => {
-      await this.recordFareIntegrityError(tripId, {
-        reason,
-        bidId: trip.bidId,
-        requestedAmountCents: amountCents,
-        paymentIntentId,
-        ...extra,
-      });
-      throw new UnprocessableEntityException({
-        code: 'FARE_INTEGRITY_ERROR',
-        message: 'Capture amount does not match the trip canonical fare — payment blocked.',
-      });
-    };
-
-    if (trip.bidId == null) {
-      await reject('capture attempted on a non-bid trip — standard rides settle via charge-trip');
-    }
-    if (trip.winnerBid?.status !== BidStatus.accepted) {
-      await reject('capture attempted before the bid was accepted', {
-        bidStatus: trip.winnerBid?.status ?? null,
-      });
-    }
-    if (trip.finalFare == null) {
-      await reject('capture attempted with no canonical finalFare on the trip');
-    }
-
-    // ── 3. Cent-exact comparison ────────────────────────────────────────────
-    // The DTO carries integer cents, so the dollar-level 0.005 tolerance used
-    // by chargeTrip does not apply: converting the canonical Decimal(8,2) to
-    // cents removes the float error that tolerance exists to absorb.
-    const canonicalFare = Number(trip.finalFare);
-    const expectedAmountCents = Math.round(canonicalFare * 100);
-    if (!Number.isSafeInteger(expectedAmountCents) || expectedAmountCents <= 0) {
-      await reject('canonical finalFare cannot be safely converted to cents', {
-        tripFinalFare: Number.isFinite(canonicalFare) ? canonicalFare : String(canonicalFare),
-      });
-    }
-    if (expectedAmountCents !== amountCents) {
-      await reject('capture amount does not match canonical finalFare', { expectedAmountCents });
-    }
 
     // ── 4. Only now may money move ──────────────────────────────────────────
     // Everything above rejects before Stripe is called (F5). From here on the
@@ -662,48 +592,19 @@ export class PaymentService {
     const amount = Math.round(amountCents) / 100;
 
     if (riderId) {
-      // The capture IS the ride's charge for offer trips — book it so
-      // receipts, refunds, and analytics can see the real Stripe movement.
-      // (Holds are created without a payments row, so this is usually a
-      // create; updateMany covers any legacy row keyed to the same intent.)
-      const updated = await this.prisma.payment.updateMany({
-        where: { stripePaymentIntentId: paymentIntentId },
-        data: { amount, status: 'succeeded' },
+      // One shared, atomic booking path for capture, webhook and recovery. The
+      // Payment row and both ledger entries commit together, and ledger errors
+      // are no longer swallowed.
+      const { outcome } = await this.booking.bookCapturedPayment(null, {
+        tripId,
+        riderId,
+        paymentIntentId,
+        amountCents,
+        source: 'capture',
       });
-      let firstBooking = updated.count === 0;
-      if (firstBooking) {
-        try {
-          await this.prisma.payment.create({
-            data: {
-              tripId,
-              riderId,
-              stripePaymentIntentId: paymentIntentId,
-              amount,
-              status: 'succeeded',
-            },
-          });
-        } catch (e: unknown) {
-          // Unique violation (tripId / intent id): a concurrent or retried
-          // capture already booked this — treat as settled, don't 500 and
-          // don't double-book the ledger below.
-          firstBooking = false;
-          this.logger.warn(
-            `captureAuthorizationHold: payment row for ${paymentIntentId} already booked — skipping duplicate booking`,
-          );
-        }
-      }
 
-      // Ledger + reconciliation ONLY on first booking: LedgerService has no
-      // idempotency of its own, so a retried capture (Stripe capture itself
-      // is idempotent) must not write a second debit/credit pair.
-      if (firstBooking) {
-        void this.ledger?.recordRiderPayment({
-          tripId,
-          riderId,
-          amount,
-          commission: Math.round(amount * 0.20 * 100) / 100,
-          correlationId: `capture:${tripId}`,
-        }).catch(() => {});
+      // Reconcile only on a first booking: a replay has already been reconciled.
+      if (outcome === 'created') {
         void this.reconciliation?.reconcilePaymentIntent({
           stripeId: paymentIntentId,
           stripeAmountCents: Math.round(amountCents),
@@ -711,7 +612,8 @@ export class PaymentService {
         }).catch(() => {});
       }
     } else {
-      // Legacy path: no attribution supplied.
+      // Legacy path: no attribution supplied, so there is nothing to book
+      // against a rider. Mark the intent settled and leave it there.
       await this.prisma.payment.updateMany({
         where: { stripePaymentIntentId: paymentIntentId },
         data: { status: 'succeeded' },
@@ -801,18 +703,17 @@ export class PaymentService {
 
   // Fare integrity violations block money movement but must never lose the
   // evidence: persist a trip event with the amounts involved.
+  private get validationDeps() {
+    return { prisma: this.prisma as never, logger: this.logger };
+  }
+
+  // Delegates to the extracted implementation so capture, charge and recovery
+  // all record fare-integrity evidence identically.
   private async recordFareIntegrityError(
     tripId: string,
     metadata: Record<string, unknown>,
   ): Promise<void> {
-    this.logger.error(`FARE INTEGRITY ERROR trip=${tripId}: ${JSON.stringify(metadata)}`);
-    try {
-      await this.prisma.tripEvent.create({
-        data: { tripId, eventType: 'fare_integrity_error', metadata: metadata as object },
-      });
-    } catch (e) {
-      this.logger.error(`Failed to persist fare_integrity_error for trip ${tripId}`, e as Error);
-    }
+    await recordFareIntegrityError(this.validationDeps, tripId, metadata);
   }
 
   async voidAuthorizationHold(paymentIntentId: string): Promise<{ status: string }> {
@@ -836,11 +737,51 @@ export class PaymentService {
     );
   }
 
+  /**
+   * Book a webhook-confirmed capture through the shared path.
+   *
+   * Only offer trips are booked here: the trip must carry a bid and the amount
+   * must pass F5 against the canonical fare. A standard ride settles through
+   * chargeTrip and already has its own Payment row. Best-effort by design — a
+   * webhook must not fail on our bookkeeping — but nothing is swallowed
+   * silently: every branch logs.
+   */
+  private async bookFromWebhook(pi: Stripe.PaymentIntent): Promise<void> {
+    const tripId = typeof pi.metadata?.trip_id === 'string' ? pi.metadata.trip_id : null;
+    const received = typeof pi.amount_received === 'number' ? pi.amount_received : null;
+    if (!tripId || !received) return;
+
+    try {
+      const trip = await this.prisma.trip.findUnique({
+        where: { id: tripId },
+        select: { bidId: true, riderId: true },
+      });
+      if (!trip?.bidId) return; // standard ride — chargeTrip owns its booking
+
+      // F5 decides the amount, exactly as it does for a direct capture.
+      await assertCanonicalCaptureAmount(this.validationDeps, tripId, received, pi.id);
+
+      const { outcome } = await this.booking.bookCapturedPayment(null, {
+        tripId,
+        riderId: trip.riderId,
+        paymentIntentId: pi.id,
+        amountCents: received,
+        source: 'webhook',
+      });
+      this.logger.log(`webhook booking for trip ${tripId} (${pi.id}): ${outcome}`);
+    } catch (e) {
+      this.logger.error(`Webhook booking failed for ${pi.id} (trip ${tripId})`, e as Error);
+    }
+  }
+
   /** Best-effort webhook resolution — a webhook must never fail on our bookkeeping. */
   private async resolveRecoveryFromWebhook(pi: Stripe.PaymentIntent): Promise<void> {
     if (!this.recovery || !pi?.id || typeof pi.status !== 'string') return;
     try {
-      await this.recovery.resolveFromWebhook(pi.id, pi.status);
+      await this.recovery.resolveFromWebhook(
+        pi.id, pi.status,
+        typeof pi.amount_received === 'number' ? pi.amount_received : undefined,
+      );
     } catch (e) {
       this.logger.error(`Recovery webhook resolution failed for ${pi.id}`, e as Error);
     }
@@ -858,6 +799,11 @@ export class PaymentService {
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'succeeded' },
         });
+        // The webhook used to update the Payment row and write NO ledger entry
+        // at all, so a capture confirmed only by webhook never reached the
+        // books. It now goes through the same atomic booking path as capture
+        // and recovery, and is replay-safe against all three.
+        await this.bookFromWebhook(pi);
         // Fast path (F3b-1): the webhook carries authoritative Stripe state, so
         // an open recovery item for this intent can be resolved now instead of
         // waiting for the next poll. Never issues a capture.

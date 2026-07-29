@@ -21,6 +21,8 @@ import {
   RECOVERY_EVENT_UNRESOLVED,
 } from './capture-recovery.service';
 import { CaptureRecoveryScheduler } from './capture-recovery.scheduler';
+import { PaymentBookingService } from '../payments/payment-booking.service';
+import { LedgerService } from '../ledger/ledger.service';
 import { RECOVERY_LOCK_KEY } from './redis-lock';
 
 const prisma = new PrismaClient({
@@ -130,6 +132,7 @@ describe('capture recovery (integration)', () => {
     service = new CaptureRecoveryService(
       prisma as never,
       { paymentIntents: { retrieve: retrieveSpy, capture: captureSpy } } as never,
+      new PaymentBookingService(prisma as never, new LedgerService(prisma as never)),
     );
   });
 
@@ -197,7 +200,10 @@ describe('capture recovery (integration)', () => {
 
   // ── Resolution ───────────────────────────────────────────────────────────
 
-  it('succeeded → resolved_captured, with NO Payment row and NO ledger entry', async () => {
+  // F3b-1 recorded this outcome and deliberately booked nothing. F3b-2a books
+  // it — the funds were already captured at Stripe; only the local record was
+  // missing. No Stripe write is involved either way.
+  it('succeeded → resolved_captured and booked exactly once (F3b-2a)', async () => {
     const { trip } = await seedTrip();
     const row = await enqueueFor(trip.id, 'pi_f3b_ok');
     retrieveSpy.mockResolvedValue({ id: 'pi_f3b_ok', status: 'succeeded', amount_received: 2364 });
@@ -208,8 +214,10 @@ describe('capture recovery (integration)', () => {
     expect(after.status).toBe(RECOVERY_STATUS.resolvedCaptured);
     expect(after.resolvedAt).toBeInstanceOf(Date);
     expect(after.nextAttemptAt).toBeNull();
-    expect(await prisma.payment.count({ where: { tripId: trip.id } })).toBe(0);
-    expect(await prisma.financialLedger.count({ where: { tripId: trip.id } })).toBe(0);
+    expect(after.bookingStatus).toBe('booked');
+    expect(after.bookedAt).toBeInstanceOf(Date);
+    expect(await prisma.payment.count({ where: { tripId: trip.id } })).toBe(1);
+    expect(await prisma.financialLedger.count({ where: { tripId: trip.id } })).toBe(2);
     expect(await prisma.tripEvent.count({
       where: { tripId: trip.id, eventType: RECOVERY_EVENT_RESOLVED },
     })).toBe(1);
@@ -339,11 +347,11 @@ describe('capture recovery (integration)', () => {
     const { trip } = await seedTrip();
     await enqueueFor(trip.id, 'pi_f3b_webhook');
 
-    await service.resolveFromWebhook('pi_f3b_webhook', 'succeeded');
+    await service.resolveFromWebhook('pi_f3b_webhook', 'succeeded', 2364);
 
     expect(retrieveSpy).not.toHaveBeenCalled();
     expect((await rowFor(trip.id)).status).toBe(RECOVERY_STATUS.resolvedCaptured);
-    expect(await prisma.payment.count({ where: { tripId: trip.id } })).toBe(0);
+    expect(await prisma.payment.count({ where: { tripId: trip.id } })).toBe(1);
   });
 
   // ── Admin ────────────────────────────────────────────────────────────────

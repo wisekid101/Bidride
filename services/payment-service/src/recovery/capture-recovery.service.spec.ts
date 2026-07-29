@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { PaymentIntentMismatchError } from '../payments/payment-booking.service';
 import {
   CaptureRecoveryService,
   RECOVERY_STATUS,
@@ -8,11 +9,15 @@ import {
   RecoveryRow,
 } from './capture-recovery.service';
 
-// ─── F3b-1: capture recovery, read-only against Stripe ───────────────────────
-// The invariant this whole suite exists to protect: recovery NEVER calls
-// paymentIntents.capture, never books a Payment row and never touches the
-// ledger. Acting on the answer is F3b-2. It also never invents an outcome —
-// resolved_captured requires Stripe to say `succeeded`, and every ambiguous
+// ─── Capture recovery: F3b-1 detection + F3b-2a booking ─────────────────────
+// The invariant this suite protects: recovery NEVER calls
+// paymentIntents.capture and issues no Stripe write at all — the only Stripe
+// call is a retrieve. As of F3b-2a it may BOOK money Stripe has already
+// captured, through the shared booking service and never by touching Payment
+// or the ledger directly.
+//
+// It still never invents an outcome: booking happens only when Stripe reports
+// `succeeded` for an amount F5 confirms is canonical, and every ambiguous
 // branch lands in needs_admin.
 
 const makePrisma = () => ({
@@ -29,6 +34,17 @@ const makePrisma = () => ({
   },
   payment: { create: jest.fn(), updateMany: jest.fn() },
   financialLedger: { create: jest.fn() },
+  // F5 reads the canonical trip; 23.64 matches the row's expected 2364 cents.
+  trip: {
+    findUnique: jest.fn().mockResolvedValue({
+      id: 'trip-1', bidId: 'bid-1', riderId: 'rider-1',
+      finalFare: 23.64, winnerBid: { status: 'accepted' },
+    }),
+  },
+});
+
+const makeBooking = () => ({
+  bookCapturedPayment: jest.fn().mockResolvedValue({ outcome: 'created' }),
 });
 
 const makeStripe = () => ({
@@ -55,6 +71,7 @@ const row = (over: Partial<RecoveryRow> = {}): RecoveryRow => ({
 describe('CaptureRecoveryService', () => {
   let prisma: ReturnType<typeof makePrisma>;
   let stripe: ReturnType<typeof makeStripe>;
+  let booking: ReturnType<typeof makeBooking>;
   let service: CaptureRecoveryService;
 
   const updateData = () => prisma.captureRecovery.update.mock.calls[0][0].data;
@@ -63,7 +80,8 @@ describe('CaptureRecoveryService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     stripe = makeStripe();
-    service = new CaptureRecoveryService(prisma as never, stripe as never);
+    booking = makeBooking();
+    service = new CaptureRecoveryService(prisma as never, stripe as never, booking as never);
   });
 
   /** The guarantee that defines this checkpoint. */
@@ -78,15 +96,66 @@ describe('CaptureRecoveryService', () => {
 
   // ── Stripe state → recovery state ───────────────────────────────────────
 
-  it('succeeded → resolved_captured, recorded but NOT booked', async () => {
+  it('succeeded → books through the shared path and resolves captured_and_booked', async () => {
     stripe.paymentIntents.retrieve.mockResolvedValue({ id: 'pi_1', status: 'succeeded', amount_received: 2364 });
 
     const out = await service.resolveOne(row());
 
+    expect(booking.bookCapturedPayment).toHaveBeenCalledWith(null, expect.objectContaining({
+      tripId: 'trip-1', riderId: 'rider-1', paymentIntentId: 'pi_1',
+      amountCents: 2364, source: 'recovery', recoveryId: 'rec-1',
+    }));
     expect(out.status).toBe(RECOVERY_STATUS.resolvedCaptured);
-    expect(out.resolution).toBe('stripe_reports_succeeded');
-    expect(updateData()).toMatchObject({ status: RECOVERY_STATUS.resolvedCaptured, nextAttemptAt: null });
+    expect(out.resolution).toBe('captured_and_booked');
+    expect(updateData()).toMatchObject({
+      status: RECOVERY_STATUS.resolvedCaptured, nextAttemptAt: null, bookingStatus: 'booked',
+    });
+    expect(updateData().bookedAt).toBeInstanceOf(Date);
     expect(eventData().eventType).toBe(RECOVERY_EVENT_RESOLVED);
+  });
+
+  it.each([
+    ['already_booked', 'captured_already_booked', 'already_booked'],
+    ['healed_ledger', 'captured_ledger_healed', 'healed'],
+  ])('booking outcome %s maps to resolution %s', async (outcome, resolution, bookingStatus) => {
+    stripe.paymentIntents.retrieve.mockResolvedValue({ id: 'pi_1', status: 'succeeded', amount_received: 2364 });
+    booking.bookCapturedPayment.mockResolvedValue({ outcome });
+
+    const out = await service.resolveOne(row());
+
+    expect(out.resolution).toBe(resolution);
+    expect(updateData().bookingStatus).toBe(bookingStatus);
+  });
+
+  it('succeeded with no amount_received defers rather than booking a guess', async () => {
+    stripe.paymentIntents.retrieve.mockResolvedValue({ id: 'pi_1', status: 'succeeded' });
+
+    const out = await service.resolveOne(row());
+
+    expect(booking.bookCapturedPayment).not.toHaveBeenCalled();
+    expect(out.retryScheduled).toBe(true);
+  });
+
+  it('a booking failure after Stripe captured defers — the funds are safe and booking is idempotent', async () => {
+    stripe.paymentIntents.retrieve.mockResolvedValue({ id: 'pi_1', status: 'succeeded', amount_received: 2364 });
+    booking.bookCapturedPayment.mockRejectedValue(new Error('db down'));
+
+    const out = await service.resolveOne(row());
+
+    expect(out.retryScheduled).toBe(true);
+    expect(out.status).toBe(RECOVERY_STATUS.unresolved);
+  });
+
+  it('a PaymentIntent mismatch fails closed to needs_admin', async () => {
+    stripe.paymentIntents.retrieve.mockResolvedValue({ id: 'pi_1', status: 'succeeded', amount_received: 2364 });
+    booking.bookCapturedPayment.mockRejectedValue(
+      new PaymentIntentMismatchError('trip-1', 'pi_other', 'pi_1'),
+    );
+
+    const out = await service.resolveOne(row());
+
+    expect(out.status).toBe(RECOVERY_STATUS.needsAdmin);
+    expect(out.resolution).toBe('payment_intent_mismatch');
   });
 
   it('requires_capture → needs_admin, because capture is deferred to F3b-2', async () => {
@@ -131,14 +200,14 @@ describe('CaptureRecoveryService', () => {
     expect(out.resolution).toBe('not_capturable');
   });
 
-  it('a captured amount that differs from the expected amount → needs_admin, never adjusted', async () => {
+  it('a captured amount F5 rejects → needs_admin, never booked, never adjusted', async () => {
     stripe.paymentIntents.retrieve.mockResolvedValue({ id: 'pi_1', status: 'succeeded', amount_received: 1900 });
 
     const out = await service.resolveOne(row());
 
     expect(out.status).toBe(RECOVERY_STATUS.needsAdmin);
     expect(out.resolution).toBe('amount_mismatch');
-    expect(eventData().metadata).toMatchObject({ amountReceivedCents: 1900, expectedAmountCents: 2364 });
+    expect(booking.bookCapturedPayment).not.toHaveBeenCalled();
   });
 
   // ── Lookup failures ──────────────────────────────────────────────────────
@@ -263,7 +332,7 @@ describe('CaptureRecoveryService', () => {
   it('resolves an open item straight from a webhook, with no extra Stripe read', async () => {
     prisma.captureRecovery.findFirst.mockResolvedValue(row());
 
-    await service.resolveFromWebhook('pi_1', 'succeeded');
+    await service.resolveFromWebhook('pi_1', 'succeeded', 2364);
 
     expect(stripe.paymentIntents.retrieve).not.toHaveBeenCalled();
     expect(updateData()).toMatchObject({ status: RECOVERY_STATUS.resolvedCaptured });

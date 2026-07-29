@@ -11,6 +11,7 @@ import { RedisModule } from '../redis/redis.module';
 import { LedgerService } from '../ledger/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
+import { PaymentBookingService } from './payment-booking.service';
 import { CaptureRecoveryModule } from '../recovery/capture-recovery.module';
 
 @Module({
@@ -25,7 +26,7 @@ import { CaptureRecoveryModule } from '../recovery/capture-recovery.module';
     }),
   ],
   controllers: [PaymentsInternalController, StripeWebhookController, PayoutDriverController],
-  providers: [PaymentService, PrismaService, LedgerService, WalletService, ReconciliationService, JwtAuthGuard],
+  providers: [PaymentService, PrismaService, LedgerService, PaymentBookingService, WalletService, ReconciliationService, JwtAuthGuard],
   exports: [PaymentService],
 })
 export class PaymentsModule {}

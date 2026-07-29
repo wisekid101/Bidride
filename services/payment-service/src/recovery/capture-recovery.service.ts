@@ -1,21 +1,30 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  PaymentBookingService,
+  PaymentIntentMismatchError,
+  BookingOutcome,
+} from '../payments/payment-booking.service';
+import { assertCanonicalCaptureAmount } from '../payments/capture-validation';
 
 /**
- * F3b-1 — capture recovery, READ-ONLY with respect to Stripe.
+ * Capture recovery (F3b-1 detection, F3b-2a booking).
  *
  * F3a made an uncertain capture visible. This turns each uncertainty into a
- * known fact by asking Stripe what actually happened, and records the answer.
+ * known fact by asking Stripe what actually happened, records the answer, and —
+ * as of F3b-2a — books the money when Stripe reports it was ALREADY captured.
  *
- * It NEVER calls paymentIntents.capture, never books a Payment row, never
- * touches the ledger and never moves money. Acting on the answer is F3b-2. That
- * boundary is deliberate: this checkpoint can be deployed and observed in
- * production without a single new line that can charge a rider.
+ * It NEVER calls paymentIntents.capture and issues no Stripe write of any kind.
+ * The only Stripe call is a retrieve. Re-capturing a hold that never settled is
+ * F3b-2b; until then such a row is handed to a human. That boundary is
+ * deliberate: everything here can run in production without a line of code that
+ * can charge a rider.
  *
- * Nothing here invents an outcome either. `resolved_captured` is written only
- * when Stripe reports `succeeded`; `resolved_not_captured` only when Stripe
- * reports the hold is gone. Every ambiguous branch lands in `needs_admin`.
+ * Nothing here invents an outcome. Money is booked only when Stripe reports
+ * `succeeded`, and only for the amount F5 confirms is the trip's canonical
+ * fare. `resolved_not_captured` is written only when Stripe reports the hold is
+ * gone. Every ambiguous branch lands in `needs_admin`.
  */
 
 export const RECOVERY_STATUS = {
@@ -74,7 +83,12 @@ export class CaptureRecoveryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: Stripe,
+    private readonly booking: PaymentBookingService,
   ) {}
+
+  private get validationDeps() {
+    return { prisma: this.prisma as never, logger: this.logger };
+  }
 
   // ─── Worklist entry ───────────────────────────────────────────────────────
 
@@ -165,7 +179,11 @@ export class CaptureRecoveryService {
   }
 
   /** Resolve straight from a Stripe webhook — the same classifier, no polling delay. */
-  async resolveFromWebhook(paymentIntentId: string, stripeStatus: string): Promise<void> {
+  async resolveFromWebhook(
+    paymentIntentId: string,
+    stripeStatus: string,
+    amountReceivedCents?: number,
+  ): Promise<void> {
     const row = await this.prisma.captureRecovery.findFirst({
       where: { paymentIntentId, status: RECOVERY_STATUS.unresolved },
     });
@@ -175,7 +193,7 @@ export class CaptureRecoveryService {
     await this.classify(row as RecoveryRow, {
       id: paymentIntentId,
       status: stripeStatus,
-      amount_received: undefined,
+      amount_received: amountReceivedCents,
     } as unknown as Stripe.PaymentIntent);
   }
 
@@ -185,19 +203,11 @@ export class CaptureRecoveryService {
     const observed = { stripeStatus: pi.status, paymentIntentId: pi.id ?? row.paymentIntentId };
 
     switch (pi.status) {
-      case 'succeeded': {
-        // Stripe says the money moved. That is a fact, not an assumption — but
-        // BOOKING it (Payment row + ledger) is F3b-2. Here we only record it.
-        const received = typeof pi.amount_received === 'number' ? pi.amount_received : null;
-        if (received !== null && received > 0 && received !== row.expectedAmountCents) {
-          return this.terminal(row, RECOVERY_STATUS.needsAdmin, 'amount_mismatch',
-            `captured ${received} cents against an expected ${row.expectedAmountCents}`,
-            observed.paymentIntentId, { ...observed, amountReceivedCents: received });
-        }
-        return this.terminal(row, RECOVERY_STATUS.resolvedCaptured, 'stripe_reports_succeeded',
-          'Stripe reports the capture succeeded; booking is deferred to F3b-2',
-          observed.paymentIntentId, observed);
-      }
+      case 'succeeded':
+        // Stripe says the money moved. That is a fact, not an assumption, so
+        // this is the one branch F3b-2a may book — and it books only what
+        // Stripe has ALREADY captured. No capture request is ever issued.
+        return this.bookConfirmedCapture(row, pi, observed);
 
       case 'requires_capture':
         // The hold is live and the capture never landed. Now KNOWN, but this
@@ -222,6 +232,94 @@ export class CaptureRecoveryService {
           `the payment intent is ${pi.status} and cannot settle without intervention`,
           observed.paymentIntentId, observed);
     }
+  }
+
+  /**
+   * PATH A — book funds Stripe has already captured.
+   *
+   * The only money-moving branch in F3b-2a, and it moves nothing at Stripe: the
+   * capture already happened, possibly minutes ago, and its response was lost.
+   * All this does is put it on the books.
+   *
+   * F5 is the authority on the amount. `row.expectedAmountCents` records what
+   * was once attempted and is evidence only — if the trip's canonical fare has
+   * changed since, F5 decides and this refuses.
+   */
+  private async bookConfirmedCapture(
+    row: RecoveryRow,
+    pi: Stripe.PaymentIntent,
+    observed: { stripeStatus: string; paymentIntentId: string | null },
+  ): Promise<ResolveResult> {
+    const paymentIntentId = observed.paymentIntentId ?? pi.id;
+    const received = typeof pi.amount_received === 'number' ? pi.amount_received : null;
+
+    if (received === null || received <= 0) {
+      // A webhook may omit it. Never book an amount we cannot see — a retrieve
+      // will supply it.
+      return this.scheduleRetry(row, paymentIntentId,
+        'Stripe reported succeeded without an amount_received to verify against the canonical fare');
+    }
+
+    try {
+      await assertCanonicalCaptureAmount(this.validationDeps, row.tripId, received, paymentIntentId);
+    } catch {
+      // F5 refused: a partial capture, or a fare that changed underneath us.
+      // Never adjusted, never booked.
+      return this.terminal(row, RECOVERY_STATUS.needsAdmin, 'amount_mismatch',
+        `Stripe captured ${received} cents, which is not this trip's canonical fare`,
+        paymentIntentId, { ...observed, amountReceivedCents: received }, null, pi.status);
+    }
+
+    const trip = await this.prisma.trip.findUnique({
+      where: { id: row.tripId },
+      select: { riderId: true },
+    });
+    if (!trip) {
+      return this.terminal(row, RECOVERY_STATUS.needsAdmin, 'trip_missing',
+        'the trip no longer exists, so the capture cannot be attributed to a rider',
+        paymentIntentId, observed, null, pi.status);
+    }
+
+    let outcome: BookingOutcome;
+    try {
+      ({ outcome } = await this.booking.bookCapturedPayment(null, {
+        tripId: row.tripId,
+        riderId: trip.riderId,
+        paymentIntentId: paymentIntentId!,
+        amountCents: received,
+        source: 'recovery',
+        recoveryId: row.id,
+      }));
+    } catch (e: unknown) {
+      if (e instanceof PaymentIntentMismatchError) {
+        // Two intents for one trip: a duplicate authorization or a mis-routed
+        // capture. Fail closed — nothing was written.
+        return this.terminal(row, RECOVERY_STATUS.needsAdmin, 'payment_intent_mismatch',
+          e.message, paymentIntentId, observed, null, pi.status);
+      }
+      // A database failure AFTER Stripe captured. The funds are safe and the
+      // booking is idempotent, so the honest move is to try again rather than
+      // record a terminal state that is not yet true.
+      this.logger.error(`Booking failed for recovery ${row.id} (trip ${row.tripId})`, e as Error);
+      return this.scheduleRetry(row, paymentIntentId,
+        `booking failed after Stripe confirmed capture: ${(e as Error)?.message ?? 'unknown'}`);
+    }
+
+    const resolution = outcome === 'created'
+      ? 'captured_and_booked'
+      : outcome === 'healed_ledger' ? 'captured_ledger_healed' : 'captured_already_booked';
+    const bookingStatus = outcome === 'created'
+      ? 'booked'
+      : outcome === 'healed_ledger' ? 'healed' : 'already_booked';
+
+    return this.terminal(
+      row, RECOVERY_STATUS.resolvedCaptured, resolution,
+      `Stripe reports the capture succeeded; booking outcome ${outcome}`,
+      paymentIntentId,
+      { ...observed, amountReceivedCents: received, bookingOutcome: outcome },
+      { bookingStatus, bookedAt: new Date() },
+      pi.status,
+    );
   }
 
   private async afterLookupFailure(
@@ -280,6 +378,8 @@ export class CaptureRecoveryService {
     detail: string,
     paymentIntentId: string | null = row.paymentIntentId,
     extra: Record<string, unknown> = {},
+    booking: { bookingStatus: string; bookedAt: Date } | null = null,
+    lastStripeStatus: string | null = null,
   ): Promise<ResolveResult> {
     await this.prisma.captureRecovery.update({
       where: { id: row.id },
@@ -288,6 +388,8 @@ export class CaptureRecoveryService {
         lastError: status === RECOVERY_STATUS.needsAdmin ? detail.slice(0, 200) : null,
         nextAttemptAt: null,
         ...(paymentIntentId ? { paymentIntentId } : {}),
+        ...(lastStripeStatus ? { lastStripeStatus } : {}),
+        ...(booking ?? {}),
       },
     });
 

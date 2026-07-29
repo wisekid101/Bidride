@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
+import { LedgerService } from '../ledger/ledger.service';
+import { PaymentBookingService } from '../payments/payment-booking.service';
 import { RedisModule } from '../redis/redis.module';
 import { CaptureRecoveryService } from './capture-recovery.service';
 import { CaptureRecoveryScheduler } from './capture-recovery.scheduler';
@@ -17,6 +19,8 @@ export const RECOVERY_STRIPE = 'RECOVERY_STRIPE';
   imports: [ConfigModule, RedisModule],
   providers: [
     PrismaService,
+    LedgerService,
+    PaymentBookingService,
     {
       provide: RECOVERY_STRIPE,
       inject: [ConfigService],
@@ -25,9 +29,9 @@ export const RECOVERY_STRIPE = 'RECOVERY_STRIPE';
     },
     {
       provide: CaptureRecoveryService,
-      inject: [PrismaService, RECOVERY_STRIPE],
-      useFactory: (prisma: PrismaService, stripe: Stripe) =>
-        new CaptureRecoveryService(prisma, stripe),
+      inject: [PrismaService, RECOVERY_STRIPE, PaymentBookingService],
+      useFactory: (prisma: PrismaService, stripe: Stripe, booking: PaymentBookingService) =>
+        new CaptureRecoveryService(prisma, stripe, booking),
     },
     CaptureRecoveryScheduler,
   ],
