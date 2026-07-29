@@ -243,6 +243,12 @@ DATABASE_URL="postgresql://bidride_admin:PASSWORD@RDS_ENDPOINT:5432/bidride" \
 
 ## Phase 9 — ECS Service Deployment
 
+> **Payment-integrity releases: do NOT use the parallel loop below.** F4
+> introduced a required cross-service contract, so trip-service must be deployed
+> and fully drained BEFORE payment-service starts rolling, and rolled back in the
+> reverse order. Follow `docs/payment-integrity-deployment-runbook.md` for any
+> release touching trip-service or payment-service.
+
 ```bash
 CLUSTER="bidride-production"
 
@@ -297,6 +303,11 @@ All checks must pass before declaring the deployment successful.
 ---
 
 ## Rollback Procedure
+
+> **Payment-integrity releases have a required rollback order:** payment-service
+> first, drained fully, then trip-service. Rolling back trip-service first
+> recreates the broken pairing and fails every bid authorization. See
+> `docs/payment-integrity-deployment-runbook.md`.
 
 ### Fast Rollback (< 5 min): Revert to Previous ECS Task Definition
 
