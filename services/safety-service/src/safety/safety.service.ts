@@ -15,6 +15,7 @@ import { REDIS_CLIENT } from '../redis/redis.module';
 import { RouteService, minDistanceToPolylineMiles } from './route.service';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
+import { getCorrelationId } from '@bidride/observability';
 
 const SOS_COUNTDOWN_SECONDS = 5;
 const SOS_SLA_SECONDS = 90;
@@ -29,6 +30,21 @@ export interface TripSafetyScoreResult {
   riskLevel: 'low' | 'moderate' | 'high';
   score: number;
   factors: string[];
+}
+
+/**
+ * Correlation header for an internal service call (PO-1C-ii).
+ *
+ * `x-correlation-id` is the header @bidride/observability already reads first
+ * in extractFromHeaders, so this introduces no new standard — the receiving
+ * service's CorrelationMiddleware picks it up and one id spans both hops.
+ *
+ * Omitted when no context is in scope rather than fabricated, so a background
+ * caller does not invent a request id. Absence changes no business behaviour.
+ */
+function correlationHeader(): Record<string, string> {
+  const id = getCorrelationId();
+  return id ? { 'x-correlation-id': id } : {};
 }
 
 @Injectable()
@@ -623,6 +639,7 @@ export class SafetyService {
         // Authenticate to notification-service's InternalKeyGuard. Sent only when
         // configured, so dev/test (keyless, guard allows) still deliver.
         ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+        ...correlationHeader(),
       },
       body: JSON.stringify({
         contacts: trip.rider.trustedContacts.map((c) => ({ phone: c.phone, name: c.name })),

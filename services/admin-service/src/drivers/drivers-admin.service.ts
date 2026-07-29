@@ -1,6 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { getCorrelationId } from '@bidride/observability';
 
 const DRIVER_SERVICE_URL = process.env.DRIVER_SERVICE_URL ?? 'http://localhost:3003';
 
@@ -44,7 +45,9 @@ export class DriversAdminService {
       method,
       headers: {
         'Content-Type': 'application/json',
+        // The service token is untouched — correlation is additive.
         Authorization: `Bearer ${this.serviceToken(adminId, role)}`,
+        ...(getCorrelationId() ? { 'x-correlation-id': getCorrelationId()! } : {}),
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });

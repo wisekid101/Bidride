@@ -8,6 +8,14 @@ import { Type } from 'class-transformer';
 import { AdminSessionGuard } from '../auth/admin-session.guard';
 import { FounderGuard } from '../auth/founder.guard';
 import { AuditService } from '../audit/audit.service';
+import { getCorrelationId } from '@bidride/observability';
+
+// PO-1C-ii: carry the admin request's correlation into the callee so one id
+// spans both hops. Omitted when no context is in scope — never fabricated.
+function correlationHeader(): Record<string, string> {
+  const id = getCorrelationId();
+  return id ? { 'x-correlation-id': id } : {};
+}
 
 // ─── Founder Intelligence proxy ───────────────────────────────────────────────
 // READ-ONLY intelligence for the Founder. The three mutation endpoints record
@@ -44,6 +52,7 @@ class OutcomeDto {
 // second execution. The @Throttle(60/60s), AdminSessionGuard and FounderGuard are unchanged.
 @UseGuards(AdminSessionGuard, FounderGuard)
 @Throttle({ default: { limit: 60, ttl: 60_000 } })
+
 @Controller('admin/intelligence')
 export class IntelligenceController {
   constructor(private readonly audit: AuditService) {}
@@ -161,6 +170,7 @@ export class IntelligenceController {
         headers: {
           'Content-Type': 'application/json',
           ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+          ...correlationHeader(),
         },
         ...(body !== undefined && { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),

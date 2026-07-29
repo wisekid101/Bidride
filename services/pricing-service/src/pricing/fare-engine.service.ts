@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { getCorrelationId } from '@bidride/observability';
 
 interface FareInput {
   pickupLat: number;
@@ -89,6 +90,21 @@ interface AiAdjustmentResult {
   confidence?: number;
   explanation?: string;
   factors?: unknown[];
+}
+
+/**
+ * Correlation header for an internal service call (PO-1C-ii).
+ *
+ * `x-correlation-id` is the header @bidride/observability already reads first
+ * in extractFromHeaders, so this introduces no new standard — the receiving
+ * service's CorrelationMiddleware picks it up and one id spans both hops.
+ *
+ * Omitted when no context is in scope rather than fabricated, so a background
+ * caller does not invent a request id. Absence changes no business behaviour.
+ */
+function correlationHeader(): Record<string, string> {
+  const id = getCorrelationId();
+  return id ? { 'x-correlation-id': id } : {};
 }
 
 @Injectable()
@@ -221,7 +237,11 @@ export class FareEngineService {
     try {
       const res = await fetch(`${aiServiceUrl}/ai/fare-adjustment`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }) },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.INTERNAL_SERVICE_KEY && { 'x-internal-key': process.env.INTERNAL_SERVICE_KEY }),
+          ...correlationHeader(),
+        },
         body: JSON.stringify(features),
         signal: AbortSignal.timeout(3000),
       });

@@ -10,10 +10,66 @@ import { FounderModule } from './founder/founder.module';
 import { RetentionModule } from './retention/retention.module';
 import { QualityModule } from './quality/quality.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import {
+  HEALTH_CHECKERS,
+  HealthChecker,
+  OBSERVABILITY_OPTIONS,
+  ObservabilityHealthController,
+  ObservabilityMetricsController,
+  ObservabilityModule,
+} from '@bidride/observability/nest';
+import { PrismaService } from './prisma/prisma.service';
+import Redis from 'ioredis';
+import { REDIS_CLIENT, RedisModule } from './redis/redis.module';
+
+const SERVICE_NAME = 'ai-service';
+const VERSION = process.env.npm_package_version ?? '1.0.0';
 
 @Module({
+  // PO-1C-ii: ai-service had no health route of any kind. These add /live,
+  // /ready and /metrics.
+  controllers: [ObservabilityHealthController, ObservabilityMetricsController],
+  providers: [
+    PrismaService,
+    { provide: OBSERVABILITY_OPTIONS, useValue: { serviceName: SERVICE_NAME, version: VERSION } },
+    {
+      provide: HEALTH_CHECKERS,
+      useFactory: (prisma: PrismaService, redis: Redis): HealthChecker[] => [
+        async () => {
+          const start = Date.now();
+          try {
+            await prisma.$queryRaw`SELECT 1`;
+            return { name: 'postgresql', status: 'healthy', latencyMs: Date.now() - start, required: true };
+          } catch (err) {
+            return {
+              name: 'postgresql', status: 'unhealthy', latencyMs: Date.now() - start,
+              required: true, details: (err as Error).message,
+            };
+          }
+        },
+        async () => {
+          const start = Date.now();
+          try {
+            const pong = await redis.ping();
+            return {
+              name: 'redis', status: pong === 'PONG' ? 'healthy' : 'degraded',
+              latencyMs: Date.now() - start, required: true,
+            };
+          } catch (err) {
+            return {
+              name: 'redis', status: 'unhealthy', latencyMs: Date.now() - start,
+              required: true, details: (err as Error).message,
+            };
+          }
+        },
+      ],
+      inject: [PrismaService, REDIS_CLIENT],
+    },
+  ],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    RedisModule,
+    ObservabilityModule,
     InferenceModule,
     MarketplaceModule,
     DataQualityModule,
