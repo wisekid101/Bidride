@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.572.0",
     "@bidride/database": "workspace:*",
     "@bidride/observability": "workspace:*",
     "@nestjs/common": "^10.3.0",
