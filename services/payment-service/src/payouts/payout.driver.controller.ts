@@ -10,14 +10,18 @@ import { ConfigService } from '@nestjs/config';
 import { PaymentService } from '../payments/payment.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PayoutOrchestratorService } from './payout-orchestrator.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('payments/payout')
 export class PayoutDriverController {
   constructor(
+    // Retained ONLY for the Stripe Connect onboarding link below, which is not
+    // part of the payout money path.
     private readonly payments: PaymentService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly orchestrator: PayoutOrchestratorService,
   ) {}
 
   @Post('instant')
@@ -45,7 +49,13 @@ export class PayoutDriverController {
       select: { id: true },
     });
     if (!driver) throw new NotFoundException('Driver not found');
-    return this.payments.instantPayout(driver.id);
+    // Payment Integrity: the approved path is the durable allocation pipeline
+    // (ledger-derived eligibility → PayoutRequest → allocation → submission).
+    // PaymentService.instantPayout — the legacy lifetime-Trip-sum implementation
+    // — is deliberately NOT called here and has no fallback. See
+    // payout-orchestrator.service.ts for why the legacy model could not be
+    // repaired incrementally.
+    return this.orchestrator.requestInstantPayout(driver.id);
   }
 
   @Post('connect')

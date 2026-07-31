@@ -13,6 +13,13 @@ import { WalletService } from '../wallet/wallet.service';
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
 import { PaymentBookingService } from './payment-booking.service';
 import { CaptureRecoveryModule } from '../recovery/capture-recovery.module';
+import Stripe from 'stripe';
+import { PayoutAllocationService } from '../payouts/payout-allocation.service';
+import {
+  PayoutSubmissionService,
+  type StripeTransfersLike,
+} from '../payouts/payout-submission.service';
+import { PayoutOrchestratorService } from '../payouts/payout-orchestrator.service';
 
 @Module({
   imports: [
@@ -26,7 +33,40 @@ import { CaptureRecoveryModule } from '../recovery/capture-recovery.module';
     }),
   ],
   controllers: [PaymentsInternalController, StripeWebhookController, PayoutDriverController],
-  providers: [PaymentService, PrismaService, LedgerService, PaymentBookingService, WalletService, ReconciliationService, JwtAuthGuard],
+  providers: [
+    PaymentService,
+    PrismaService,
+    LedgerService,
+    PaymentBookingService,
+    WalletService,
+    ReconciliationService,
+    JwtAuthGuard,
+    // ─── Durable payout pipeline (Payment Integrity) ────────────────────────
+    // These existed with full unit + integration coverage but had no
+    // production consumer; the instant-payout path now runs through them.
+    PayoutAllocationService,
+    {
+      // PayoutSubmissionService takes Stripe as a structural dependency
+      // (StripeTransfersLike is an interface, so Nest cannot resolve it by
+      // type). Mirrors the factory pattern in capture-recovery.module.ts.
+      provide: PayoutSubmissionService,
+      useFactory: (
+        prisma: PrismaService,
+        ledger: LedgerService,
+        config: ConfigService,
+      ) =>
+        new PayoutSubmissionService(
+          prisma,
+          ledger,
+          new Stripe(config.getOrThrow('STRIPE_SECRET_KEY'), {
+            apiVersion: '2024-04-10',
+          }) as unknown as StripeTransfersLike,
+          config,
+        ),
+      inject: [PrismaService, LedgerService, ConfigService],
+    },
+    PayoutOrchestratorService,
+  ],
   exports: [PaymentService],
 })
 export class PaymentsModule {}

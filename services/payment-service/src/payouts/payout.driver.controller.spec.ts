@@ -14,20 +14,29 @@ describe('PayoutDriverController — instant payout containment', () => {
     };
     const prisma = { driver: { findUnique: jest.fn().mockResolvedValue({ id: 'driver-1' }) } };
     const config = { get: jest.fn().mockReturnValue(flag) };
+    // Payment Integrity: the approved path is the durable allocation pipeline.
+    const orchestrator = {
+      requestInstantPayout: jest.fn().mockResolvedValue({
+        payoutRequestId: 'req-1', status: 'PAID', paid: true,
+        amount: 49.01, currency: 'usd', allocationCount: 2,
+      }),
+    };
     const controller = new PayoutDriverController(
-      payments as any, prisma as any, config as any,
+      payments as any, prisma as any, config as any, orchestrator as any,
     );
-    return { controller, payments, prisma, config };
+    return { controller, payments, prisma, config, orchestrator };
   };
 
   async function expectDisabled(flag?: unknown) {
-    const { controller, payments, prisma } = build(flag);
+    const { controller, payments, prisma, orchestrator } = build(flag);
     let err: any;
     try { await controller.instant('user-1'); } catch (e) { err = e; }
     expect(err).toBeInstanceOf(ServiceUnavailableException);
     expect(err.getStatus()).toBe(503);
     expect((err.getResponse() as any).code).toBe('payouts_temporarily_unavailable');
-    // nothing downstream ran: no PaymentService (⇒ no Stripe/payout/wallet/ledger) and no DB read
+    // nothing downstream ran: no orchestrator (⇒ no allocation/Stripe/ledger),
+    // no legacy PaymentService, and no DB read
+    expect(orchestrator.requestInstantPayout).not.toHaveBeenCalled();
     expect(payments.instantPayout).not.toHaveBeenCalled();
     expect(prisma.driver.findUnique).not.toHaveBeenCalled();
     return err;
@@ -54,27 +63,42 @@ describe('PayoutDriverController — instant payout containment', () => {
     await expectDisabled('yes');
   });
 
-  it('5. flag boolean true → instantPayout invoked once, response preserved', async () => {
-    const { controller, payments, prisma } = build(true);
+  it('5. flag boolean true → orchestrator invoked once, response preserved', async () => {
+    const { controller, orchestrator, payments, prisma } = build(true);
     const res = await controller.instant('user-1');
     expect(prisma.driver.findUnique).toHaveBeenCalledTimes(1);
-    expect(payments.instantPayout).toHaveBeenCalledTimes(1);
-    expect(payments.instantPayout).toHaveBeenCalledWith('driver-1');
-    expect(res).toEqual({ payoutId: 'p1', amount: 49.01 });
+    expect(orchestrator.requestInstantPayout).toHaveBeenCalledTimes(1);
+    expect(orchestrator.requestInstantPayout).toHaveBeenCalledWith('driver-1');
+    // the legacy lifetime-Trip-sum path must never run
+    expect(payments.instantPayout).not.toHaveBeenCalled();
+    expect(res).toEqual({
+      payoutRequestId: 'req-1', status: 'PAID', paid: true,
+      amount: 49.01, currency: 'usd', allocationCount: 2,
+    });
   });
 
-  it('6. flag string "true" → enabled (repo convention), instantPayout invoked once', async () => {
-    const { controller, payments } = build('true');
+  it('6. flag string "true" → enabled (repo convention), orchestrator invoked once', async () => {
+    const { controller, orchestrator, payments } = build('true');
     await controller.instant('user-1');
-    expect(payments.instantPayout).toHaveBeenCalledTimes(1);
-    expect(payments.instantPayout).toHaveBeenCalledWith('driver-1');
+    expect(orchestrator.requestInstantPayout).toHaveBeenCalledTimes(1);
+    expect(orchestrator.requestInstantPayout).toHaveBeenCalledWith('driver-1');
+    expect(payments.instantPayout).not.toHaveBeenCalled();
   });
 
   it('7. disabled path performs no Stripe/payout/wallet/ledger work and no DB read', async () => {
-    const { controller, payments, prisma } = build(undefined);
+    const { controller, payments, prisma, orchestrator } = build(undefined);
     await controller.instant('user-1').catch(() => {});
-    expect(payments.instantPayout).not.toHaveBeenCalled(); // all money movement lives inside instantPayout
+    expect(orchestrator.requestInstantPayout).not.toHaveBeenCalled(); // all money movement lives beyond this call
+    expect(payments.instantPayout).not.toHaveBeenCalled();
     expect(prisma.driver.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('9. the legacy lifetime-Trip-sum payout path is never reachable from this controller', async () => {
+    for (const flag of [true, 'true']) {
+      const { controller, payments } = build(flag);
+      await controller.instant('user-1');
+      expect(payments.instantPayout).not.toHaveBeenCalled();
+    }
   });
 
   it('8. authentication guard remains applied to the controller class', () => {
