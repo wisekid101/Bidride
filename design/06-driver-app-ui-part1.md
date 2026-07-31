@@ -1130,7 +1130,7 @@ All driver screens apply these rules. No exceptions.
 ║  │  Every Monday — automatic        │    ║
 ║  │                                  │    ║
 ║  │  ⚡  Instant Payout              │    ║
-║  │  Available 24/7 for $0.99 fee    │    ║
+║  │  Available 24/7 — free, no fee  │    ║
 ║  └──────────────────────────────────┘    ║
 ║  bg-secondary / text-secondary           ║
 ║                                          ║

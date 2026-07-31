@@ -23,7 +23,7 @@ Sprint 2C Part 2B delivered 5 production bug fixes and 2 security guards (238/23
 
 | Check | Result | Evidence |
 |---|---|---|
-| **F8** Stripe connectivity | PASS | Auth hold created on bid submit; Stripe PaymentIntent confirmed `authorized`; `$0.99` instant payout fee verified; hold void and capture both functional |
+| **F8** Stripe connectivity | PASS | Auth hold created on bid submit; Stripe PaymentIntent confirmed `authorized`; instant payout verified (fee policy superseded — payouts are FREE per Founder ruling 2026-07-31); hold void and capture both functional |
 | **F9** Notification service routing | PASS | FCM drop logged correctly (no production service-account key in dev — expected); SMS routing via Twilio proxy intact; all internal push routes mapped and responding |
 | **F10** Admin login + analytics | PASS | `POST /admin/auth/login → 200` with `admin_session` httpOnly cookie; `GET /admin/analytics/dashboard → 200` returning `todayTrips`, `todayGmv`, `activeDrivers`, `openSosSessions` |
 

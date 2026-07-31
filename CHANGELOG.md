@@ -69,7 +69,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - Earnings floor formula (Founder-only write): `floor = (miles × $1.10) + (min × $0.22) + $2.50`
 - SOS 3-state machine (initiate → 5s countdown → confirm), AES-256 audio recording
 - Panic mode: triple-tap, no accessibility tree entry, panic admin payload excludes riderId/riderName/riderPhone
-- Stripe Connect payment processing, instant payout ($0.99 fee, $500 cap, 2h hold)
+- Stripe Connect payment processing, instant payout (free — no fee, $500 cap, 2h hold)
 - EWR virtual queue (FIFO via Redis sorted set), surge cap 2.5×, admin confirmation >1.5×
 - Trust score engine: 4-badge system (Verified/Trusted/Business/VIP), auto-hold at fraud_probability ≥ 90%
 - Admin portal: Dashboard, Safety Center, Drivers, Fraud, EarningsFloor, Refunds

@@ -34,7 +34,7 @@ Grouped by domain. Each item requires a named owner and a confirmed date.
 - [ ] Stripe account in live mode (`sk_live_*` key in production env)
 - [ ] Stripe Connect configured for driver payouts
 - [ ] Stripe webhook endpoint registered and `STRIPE_WEBHOOK_SECRET` set
-- [ ] Instant payout fee confirmed (`$0.99`), minimum (`$10`), cap (`$500`) correct in live Stripe config
+- [ ] Instant payout confirmed FREE (no fee), minimum (`$10`), cap (`$500`) correct in live Stripe config
 - [ ] 2-hour wallet hold period (`WALLET_HOLD_HOURS=2`) confirmed
 - [ ] Test of live auth hold → capture → instant payout end-to-end before launch
 - [ ] PCI DSS scope confirmed (Stripe Elements / hosted fields — no raw card data touches BidiRide servers)

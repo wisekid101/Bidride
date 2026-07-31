@@ -33,7 +33,7 @@ async function main() {
     update: {},
     create: {
       key: 'instant_payout_fee',
-      value: { flat: 0.99, min_balance: 10.00, daily_cap: 500.00, hold_hours: 2 },
+      value: { flat: 0.00, min_balance: 10.00, daily_cap: 500.00, hold_hours: 2 },
       description: 'Instant payout fee and constraints.',
     },
   });

@@ -60,7 +60,7 @@ export default function BankAccountScreen() {
           <FeatureRow
             icon="⚡"
             title="Instant Payouts"
-            desc="Transfer your earnings instantly for $0.99 (min. $10)"
+            desc="Transfer your earnings instantly — free (min. $10)"
           />
           <FeatureRow
             icon="📅"
@@ -84,7 +84,7 @@ export default function BankAccountScreen() {
         <View style={styles.securityNote}>
           <Shield size={16} color={Colors.textTertiary} />
           <Text style={styles.securityText}>
-            Your banking information is processed directly by Stripe and is never stored on BidiRide
+            Your banking information is processed directly by Stripe and is never stored on Bidiride
             servers.
           </Text>
         </View>

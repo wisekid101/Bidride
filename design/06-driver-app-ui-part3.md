@@ -102,7 +102,7 @@
   Monday, June 9  ·  Auto deposit
   text-caption / text-secondary
 
-  [ Instant Payout — $0.99 fee ]
+  [ Instant Payout — free ]
   text-teal link → DS-031
 ```
 
@@ -209,7 +209,7 @@
 ║  ┌──────────────────────────────────┐    ║
 ║  │  ⚡  GET PAID NOW                │    ║
 ║  │                                  │    ║
-║  │  Instant Payout  ·  $0.99 fee   │    ║
+║  │  Instant Payout  ·  free        │    ║
 ║  │  Funds arrive in 15–30 min       │    ║
 ║  │                                  │    ║
 ║  │  [ Instant Payout ]              │    ║
@@ -237,7 +237,7 @@
 ║  ⚡ Instant Payout                       ║
 ╠══════════════════════════════════════════╣
 ║  You'll receive:  $246.81               ║
-║  ($247.80 − $0.99 fee)                  ║
+║  ($247.80 — no fee)                     ║
 ║  text-gold / JetBrains Mono              ║
 ║                                          ║
 ║  To: Chase ····4812                     ║
@@ -255,7 +255,7 @@
 **Business rules:**
 - Minimum balance for instant payout: $10.00
 - Maximum single instant payout: $500.00 (Stripe limit)
-- Fee: flat $0.99 — deducted from payout, never added to balance
+- No fee: instant payout is FREE — the full available balance transfers
 - Earnings from trips in the last 2 hours are "pending" and excluded from instant payout (fraud prevention)
 - Instant payout available 24/7 including weekends
 
@@ -508,7 +508,7 @@
 
 **`airport_queue_entries`** (extends PRD §17): `id · driver_id · queue_position · joined_at · dispatched_at · left_at · trip_id · terminal_assigned ENUM(A,B,C) · rejoin_position · status ENUM(waiting,notified,dispatched,completed,left)`
 
-**`payouts`**: `id · driver_id · period_start · period_end · trip_earnings · floor_supplements · instant_fees · total_payout · stripe_transfer_id · status ENUM(pending,processing,paid,failed) · paid_at · created_at`
+**`payouts`**: `id · driver_id · period_start · period_end · trip_earnings · floor_supplements · instant_fees (retained, always 0.00) · total_payout · stripe_transfer_id · status ENUM(pending,processing,paid,failed) · paid_at · created_at`
 
 **`earnings_floor_logs`** (extends PRD §18): `id · trip_id · driver_id · floor_amount · earned_amount · supplement_amount · formula_inputs JSONB · payout_id · created_at`
 

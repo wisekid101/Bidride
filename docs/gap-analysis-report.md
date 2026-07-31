@@ -48,7 +48,7 @@ The existing codebase is substantially more built than expected. It contains 11 
 
 ### Payments
 - Stripe Connect: rider payment methods, charge on trip completion
-- Driver instant payout: $0.99 fee, $10 minimum, $500 daily cap, 2-hour hold on recent earnings
+- Driver instant payout: FREE (no fee), $10 minimum, $500 daily cap, 2-hour hold on recent earnings
 - Stripe idempotency keys on charge (`charge_{tripId}`) — safe to retry
 - Payout history and earnings tracking
 

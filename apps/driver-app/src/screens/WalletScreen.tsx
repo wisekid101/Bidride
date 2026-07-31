@@ -85,7 +85,7 @@ export function WalletScreen() {
     }
     Alert.alert(
       'Instant Payout',
-      `Transfer $${wallet.availableWallet.toFixed(2)} to your bank account?\n\nFee: $0.99`,
+      `Transfer $${wallet.availableWallet.toFixed(2)} to your bank account?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -141,7 +141,7 @@ export function WalletScreen() {
             ) : (
               <>
                 <Ionicons name="flash" size={18} color={Colors.primaryText} />
-                <Text style={styles.payoutBtnText}>Instant Transfer ($0.99)</Text>
+                <Text style={styles.payoutBtnText}>Instant Transfer</Text>
               </>
             )}
           </TouchableOpacity>

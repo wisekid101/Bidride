@@ -326,7 +326,7 @@ period_start        DATE NOT NULL
 period_end          DATE NOT NULL
 trip_earnings       DECIMAL(10,2) NOT NULL
 floor_supplements   DECIMAL(10,2) DEFAULT 0.00
-instant_fees        DECIMAL(10,2) DEFAULT 0.00
+instant_fees        DECIMAL(10,2) DEFAULT 0.00  -- Retained for compatibility. Founder policy is FREE Instant Payout, therefore this value remains 0.00.
 reward_bonuses      DECIMAL(10,2) DEFAULT 0.00
 total_payout        DECIMAL(10,2) NOT NULL
 stripe_transfer_id  VARCHAR(100) NULL
@@ -364,7 +364,7 @@ changed_at    TIMESTAMP DEFAULT now()
 Initial rows:
 - `earnings_floor_formula` → `{ "per_mile": 1.10, "per_min": 0.22, "base": 2.50 }`
 - `platform_fee_rate` → `{ "rate": 0.20 }`
-- `instant_payout_fee` → `{ "flat": 0.99 }`
+- `instant_payout_fee` → `{ "flat": 0.00 }` (FREE Instant Payout — Founder ruling)
 - `ai_surge_threshold` → `{ "requests_per_zone": 150 }`
 
 ---

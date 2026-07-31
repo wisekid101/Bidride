@@ -105,7 +105,7 @@ pnpm --filter @bidride/admin dev
 - Auth Service — OTP, JWT, MFA (TOTP + FIDO2), WebSocket gateway
 - Trip Service — state machine, earnings floor, race condition prevention
 - Pricing Service — FareEngineService (hybrid SageMaker + rule), AI bounded ±$2.00
-- Payment Service — Stripe Connect, instant payout ($0.99, $10 min, $500 cap, 2h hold)
+- Payment Service — Stripe Connect, instant payout (FREE — no fee, $10 min, $500 cap, 2h hold)
 - Safety Service — SOS 3-state, panic (PanResponder, no accessibility tree), audio recording
 - Notification Service — FCM, Twilio SMS, FCRA adverse action letter
 - Trust Service — score engine, 4-badge system, fraud auto-hold

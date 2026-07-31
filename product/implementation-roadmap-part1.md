@@ -147,7 +147,7 @@ BidiRide's core differentiator: AI-bounded fare with rider transparency.
 |---------|-------------|-----------------|
 | Trip charge on completion | Stripe charge fires when trip status → completed | Integration: charge amount matches final_fare |
 | Earnings hold (2h) | Driver payout held 2h post-completion | Unit: hold enforced · Integration: payout not immediate |
-| Instant payout ($0.99 fee, $10 min, $500 cap) | Driver requests instant payout | Integration: limits enforced · Stripe payout verified |
+| Instant payout (free, $10 min, $500 cap) | Driver requests instant payout | Integration: limits enforced · Stripe payout verified |
 | Payment failure handling | Card decline → rider notified → retry | Integration: decline flow · E2E: rider prompted to update card |
 | Refund flow | Admin-initiated only (no automated refunds) | Unit: refund requires admin role · Integration: Stripe refund fires |
 | Earnings floor supplement | Platform absorbs supplement when earnings below floor | Unit: supplement calculation correct · Integration: trip record updated |

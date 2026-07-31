@@ -141,7 +141,7 @@ Base URL: `https://api.bidiride.com/v1`
 | GET | /driver/earnings/today | Driver | Today's earnings summary |
 | GET | /driver/earnings/week | Driver | Current week summary |
 | GET | /driver/earnings/history | Driver | Historical trips + earnings |
-| POST | /driver/payout/instant | Driver + MFA | Request instant payout ($0.99 fee) |
+| POST | /driver/payout/instant | Driver + MFA | Request instant payout (free) |
 | GET | /driver/vehicles | Driver | Own vehicle list |
 | POST | /driver/vehicles | Driver | Register vehicle |
 | PUT | /driver/vehicles/:id/active | Driver | Switch active vehicle |
