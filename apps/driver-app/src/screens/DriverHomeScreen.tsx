@@ -18,6 +18,7 @@ import { useDriverSocketStore } from '../store/socket.store';
 import { IncomingRequestScreen } from './IncomingRequestScreen';
 import { IncomingStandardRequestScreen } from './IncomingStandardRequestScreen';
 import { DriverHubSheet } from '../components/DriverHubSheet';
+import { resolveDriverOverlay } from '../utils/driverOverlay';
 import { api } from '../api/client';
 
 // Downtown Newark — map placeholder region until the first GPS fix lands
@@ -31,6 +32,8 @@ const NEWARK_REGION = {
 export function DriverHomeScreen() {
   const { isOnline, setOnlineStatus, setTodayEarnings } = useDriverStore();
   const { incomingBid, clearIncomingBid, incomingRequest, clearIncomingRequest, counterResult, clearCounterResult, emitLocation } = useDriverSocketStore();
+  // Standard ride requests outrank bids — see utils/driverOverlay.
+  const overlay = resolveDriverOverlay({ isOnline, incomingRequest, incomingBid });
   const mapRef = useRef<MapView>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toggling, setToggling] = useState(false);
@@ -234,8 +237,8 @@ export function DriverHomeScreen() {
           zone panel + earnings bar; both live inside the sheet now. */}
       <DriverHubSheet />
 
-      {/* Incoming standard ride overlay — primary flow; only shown when no bid is pending */}
-      {isOnline && incomingRequest && !incomingBid && (
+      {/* Incoming standard ride overlay — primary flow; a pending bid never suppresses it */}
+      {overlay === 'standard' && incomingRequest && (
         <IncomingStandardRequestScreen
           tripId={incomingRequest.tripId}
           pickupAddress={incomingRequest.pickupAddress}
@@ -251,8 +254,8 @@ export function DriverHomeScreen() {
         />
       )}
 
-      {/* Incoming bid overlay — only rendered when online and a bid is available */}
-      {isOnline && incomingBid && (
+      {/* Incoming bid overlay — secondary; only when no standard request is pending */}
+      {overlay === 'bid' && incomingBid && (
         <IncomingRequestScreen
           bidId={incomingBid.bidId}
           tripId={incomingBid.tripId}
