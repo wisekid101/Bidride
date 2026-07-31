@@ -1,5 +1,5 @@
 import { Reflector } from '@nestjs/core';
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Type, UnauthorizedException } from '@nestjs/common';
 import { AdminSessionGuard } from './admin-session.guard';
 import { RolesGuard, ADMIN_ROLES_KEY } from './roles.guard';
 import { NO_ADMIN_SESSION } from './public-route.decorator';
@@ -31,7 +31,7 @@ import { UserTicketController, AdminTicketController } from '../support/support.
 
 /** Minimal ExecutionContext double — enough for both guards. */
 const ctxFor = (
-  target: Function,
+  target: Type,
   req: Record<string, unknown> = { headers: {} },
 ) => ({
   switchToHttp: () => ({ getRequest: () => req }),
@@ -47,7 +47,7 @@ const withSession = (role: string) => ({
 const noSession = () => ({ headers: {} });
 
 /** Every controller reachable under /admin/*, which the ALB routes publicly. */
-const ADMIN_CONTROLLERS: Array<[string, Function]> = [
+const ADMIN_CONTROLLERS: Array<[string, Type]> = [
   ['finance', FinanceController],
   ['operations', OperationsController],
   ['safety', SafetyAdminController],
@@ -125,7 +125,7 @@ describe('SEC-1 — admin authentication', () => {
   });
 
   it.each(['login', 'logout'])('%s is public — it cannot require the session it manages', (m) => {
-    const handler = (AdminAuthController.prototype as unknown as Record<string, Function>)[m];
+    const handler = (AdminAuthController.prototype as unknown as Record<string, (...args: unknown[]) => unknown>)[m];
     expect(reflector.getAllAndOverride(NO_ADMIN_SESSION, [handler, AdminAuthController]))
       .toBe(true);
   });
@@ -150,7 +150,7 @@ describe('SEC-1 — admin authentication', () => {
   });
 
   it('ws-token still requires a session', () => {
-    const handler = (AdminAuthController.prototype as unknown as Record<string, Function>).wsToken;
+    const handler = (AdminAuthController.prototype as unknown as Record<string, (...args: unknown[]) => unknown>).wsToken;
     expect(reflector.getAllAndOverride(NO_ADMIN_SESSION, [handler, AdminAuthController]))
       .toBeFalsy();
   });
@@ -165,10 +165,10 @@ describe('SEC-1 — admin role enforcement', () => {
     rolesGuard = new RolesGuard(reflector);
   });
 
-  const allows = (controller: Function, role: string) =>
+  const allows = (controller: Type, role: string) =>
     rolesGuard.canActivate(ctxFor(controller, withSession(role)));
 
-  const denies = (controller: Function, role: string) =>
+  const denies = (controller: Type, role: string) =>
     expect(() => rolesGuard.canActivate(ctxFor(controller, withSession(role))))
       .toThrow(ForbiddenException);
 

@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { withCorrelation, getCorrelationId, testing } from '@bidride/observability';
+import { withCorrelation, getCorrelationId, testing, registry } from '@bidride/observability';
 import {
   HEALTH_CHECKERS,
   OBSERVABILITY_OPTIONS,
@@ -113,7 +113,6 @@ describe('driver-service observability adoption', () => {
     try {
       expect(() => {
         // A prohibited dimension is dropped, never thrown.
-        const { registry } = require('@bidride/observability');
         registry.counter('bidride_driver_adoption_probe_total', 'test').inc({ tripId: 'x' });
       }).not.toThrow();
     } finally {

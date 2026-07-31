@@ -102,7 +102,7 @@ describe('airport-service (integration)', () => {
   let fetchSpy: jest.SpyInstance;
 
   /** Driver profile ids, in fixture order. */
-  let driverIds: string[] = [];
+  const driverIds: string[] = [];
 
   async function cleanupDb() {
     const users = await prisma.user.findMany({
