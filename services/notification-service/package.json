@@ -7,7 +7,7 @@
     "dev": "nest start -b swc --watch",
     "start": "node dist/main",
     "lint": "eslint src --ext .ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.spec.json",
     "test": "jest --passWithNoTests"
   },
   "dependencies": {
@@ -30,6 +30,7 @@
     "twilio": "^5.1.0"
   },
   "devDependencies": {
+    "@bidride/jest-preset": "workspace:*",
     "@nestjs/cli": "^10.3.0",
     "@nestjs/testing": "^10.3.0",
     "@swc/cli": "^0.5.2",
@@ -41,25 +42,11 @@
     "typescript": "^5.4.0"
   },
   "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
+    "preset": "@bidride/jest-preset",
     "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": [
-        "ts-jest",
-        {
-          "isolatedModules": true
-        }
-      ]
-    },
     "moduleNameMapper": {
       "^@bidride/database$": "<rootDir>/../../../packages/database/generated/client",
       "^@bidride/database/generated/client$": "<rootDir>/../../../packages/database/generated/client"
-    },
-    "testEnvironment": "node"
+    }
   }
 }

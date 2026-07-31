@@ -26,7 +26,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @bidride/database exec prisma generate
-      - run: pnpm turbo run lint typecheck
+      # Bounded explicitly: Phase 1 gave every package a second tsc project
+      # (tsconfig.spec.json, which type-checks spec files), so this job now runs
+      # two tsc passes per package. Turbo's default concurrency of 10 against a
+      # small hosted runner is the same OOM shape that crashed local dev.
+      - run: pnpm turbo run lint typecheck --concurrency=2
 
   # ─── Unit Tests ────────────────────────────────────────────────────────────
   unit-tests:
@@ -42,7 +46,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @bidride/database exec prisma generate
-      - run: pnpm turbo run test --filter='./services/*'
+      # No --filter here: the previous './services/*' filter meant
+      # apps/rider-app, apps/driver-app, and packages/observability (the
+      # heaviest suites, all jest-expo/jest) never ran in CI. `pnpm test:ci`
+      # runs every workspace's `test` task with an explicit, GitHub-hosted-
+      # runner-sized bound (turbo --concurrency=2, jest --maxWorkers=2) so
+      # this never relies on CPU-derived defaults, which is what OOM-crashed
+      # local dev machines. See scripts/dev/test-concurrency.mjs.
+      - run: pnpm test:ci
         env:
           NODE_ENV: test
       - uses: codecov/codecov-action@v4
@@ -87,7 +98,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://bidride:test_password@localhost:5432/bidride_test
       - name: Integration tests
-        run: pnpm turbo run test:int
+        # Explicit, GitHub-hosted-runner-sized bound, same rationale as the
+        # unit-tests job: never rely on CPU-derived turbo/jest defaults.
+        # DB/redis service containers above are unchanged.
+        run: pnpm turbo run test:int --concurrency=2 -- --maxWorkers=2
         env:
           DATABASE_URL: postgresql://bidride:test_password@localhost:5432/bidride_test
           REDIS_URL: redis://localhost:6379

@@ -69,6 +69,8 @@
       "expo-location": "<rootDir>/src/__mocks__/expo-location.ts",
       "react-native-maps": "<rootDir>/src/__mocks__/react-native-maps.ts",
       "@react-native-async-storage/async-storage": "<rootDir>/src/__mocks__/@react-native-async-storage/async-storage.ts"
-    }
+    },
+    "maxWorkers": 2,
+    "workerIdleMemoryLimit": "512MB"
   }
 }

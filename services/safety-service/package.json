@@ -7,7 +7,7 @@
     "dev": "nest start -b swc --watch",
     "start": "node dist/main",
     "lint": "eslint src --ext .ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.spec.json",
     "test": "jest --passWithNoTests",
     "test:int": "jest --config jest.integration.json"
   },
@@ -30,6 +30,7 @@
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
+    "@bidride/jest-preset": "workspace:*",
     "@nestjs/cli": "^10.3.0",
     "@nestjs/testing": "^10.3.0",
     "@swc/cli": "^0.5.2",
@@ -41,16 +42,7 @@
     "typescript": "^5.4.0"
   },
   "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
-    "rootDir": "src",
-    "testRegex": "(?<!integration)\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
-    "testEnvironment": "node"
+    "preset": "@bidride/jest-preset",
+    "rootDir": "src"
   }
 }

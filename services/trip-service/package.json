@@ -7,7 +7,7 @@
     "dev": "nest start -b swc --watch",
     "start": "node dist/main",
     "lint": "eslint src --ext .ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.spec.json",
     "test": "jest --passWithNoTests",
     "test:int": "jest --config jest.integration.json"
   },
@@ -35,6 +35,7 @@
     "socket.io": "^4.7.5"
   },
   "devDependencies": {
+    "@bidride/jest-preset": "workspace:*",
     "@nestjs/cli": "^10.3.2",
     "@nestjs/schematics": "^10.1.1",
     "@nestjs/testing": "^10.3.0",
@@ -46,20 +47,11 @@
     "typescript": "^5.4.0"
   },
   "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
+    "preset": "@bidride/jest-preset",
     "rootDir": "src",
-    "testRegex": "(?<!integration)\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
     "moduleNameMapper": {
       "^@bidride/database$": "<rootDir>/../../../packages/database/generated/client",
       "^@bidride/database/generated/client$": "<rootDir>/../../../packages/database/generated/client"
-    },
-    "testEnvironment": "node"
+    }
   }
 }

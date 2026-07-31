@@ -9,7 +9,7 @@
     "test": "jest --passWithNoTests",
     "test:cov": "jest --coverage",
     "lint": "eslint src --ext .ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.spec.json"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.572.0",
@@ -31,6 +31,7 @@
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
+    "@bidride/jest-preset": "workspace:*",
     "@nestjs/cli": "^10.3.0",
     "@nestjs/testing": "^10.3.0",
     "@swc/cli": "^0.5.2",
@@ -44,20 +45,11 @@
     "typescript": "^5.4.5"
   },
   "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
+    "preset": "@bidride/jest-preset",
     "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
     "moduleNameMapper": {
       "^@bidride/database$": "<rootDir>/../../../packages/database/generated/client",
       "^@bidride/database/generated/client$": "<rootDir>/../../../packages/database/generated/client"
-    },
-    "testEnvironment": "node"
+    }
   }
 }

@@ -13,7 +13,8 @@ import { RecommendationLedgerService } from '../recommendations/recommendation-l
 import { RetentionService } from '../retention/retention.service';
 import { BriefType } from '../founder/briefs/brief.types';
 
-export { DEFAULT_JOBS, JobSpec } from './job-config';
+export { DEFAULT_JOBS } from './job-config';
+export type { JobSpec } from './job-config';
 
 export interface JobRunResult {
   job: string;

@@ -12,9 +12,10 @@
     "dev:rs256": "node scripts/dev/rs256.mjs",
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
-    "test": "turbo run test",
+    "test": "node scripts/dev/test-concurrency.mjs --run",
+    "test:ci": "turbo run test --concurrency=2 -- --maxWorkers=2",
     "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "node scripts/dev/test-concurrency.mjs --run-typecheck",
     "db:migrate": "pnpm --filter @bidride/database migrate:dev",
     "db:migrate:prod": "pnpm --filter @bidride/database migrate:deploy",
     "db:seed": "pnpm --filter @bidride/database seed",
@@ -23,7 +24,8 @@
     "dev:proxy": "node scripts/dev-proxy.js",
     "dev:backend": "turbo run dev --filter=!@bidride/rider-app --filter=!@bidride/driver-app --filter=!@bidride/admin --parallel",
     "dev:rider": "pnpm --filter @bidride/rider-app dev",
-    "dev:driver": "pnpm --filter @bidride/driver-app dev"
+    "dev:driver": "pnpm --filter @bidride/driver-app dev",
+    "typecheck:ci": "turbo run typecheck --concurrency=2"
   },
   "workspaces": [
     "apps/*",

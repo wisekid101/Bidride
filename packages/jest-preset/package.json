@@ -1,0 +1,8 @@
+{
+  "name": "@bidride/jest-preset",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared Jest configuration and RAM-aware concurrency resolver for the BidRide monorepo.",
+  "main": "jest-preset.js",
+  "files": ["jest-preset.js", "concurrency.js"]
+}
