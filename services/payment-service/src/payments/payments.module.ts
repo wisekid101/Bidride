@@ -20,6 +20,8 @@ import {
   type StripeTransfersLike,
 } from '../payouts/payout-submission.service';
 import { PayoutOrchestratorService } from '../payouts/payout-orchestrator.service';
+import { ReceiptService } from '../receipts/receipt.service';
+import { ReceiptController } from '../receipts/receipt.controller';
 
 @Module({
   imports: [
@@ -32,7 +34,7 @@ import { PayoutOrchestratorService } from '../payouts/payout-orchestrator.servic
       inject: [ConfigService],
     }),
   ],
-  controllers: [PaymentsInternalController, StripeWebhookController, PayoutDriverController],
+  controllers: [PaymentsInternalController, StripeWebhookController, PayoutDriverController, ReceiptController],
   providers: [
     PaymentService,
     PrismaService,
@@ -66,6 +68,8 @@ import { PayoutOrchestratorService } from '../payouts/payout-orchestrator.servic
       inject: [PrismaService, LedgerService, ConfigService],
     },
     PayoutOrchestratorService,
+    // Rider receipts — read-only aggregation over Payment/Refund (no writes).
+    ReceiptService,
   ],
   exports: [PaymentService],
 })
