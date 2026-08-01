@@ -147,6 +147,10 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+      # :$IMAGE_TAG is the deployable artefact — immutable, one per commit.
+      # :latest is pushed ONLY as a Docker layer cache source and is never
+      # deployed from: deploy-service.sh resolves :$IMAGE_TAG to its sha256
+      # digest and pins the task definition to that digest.
       - name: Build and push
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -162,6 +166,18 @@ jobs:
             .
           docker push $ECR_REGISTRY/bidride/$SERVICE:$IMAGE_TAG
           docker push $ECR_REGISTRY/bidride/$SERVICE:latest
+
+      - name: Record the immutable digest
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          DIGEST=$(aws ecr describe-images \
+            --repository-name "bidride/$SERVICE" \
+            --image-ids "imageTag=$IMAGE_TAG" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          echo "$SERVICE $IMAGE_TAG $DIGEST"
+          [ "${DIGEST#sha256:}" != "$DIGEST" ] || { echo "no digest for $SERVICE:$IMAGE_TAG"; exit 1; }
 
   # ─── Deploy Staging ────────────────────────────────────────────────────────
   deploy-staging:
@@ -188,25 +204,32 @@ jobs:
             --launch-type FARGATE \
             --overrides '{"containerOverrides":[{"name":"auth-service","command":["node","node_modules/.bin/prisma","migrate","deploy","--schema","packages/database/prisma/schema.prisma"]}]}' \
             --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PRIVATE_SUBNETS }}],securityGroups=[${{ secrets.ECS_SECURITY_GROUP }}],assignPublicIp=DISABLED}"
-      - name: Update ECS services
+      # Deploys BY EXPLICIT TASK-DEFINITION ARN, one service at a time, each
+      # verified before the next starts.
+      #
+      # The previous step here was `update-service --force-new-deployment` with
+      # no --task-definition. Because every ECS service carries
+      # `ignore_changes = [task_definition]`, that restarted tasks on the
+      # revision the service was ALREADY pinned to — so task-definition changes
+      # (new secrets, new environment variables) never reached staging, and the
+      # job still reported success. See infrastructure/DEPLOYMENT_RUNBOOK.md §9.
+      - name: Deploy fleet (explicit revision, ordered, gated)
         run: |
-          for service in auth-service trip-service driver-service rider-service pricing-service \
-                         safety-service payment-service notification-service trust-service \
-                         airport-service admin-service ai-service; do
-            aws ecs update-service \
-              --cluster bidride-staging \
-              --service bidride-${service}-staging \
-              --force-new-deployment
-          done
-      - name: Wait for deployment
+          bash infrastructure/scripts/deploy-fleet.sh staging "${{ github.sha }}"
+
+      - name: Upload rollback records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-records-staging-${{ github.sha }}
+          path: infrastructure/deploy-records/staging/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Deployment verification (configuration, not just liveness)
         run: |
-          for service in auth-service trip-service driver-service rider-service pricing-service \
-                         safety-service payment-service notification-service trust-service \
-                         airport-service admin-service ai-service; do
-            aws ecs wait services-stable \
-              --cluster bidride-staging \
-              --services bidride-${service}-staging
-          done
+          bash infrastructure/scripts/verify-deployment.sh staging all
+
       - name: Smoke tests
         run: |
           BIDRIDE_API_URL=https://staging-api.bidride.com bash infrastructure/scripts/smoke-test.sh
@@ -244,36 +267,40 @@ jobs:
             --overrides '{"containerOverrides":[{"name":"auth-service","command":["node","node_modules/.bin/prisma","migrate","deploy","--schema","packages/database/prisma/schema.prisma"]}]}' \
             --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PROD_PRIVATE_SUBNETS }}],securityGroups=[${{ secrets.PROD_ECS_SECURITY_GROUP }}],assignPublicIp=DISABLED}"
 
-      - name: Blue-green deploy — Safety Service first (always)
+      # Record what is live BEFORE anything moves. deploy-service.sh writes a
+      # per-service record too, but this snapshot survives even a failure that
+      # happens before the first service is touched.
+      - name: Snapshot current revisions (rollback targets)
         run: |
-          aws ecs update-service \
-            --cluster bidride-production \
-            --service bidride-safety-service-production \
-            --force-new-deployment
-          aws ecs wait services-stable \
-            --cluster bidride-production \
-            --services bidride-safety-service-production
-
-      - name: Deploy remaining services
-        run: |
+          mkdir -p infrastructure/deploy-records/production
           for service in auth-service trip-service driver-service rider-service pricing-service \
-                         payment-service notification-service trust-service airport-service \
-                         admin-service ai-service; do
-            aws ecs update-service \
-              --cluster bidride-production \
-              --service bidride-${service}-production \
-              --force-new-deployment
-          done
+                         safety-service payment-service notification-service trust-service \
+                         airport-service admin-service ai-service; do
+            arn=$(aws ecs describe-services --cluster bidride-production \
+              --services "bidride-${service}-production" \
+              --query 'services[0].taskDefinition' --output text)
+            echo "${service} ${arn}"
+          done | tee infrastructure/deploy-records/production/pre-deploy-${{ github.sha }}.txt
 
-      - name: Wait for all services
+      # Ordered, gated, one service at a time, deployed BY EXPLICIT ARN with a
+      # digest-pinned image. Verifiers roll before the token issuers, so no
+      # token ever exists that some verifier cannot check.
+      - name: Deploy fleet (explicit revision, ordered, gated)
         run: |
-          for service in auth-service trip-service driver-service rider-service pricing-service \
-                         payment-service notification-service trust-service airport-service \
-                         admin-service ai-service; do
-            aws ecs wait services-stable \
-              --cluster bidride-production \
-              --services bidride-${service}-production
-          done
+          bash infrastructure/scripts/deploy-fleet.sh production "${{ github.sha }}"
+
+      - name: Upload rollback records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-records-production-${{ github.sha }}
+          path: infrastructure/deploy-records/production/
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Deployment verification (configuration, not just liveness)
+        run: |
+          bash infrastructure/scripts/verify-deployment.sh production all
 
       - name: Production smoke tests
         run: |
@@ -284,7 +311,31 @@ jobs:
         run: |
           echo "Production deploy succeeded: ${{ github.sha }}"
 
+      # A bare `echo` on failure is not a notification. Publish to the same SNS
+      # topic the CloudWatch alarms use, so a failed deploy reaches the Founder
+      # through the channel already being watched.
       - name: Notify on failure
         if: failure()
         run: |
-          echo "Production deploy FAILED: ${{ github.sha }} — Investigate immediately"
+          echo "Production deploy FAILED: ${{ github.sha }}"
+          TOPIC=$(aws sns list-topics \
+            --query "Topics[?ends_with(TopicArn, ':bidride-alerts-production')].TopicArn | [0]" \
+            --output text 2>/dev/null || echo "None")
+          if [ "$TOPIC" != "None" ] && [ -n "$TOPIC" ]; then
+            # printf, not a heredoc: bash's $( ) parser scans for quotes before
+            # honouring a heredoc, so an apostrophe in heredoc text inside a
+            # command substitution is a syntax error at runtime.
+            MSG=$(printf '%s\n' \
+              "Commit: ${{ github.sha }}" \
+              "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              "" \
+              "The fleet deploy halted. Services deploy one at a time, so some may" \
+              "be on the new revision and some on the old. Rollback targets are in" \
+              "this run deploy-records artifact." \
+              "" \
+              "  bash infrastructure/scripts/rollback-service.sh production SERVICE")
+            aws sns publish --topic-arn "$TOPIC" \
+              --subject "BidRide production deploy FAILED" \
+              --message "$MSG" || true
+          fi
+          exit 1

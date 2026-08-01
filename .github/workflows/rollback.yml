@@ -1,0 +1,108 @@
+name: BidRide Rollback
+
+# Rollback as a first-class, auditable operation rather than a runbook someone
+# reads under pressure. It takes an EXACT task-definition ARN — never a
+# revision computed by arithmetic — and refuses to run against a revision that
+# is not ACTIVE.
+#
+# Where to find the ARN:
+#   - the failed deploy run's `deploy-records-<env>-<sha>` artifact, or
+#   - aws ecs list-task-definitions --family-prefix bidride-<service>-<env> \
+#       --status ACTIVE --sort DESC --max-items 10
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        required: true
+        type: choice
+        options: [staging, production]
+      service:
+        description: 'Service name (e.g. auth-service). Use "all" only in a declared incident.'
+        required: true
+        type: string
+      task_definition_arn:
+        description: Exact task-definition ARN to roll back to (arn:aws:ecs:...)
+        required: true
+        type: string
+      reason:
+        description: Why — recorded in the run log for the incident review
+        required: true
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  rollback:
+    name: Roll back ${{ inputs.service }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    # Production rollback still goes through the environment's approval gate.
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Record intent
+        run: |
+          echo "environment : ${{ inputs.environment }}"
+          echo "service     : ${{ inputs.service }}"
+          echo "target ARN  : ${{ inputs.task_definition_arn }}"
+          echo "reason      : ${{ inputs.reason }}"
+          echo "actor       : ${{ github.actor }}"
+
+      - name: Validate the target ARN
+        run: |
+          ARN='${{ inputs.task_definition_arn }}'
+          case "$ARN" in
+            arn:aws:ecs:*:task-definition/bidride-${{ inputs.service }}-${{ inputs.environment }}:*) ;;
+            *) echo "ARN does not belong to bidride-${{ inputs.service }}-${{ inputs.environment }}"; exit 1 ;;
+          esac
+          STATUS=$(aws ecs describe-task-definition --task-definition "$ARN" \
+            --query 'taskDefinition.status' --output text)
+          echo "target status: $STATUS"
+          [ "$STATUS" = "ACTIVE" ] || { echo "target is $STATUS, not ACTIVE"; exit 1; }
+
+      - name: Roll back
+        env:
+          ROLLBACK_ASSUME_YES: 'true'
+        run: |
+          bash infrastructure/scripts/rollback-service.sh \
+            '${{ inputs.environment }}' \
+            '${{ inputs.service }}' \
+            '${{ inputs.task_definition_arn }}'
+
+      - name: Verify post-rollback state
+        run: |
+          bash infrastructure/scripts/verify-deployment.sh \
+            '${{ inputs.environment }}' '${{ inputs.service }}'
+
+      - name: Notify
+        if: always()
+        run: |
+          RESULT='${{ job.status }}'
+          TOPIC=$(aws sns list-topics \
+            --query "Topics[?ends_with(TopicArn, ':bidride-alerts-${{ inputs.environment }}')].TopicArn | [0]" \
+            --output text 2>/dev/null || echo "None")
+          if [ "$TOPIC" != "None" ] && [ -n "$TOPIC" ]; then
+            MSG=$(printf '%s\n' \
+              "Service: ${{ inputs.service }}" \
+              "Environment: ${{ inputs.environment }}" \
+              "Target: ${{ inputs.task_definition_arn }}" \
+              "Reason: ${{ inputs.reason }}" \
+              "Actor: ${{ github.actor }}" \
+              "Result: ${RESULT}" \
+              "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+            aws sns publish --topic-arn "$TOPIC" \
+              --subject "BidRide rollback ${RESULT}: ${{ inputs.service }} (${{ inputs.environment }})" \
+              --message "$MSG" || true
+          fi
