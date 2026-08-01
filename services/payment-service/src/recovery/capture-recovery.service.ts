@@ -10,6 +10,16 @@ import { assertCanonicalCaptureAmount } from '../payments/capture-validation';
 import { paymentMetrics, stripeErrorType } from '../observability/payment-metrics';
 
 /**
+ * A Prisma delegate method as these helpers use it: called with a query
+ * argument object and resolving to whatever that query returns. Explicitly
+ * shaped rather than `Function`, which accepts any function-like value —
+ * including class declarations that throw when called without `new` — and
+ * gives no safety at the call site.
+ */
+type PrismaDelegateMethod = (args?: any) => Promise<any>;
+
+
+/**
  * Capture recovery (F3b-1 detection, F3b-2a booking).
  *
  * F3a made an uncertain capture visible. This turns each uncertainty into a
@@ -102,7 +112,7 @@ export class CaptureRecoveryService {
    * piece of work.
    */
   async enqueue(
-    tx: { captureRecovery: { findUnique: Function; create: Function; update: Function } },
+    tx: { captureRecovery: { findUnique: PrismaDelegateMethod; create: PrismaDelegateMethod; update: PrismaDelegateMethod } },
     input: {
       tripId: string;
       paymentIntentId: string | null;

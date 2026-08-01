@@ -4,6 +4,16 @@ import { LedgerService } from '../ledger/ledger.service';
 import { paymentMetrics } from '../observability/payment-metrics';
 
 /**
+ * A Prisma delegate method as these helpers use it: called with a query
+ * argument object and resolving to whatever that query returns. Explicitly
+ * shaped rather than `Function`, which accepts any function-like value —
+ * including class declarations that throw when called without `new` — and
+ * gives no safety at the call site.
+ */
+type PrismaDelegateMethod = (args?: any) => Promise<any>;
+
+
+/**
  * The one place an offer-trip capture becomes a booked payment (F3b-2a).
  *
  * Before this, three paths booked the same money three different ways: capture
@@ -137,8 +147,8 @@ export class PaymentBookingService {
     input: BookCapturedPaymentInput,
   ): Promise<{ outcome: BookingOutcome }> {
     const client = tx as {
-      payment: { findUnique: Function; create: Function };
-      financialLedger: { findMany: Function; create: Function };
+      payment: { findUnique: PrismaDelegateMethod; create: PrismaDelegateMethod };
+      financialLedger: { findMany: PrismaDelegateMethod; create: PrismaDelegateMethod };
     };
 
     const amount = Math.round(input.amountCents) / 100;
@@ -191,7 +201,7 @@ export class PaymentBookingService {
    * already in the database.
    */
   private async writeMissingLedgerEntries(
-    client: { financialLedger: { create: Function } },
+    client: { financialLedger: { create: PrismaDelegateMethod } },
     input: BookCapturedPaymentInput,
     amount: number,
     correlationId: string,

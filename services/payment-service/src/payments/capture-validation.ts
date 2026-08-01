@@ -3,6 +3,16 @@ import { BidStatus } from '@bidride/database/generated/client';
 import { paymentMetrics } from '../observability/payment-metrics';
 
 /**
+ * A Prisma delegate method as these helpers use it: called with a query
+ * argument object and resolving to whatever that query returns. Explicitly
+ * shaped rather than `Function`, which accepts any function-like value —
+ * including class declarations that throw when called without `new` — and
+ * gives no safety at the call site.
+ */
+type PrismaDelegateMethod = (args?: any) => Promise<any>;
+
+
+/**
  * F5 — canonical capture validation, extracted verbatim from
  * PaymentService.captureAuthorizationHold so recovery can reuse it rather than
  * grow a second implementation of the rule that decides how much may move.
@@ -19,8 +29,8 @@ import { paymentMetrics } from '../observability/payment-metrics';
 
 /** The subset of PrismaService these helpers touch. */
 export interface ValidationPrisma {
-  trip: { findUnique: Function };
-  tripEvent: { create: Function };
+  trip: { findUnique: PrismaDelegateMethod };
+  tripEvent: { create: PrismaDelegateMethod };
 }
 
 export interface ValidationDeps {
