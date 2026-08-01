@@ -1,0 +1,47 @@
+# BidRide — PRODUCTION Terraform variables
+#
+#   cp env/production.tfvars.example env/production.tfvars
+#
+# then fill in the secrets. env/production.tfvars is gitignored and must NEVER
+# be committed. Apply with:
+#
+#   infrastructure/scripts/tf.sh production plan
+#   infrastructure/scripts/tf.sh production apply
+#
+# Migrating from the old layout: the legacy infrastructure/terraform/terraform.tfvars
+# is still auto-loaded by Terraform if present. Move it to env/production.tfvars
+# and delete the original so there is exactly one source of truth per environment.
+#
+# ─── AWS ─────────────────────────────────────────────────────────────────────
+aws_region  = "us-east-1"
+environment = "production"
+
+# ─── Domain & TLS ─────────────────────────────────────────────────────────────
+domain_name         = "api.bidiride.com"
+acm_certificate_arn = ""
+
+# ─── RDS / ElastiCache ────────────────────────────────────────────────────────
+db_instance_class = "db.r6g.large"
+db_password       = "REPLACE_WITH_STRONG_PASSWORD_MIN_32_CHARS"
+cache_node_type   = "cache.r6g.large"
+
+# ─── Notifications ───────────────────────────────────────────────────────────
+founder_email = "brownmarq184@gmail.com"
+
+# ─── Google Maps ──────────────────────────────────────────────────────────────
+google_maps_api_key = "AIzaSy-REPLACE-WITH-REAL-KEY"
+
+# ─── Admin / Founder JWT ──────────────────────────────────────────────────────
+# openssl genrsa -out founder_private.pem 4096
+# openssl rsa -in founder_private.pem -pubout -out founder_public.pem
+founder_signing_public_key = ""
+
+# ─── JWT issuance algorithm (SEC-RS256) ───────────────────────────────────────
+# Production flips to RS256 only after staging has run RS256 through a full
+# soak. See infrastructure/RS256_ROLLOUT_RUNBOOK.md.
+jwt_signing_alg = "HS256"
+jwt_signing_kid = "v1"
+
+# ─── Image tag ────────────────────────────────────────────────────────────────
+# Bootstrap only — the pipeline pins deployments to an image DIGEST.
+# image_tag = "bootstrap"

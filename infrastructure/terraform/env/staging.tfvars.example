@@ -1,0 +1,50 @@
+# BidRide — STAGING Terraform variables
+#
+#   cp env/staging.tfvars.example env/staging.tfvars
+#
+# then fill in the secrets. env/staging.tfvars is gitignored and must NEVER be
+# committed. Apply with:
+#
+#   infrastructure/scripts/tf.sh staging plan
+#   infrastructure/scripts/tf.sh staging apply
+#
+# ─── AWS ─────────────────────────────────────────────────────────────────────
+aws_region  = "us-east-1"
+environment = "staging"
+
+# ─── Domain & TLS ─────────────────────────────────────────────────────────────
+domain_name         = "staging-api.bidiride.com"
+acm_certificate_arn = ""
+
+# ─── RDS / ElastiCache ────────────────────────────────────────────────────────
+# Staging runs small on purpose. It exists to prove the deployment path, not to
+# carry load.
+db_instance_class = "db.t4g.medium"
+db_password       = "REPLACE_WITH_STRONG_PASSWORD_MIN_32_CHARS"
+cache_node_type   = "cache.t4g.micro"
+
+# ─── Notifications ───────────────────────────────────────────────────────────
+# Subscribed to the CloudWatch alarm topic. The subscription needs a one-time
+# email confirmation before any alarm can notify anyone.
+founder_email = "brownmarq184@gmail.com"
+
+# ─── Google Maps ──────────────────────────────────────────────────────────────
+google_maps_api_key = ""
+
+# ─── Admin / Founder JWT ──────────────────────────────────────────────────────
+founder_signing_public_key = ""
+
+# ─── JWT issuance algorithm (SEC-RS256) ───────────────────────────────────────
+# MUST remain HS256 until the RS256 rollout runbook has been completed against
+# THIS environment. Setting RS256 before both keysets are populated and every
+# verifier is running a task definition that carries them will crash-loop
+# auth-service and admin-service at boot (they fail closed, by design).
+#
+# See infrastructure/RS256_ROLLOUT_RUNBOOK.md.
+jwt_signing_alg = "HS256"
+jwt_signing_kid = "v1"
+
+# ─── Image tag ────────────────────────────────────────────────────────────────
+# Bootstrap only. The pipeline pins deployments to an image DIGEST; leave this
+# alone unless you are standing up a brand-new environment.
+# image_tag = "bootstrap"

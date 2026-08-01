@@ -7,6 +7,35 @@
 variable "db_name" { default = "bidride" }
 variable "db_username" { default = "bidride_admin" }
 
+# ─── Image tag (SEC-RS256-DEPLOY blocker 6) ──────────────────────────────────
+# Terraform owns the task definition's SHAPE (secrets, env, roles, limits).
+# The deployment pipeline owns its IMAGE: deploy-service.sh reads the latest
+# ACTIVE revision Terraform produced, swaps in an immutable ${git-sha} tag, and
+# registers the revision it actually deploys.
+#
+# This value is therefore a BOOTSTRAP placeholder — it is what a brand-new
+# environment runs until its first pipeline deploy, and it is what Terraform
+# writes into revisions the pipeline then supersedes. It deliberately defaults
+# to "bootstrap" rather than "latest": a task definition pinned to a mutable
+# tag cannot be rolled back, because the tag's meaning changes under it.
+variable "image_tag" {
+  description = "Bootstrap image tag for Terraform-registered revisions. The pipeline overrides this with an immutable git SHA."
+  type        = string
+  default     = "bootstrap"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]{1,128}$", var.image_tag))
+    error_message = "image_tag must be 1-128 chars of [A-Za-z0-9._-]."
+  }
+}
+
+# ─── Deployment failure alarms ───────────────────────────────────────────────
+variable "deployment_alarm_evaluation_periods" {
+  description = "Evaluation periods for ECS task-health alarms."
+  type        = number
+  default     = 2
+}
+
 # ─── IAM: ECS Execution Role (ECR pull + CloudWatch logs + Secrets Manager) ──
 
 resource "aws_iam_role" "ecs_execution" {
@@ -275,6 +304,9 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
   alarm_description   = "ALB 5xx error rate elevated — check ECS service health"
   treat_missing_data  = "notBreaching"
 
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
   dimensions = { LoadBalancer = aws_lb.main.arn_suffix }
 }
 
@@ -289,6 +321,9 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
   threshold           = 80
   alarm_description   = "RDS CPU above 80% for 3 consecutive minutes"
   treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
 
   dimensions = { DBInstanceIdentifier = aws_db_instance.primary.identifier }
 }
@@ -305,6 +340,9 @@ resource "aws_cloudwatch_metric_alarm" "rds_connections" {
   alarm_description   = "RDS connection count above 400 — connection pool leak or traffic spike"
   treat_missing_data  = "notBreaching"
 
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
   dimensions = { DBInstanceIdentifier = aws_db_instance.primary.identifier }
 }
 
@@ -320,6 +358,9 @@ resource "aws_cloudwatch_metric_alarm" "redis_cpu" {
   alarm_description   = "Redis CPU above 70% — possible slowlog commands or large key scans"
   treat_missing_data  = "notBreaching"
 
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
   dimensions = { ReplicationGroupId = aws_elasticache_replication_group.main.id }
 }
 
@@ -334,7 +375,7 @@ locals {
       memory        = 1024
       desired_count = 2
       alb_key       = "auth"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "twilio-account-sid", "twilio-auth-token", "twilio-phone-number"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "twilio-account-sid", "twilio-auth-token", "twilio-phone-number"]
     }
     trip-service = {
       port          = 3002
@@ -342,7 +383,7 @@ locals {
       memory        = 1024
       desired_count = 2
       alb_key       = "trip"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "internal-service-key"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "internal-service-key"]
     }
     driver-service = {
       port          = 3003
@@ -350,7 +391,7 @@ locals {
       memory        = 512
       desired_count = 2
       alb_key       = "driver"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "checkr-api-key", "checkr-webhook-secret"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "checkr-api-key", "checkr-webhook-secret"]
     }
     rider-service = {
       port          = 3004
@@ -358,7 +399,7 @@ locals {
       memory        = 512
       desired_count = 2
       alb_key       = "rider"
-      secrets       = ["database-url", "redis-url", "jwt-secret"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys"]
     }
     pricing-service = {
       port          = 3005
@@ -366,7 +407,7 @@ locals {
       memory        = 512
       desired_count = 1
       alb_key       = "pricing"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "internal-service-key"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "internal-service-key"]
     }
     safety-service = {
       port          = 3006
@@ -374,7 +415,7 @@ locals {
       memory        = 512
       desired_count = 2
       alb_key       = "safety"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "twilio-account-sid", "twilio-auth-token", "twilio-proxy-service-sid", "internal-service-key"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "twilio-account-sid", "twilio-auth-token", "twilio-proxy-service-sid", "internal-service-key"]
     }
     payment-service = {
       port          = 3007
@@ -382,7 +423,7 @@ locals {
       memory        = 512
       desired_count = 2
       alb_key       = "payment"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "stripe-secret-key", "stripe-webhook-secret", "stripe-platform-account-id", "internal-service-key"]
+      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "stripe-secret-key", "stripe-webhook-secret", "stripe-platform-account-id", "internal-service-key"]
     }
     notification-service = {
       port          = 3008
@@ -414,7 +455,10 @@ locals {
       memory        = 512
       desired_count = 1
       alb_key       = "admin"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "admin-jwt-secret", "founder-jwt-secret"]
+      # admin-service verifies BOTH domains: user tokens on the support-ticket
+      # routes (jwt-public-keys) and its own admin sessions (jwt-admin-public-keys).
+      # The two keysets stay separate — see JWT_PUBLIC_KEY_RUNBOOK.md §8.
+      secrets = ["database-url", "redis-url", "jwt-secret", "admin-jwt-secret", "founder-jwt-secret", "jwt-public-keys", "jwt-admin-public-keys"]
     }
     ai-service = {
       port          = 3012
@@ -450,8 +494,12 @@ resource "aws_ecs_task_definition" "services" {
   )
 
   container_definitions = jsonencode([{
-    name      = each.key
-    image     = "${aws_ecr_repository.services[each.key].repository_url}:latest"
+    name = each.key
+    # NEVER :latest — see the image_tag variable. A mutable tag makes every
+    # historical revision point at whatever was pushed most recently, which
+    # silently converts "roll back to the previous revision" into "restart on
+    # the broken image".
+    image     = "${aws_ecr_repository.services[each.key].repository_url}:${var.image_tag}"
     essential = true
 
     portMappings = [{
@@ -464,7 +512,36 @@ resource "aws_ecs_task_definition" "services" {
         { name = "NODE_ENV", value = var.environment },
         { name = "PORT", value = tostring(each.value.port) },
         { name = "AI_SERVICE_URL", value = local.service_base_urls["ai-service"] },
+        # Stamps `service` on every log line and every EMF metric dimension.
+        # Without it packages/observability falls back to npm_package_name and
+        # two services' metrics sum into one meaningless series.
+        { name = "SERVICE_NAME", value = each.key },
+        # Build identity. Terraform does not know the git SHA, so it writes a
+        # placeholder; infrastructure/scripts/deploy-service.sh overrides this
+        # in the revision it registers, alongside the immutable image tag. That
+        # is what makes "did this start after the last deploy?" answerable.
+        { name = "GIT_COMMIT_SHA", value = var.image_tag },
       ],
+      # ─── SEC-RS256: issuance configuration (auth + admin only) ─────────────
+      # Read by services/{auth,admin}-service/src/auth/jwt-signing.config.ts.
+      # With JWT_SIGNING_ALG=HS256 (the default) the RS256 provider factory
+      # returns null before touching AWS, so KID/KEY_ID are inert — they are
+      # injected unconditionally so that enabling RS256 is a one-variable flip
+      # with no task-definition shape change to re-review under pressure.
+      #
+      # Each service gets ONLY its own domain's KMS key id, matching the
+      # kms:Sign grant on its dedicated task role above. auth-service can never
+      # be pointed at the admin key by configuration alone.
+      each.key == "auth-service" ? [
+        { name = "JWT_SIGNING_ALG", value = var.jwt_signing_alg },
+        { name = "JWT_SIGNING_KID", value = var.jwt_signing_kid },
+        { name = "JWT_KMS_KEY_ID", value = aws_kms_key.jwt_user.arn },
+      ] : [],
+      each.key == "admin-service" ? [
+        { name = "JWT_SIGNING_ALG", value = var.jwt_signing_alg },
+        { name = "JWT_SIGNING_KID", value = var.jwt_signing_kid },
+        { name = "JWT_KMS_KEY_ID", value = aws_kms_key.jwt_admin.arn },
+      ] : [],
       # trip-service → pricing, notification, driver, airport, trust
       each.key == "trip-service" ? [
         { name = "PRICING_SERVICE_URL", value = local.service_base_urls["pricing-service"] },
@@ -572,11 +649,32 @@ resource "aws_ecs_service" "alb_services" {
     registry_arn = aws_service_discovery_service.services[each.key].arn
   }
 
+  # A deployment that never stabilises now fails and reverts itself instead of
+  # sitting half-rolled until someone notices. This is ECS-native rollback: it
+  # returns the service to the last revision that reached a steady state.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Keep at least the full desired count serving during a rolling deploy.
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+
   depends_on = [
     aws_lb_listener.https,
     aws_iam_role_policy_attachment.ecs_execution,
   ]
 
+  # `task_definition` stays ignored ON PURPOSE, and is now correct rather than
+  # merely tolerated. Terraform registers revisions; the pipeline chooses which
+  # revision runs (deploy-service.sh, always by explicit ARN). If Terraform also
+  # asserted the running revision, every apply would silently roll the fleet
+  # back to the Terraform-bootstrap image and undo the pipeline's deploy.
+  #
+  # The rule that makes this safe: TERRAFORM APPLY IS NOT A DEPLOYMENT.
+  # A shape change is only live once deploy-service.sh has moved the service
+  # onto a revision containing it. See infrastructure/DEPLOYMENT_RUNBOOK.md §9.
   lifecycle {
     ignore_changes = [task_definition, desired_count]
   }
@@ -603,8 +701,18 @@ resource "aws_ecs_service" "internal_services" {
     registry_arn = aws_service_discovery_service.services[each.key].arn
   }
 
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+
   depends_on = [aws_iam_role_policy_attachment.ecs_execution]
 
+  # See the equivalent block on aws_ecs_service.alb_services for why
+  # task_definition remains ignored.
   lifecycle {
     ignore_changes = [task_definition, desired_count]
   }

@@ -6,9 +6,18 @@ terraform {
       version = "~> 5.0"
     }
   }
+  # PARTIAL backend — `key` is supplied per environment at init time so staging
+  # and production cannot share a state file. Never hardcode `key` here again:
+  # a single hardcoded key is what made staging undeployable without editing
+  # tracked Terraform (SEC-RS256-DEPLOY blocker 3).
+  #
+  #   terraform init -reconfigure -backend-config=env/staging.backend.hcl
+  #   terraform init -reconfigure -backend-config=env/production.backend.hcl
+  #
+  # Or, preferably, use the wrapper that does it for you:
+  #   infrastructure/scripts/tf.sh <staging|production> plan
   backend "s3" {
     bucket       = "bidride-terraform-state"
-    key          = "production/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true
     use_lockfile = true
@@ -41,6 +50,42 @@ variable "google_maps_api_key" {
 variable "founder_signing_public_key" {
   sensitive = false
   default   = ""
+}
+
+# ─── JWT issuance algorithm (SEC-RS256) ──────────────────────────────────────
+# These drive JWT_SIGNING_ALG / JWT_SIGNING_KID / JWT_KMS_KEY_ID on auth-service
+# and admin-service. The DEFAULT IS HS256 — RS256 is never enabled as a side
+# effect of applying Terraform. Flipping to RS256 is a deliberate, reviewable
+# one-line tfvars change, and both services refuse to boot if the KMS key and
+# the published keyset disagree (services/*/src/auth/jwt-signing.config.ts).
+#
+# Preconditions before setting this to RS256 — see infrastructure/RS256_ROLLOUT_RUNBOOK.md:
+#   1. bidride/<env>/jwt-public-keys       populated with { "<kid>": "<PEM>" }
+#   2. bidride/<env>/jwt-admin-public-keys populated with { "<kid>": "<PEM>" }
+#   3. every verifier already running a task definition that carries those secrets
+variable "jwt_signing_alg" {
+  description = "JWT issuance algorithm for auth-service and admin-service. HS256 (default) or RS256."
+  type        = string
+  default     = "HS256"
+
+  validation {
+    condition     = contains(["HS256", "RS256"], var.jwt_signing_alg)
+    error_message = "jwt_signing_alg must be exactly \"HS256\" or \"RS256\"."
+  }
+}
+
+# The kid stamped into the RS256 JWT header and looked up in the published
+# keyset. Inert while jwt_signing_alg = HS256. Must match a key present in BOTH
+# jwt-public-keys and jwt-admin-public-keys before RS256 is enabled.
+variable "jwt_signing_kid" {
+  description = "Key id stamped in RS256 JWT headers. Must exist in the published keysets."
+  type        = string
+  default     = "v1"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]{1,64}$", var.jwt_signing_kid))
+    error_message = "jwt_signing_kid must be 1-64 chars of [A-Za-z0-9._-]."
+  }
 }
 
 # ─── VPC ─────────────────────────────────────────────────────────────────────
@@ -429,6 +474,25 @@ resource "aws_lb" "main" {
   }
 }
 
+# ─── Alerting ────────────────────────────────────────────────────────────────
+# Before this, every CloudWatch alarm in this stack had an empty alarm_actions —
+# they changed state silently and notified nobody. One topic, subscribed to the
+# Founder, is the minimum that makes an alarm meaningful.
+#
+# The email subscription requires a one-time confirmation click; until confirmed
+# AWS reports it as "PendingConfirmation" and delivers nothing. The deployment
+# verification script checks for this explicitly.
+
+resource "aws_sns_topic" "alerts" {
+  name = "bidride-alerts-${var.environment}"
+}
+
+resource "aws_sns_topic_subscription" "alerts_email" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.founder_email
+}
+
 # ─── Outputs ──────────────────────────────────────────────────────────────────
 
 output "rds_endpoint" { value = aws_db_instance.primary.endpoint }
@@ -438,6 +502,15 @@ output "ecs_cluster_name" { value = aws_ecs_cluster.main.name }
 output "recordings_bucket" { value = aws_s3_bucket.buckets["recordings"].bucket }
 output "documents_bucket" { value = aws_s3_bucket.buckets["documents"].bucket }
 output "kms_recordings_key_id" { value = aws_kms_key.recordings.key_id }
-# JWT signing key ids — used by the public-key population runbook (kms:GetPublicKey).
+# JWT signing key ids — used by the public-key population runbook (kms:GetPublicKey)
+# and by infrastructure/scripts/verify-deployment.sh for the RS256 round-trip proof.
 output "kms_jwt_user_key_id" { value = aws_kms_key.jwt_user.key_id }
 output "kms_jwt_admin_key_id" { value = aws_kms_key.jwt_admin.key_id }
+
+output "alerts_topic_arn" { value = aws_sns_topic.alerts.arn }
+
+# The configured issuance algorithm, so an operator can confirm what the NEXT
+# deploy will apply without reading tfvars. This is the intent; the deployed
+# reality is what verify-deployment.sh reads back off the task definition.
+output "jwt_signing_alg" { value = var.jwt_signing_alg }
+output "jwt_signing_kid" { value = var.jwt_signing_kid }
