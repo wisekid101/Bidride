@@ -4,7 +4,7 @@
 
 # ─── Variables ───────────────────────────────────────────────────────────────
 
-variable "domain_name" { default = "api.bidride.com" }
+variable "domain_name" { default = "api.bidiride.com" }
 variable "acm_certificate_arn" { default = "" }
 
 # ─── ACM Certificate ─────────────────────────────────────────────────────────

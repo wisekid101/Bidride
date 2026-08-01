@@ -13,8 +13,8 @@
 #     bash infrastructure/scripts/post-deploy-verify.sh
 #
 #   Production (full auth flow):
-#     BIDRIDE_API_URL=https://api.bidride.com \
-#     BIDRIDE_ADMIN_EMAIL=marq@bidride.com \
+#     BIDRIDE_API_URL=https://api.bidiride.com \
+#     BIDRIDE_ADMIN_EMAIL=brownmarq184@gmail.com \
 #     BIDRIDE_ADMIN_PASS=your-password \
 #     bash infrastructure/scripts/post-deploy-verify.sh
 #
@@ -23,7 +23,7 @@
 set -uo pipefail
 
 BASE_URL="${BIDRIDE_API_URL:-http://localhost}"
-ADMIN_EMAIL="${BIDRIDE_ADMIN_EMAIL:-marq@bidride.com}"
+ADMIN_EMAIL="${BIDRIDE_ADMIN_EMAIL:-brownmarq184@gmail.com}"
 ADMIN_PASS="${BIDRIDE_ADMIN_PASS:-CHANGE_ME_IMMEDIATELY}"
 LOCAL_MODE="true"
 [[ "${BASE_URL}" == "https://"* ]] && LOCAL_MODE="false"

@@ -3,7 +3,7 @@
 # Tests all 12 services via health endpoints.
 # Usage:
 #   Local:      bash infrastructure/scripts/smoke-test.sh
-#   Production: BIDRIDE_API_URL=https://api.bidride.com bash infrastructure/scripts/smoke-test.sh
+#   Production: BIDRIDE_API_URL=https://api.bidiride.com bash infrastructure/scripts/smoke-test.sh
 #
 # Exit code: 0 if all services healthy, 1 if any down.
 
