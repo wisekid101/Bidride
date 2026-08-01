@@ -6,7 +6,7 @@
  * so we render it with the hooks mocked to supply known values.
  */
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, waitFor } from '@testing-library/react-native';
 import TripCompleteScreen from '../screens/TripCompleteScreen';
 
 jest.mock('expo-router', () => ({
@@ -32,7 +32,21 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('../api/client', () => ({
-  api: { post: jest.fn().mockResolvedValue({}) },
+  // `get` is required because the screen now loads the authoritative receipt
+  // from payment-service. grossCharged (41.00) deliberately DIFFERS from the
+  // route's finalFare (38.50) so the financial display can be proven to come
+  // from the receipt rather than from trip data.
+  api: {
+    post: jest.fn().mockResolvedValue({}),
+    get: jest.fn().mockResolvedValue({
+      receiptId: 'RCPT-test', tripId: 'trip-test-123', tripStatus: 'completed',
+      completedAt: '2026-07-30T18:00:00.000Z',
+      pickupAddress: '1 Airport Blvd, Newark, NJ', dropoffAddress: '350 5th Ave, New York, NY',
+      currency: 'usd', fare: { finalFare: 38.5, platformFee: 7.7, waitFee: 0 },
+      grossCharged: 41.0, refundedTotal: 0, netPaid: 41.0,
+      paymentStatus: 'succeeded', refunds: [],
+    }),
+  },
 }));
 
 jest.mock('../store/trip.store', () => ({
@@ -76,8 +90,12 @@ describe('TripCompleteScreen (rider receipt) — no driver earnings exposure', (
     expect(queryByText(/\b\d{2,3}\/100\b/)).toBeNull();
   });
 
-  it('shows total fare amount in financial display', () => {
+  // CORRECTED: this previously asserted the route's finalFare ($38.50) appeared
+  // as the financial display — the exact defect Receipts-B removes. The amount
+  // shown must now be the receipt's grossCharged, which is authoritative.
+  it('shows the receipt-derived charged amount, not the trip fare', async () => {
     const { queryByText } = renderScreen();
-    expect(queryByText('$38.50')).toBeTruthy();
+    await waitFor(() => expect(queryByText('$41.00')).toBeTruthy());
+    expect(queryByText('$38.50')).toBeNull();
   });
 });

@@ -10,6 +10,16 @@ import {
 import { useLocalSearchParams } from 'expo-router';
 import { Colors, Typography, Spacing, Radius } from '../src/constants/theme';
 import { api } from '../src/api/client';
+import {
+  fetchRiderReceipt,
+  describeReceiptError,
+  formatReceiptMoney,
+  headlineAmount,
+  refundState,
+  refundLabel,
+  RiderReceipt,
+  ReceiptUnavailable,
+} from '../src/api/receipt';
 
 interface TripDetail {
   id: string;
@@ -62,6 +72,11 @@ export default function TripDetailScreen() {
   const [trip, setTrip] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  // Authoritative receipt (payment-service). Amounts are never derived locally.
+  const [receipt, setReceipt] = useState<RiderReceipt | null>(null);
+  const [receiptIssue, setReceiptIssue] = useState<ReceiptUnavailable | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptAttempt, setReceiptAttempt] = useState(0);
 
   const fetchTrip = () => {
     if (!tripId) return;
@@ -73,6 +88,20 @@ export default function TripDetailScreen() {
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   };
+
+  // Receipt is fetched independently of the trip so a receipt failure never
+  // blocks the trip detail from rendering. Only completed trips have one.
+  useEffect(() => {
+    if (!tripId || trip?.status !== 'completed') return;
+    let cancelled = false;
+    setReceiptLoading(true);
+    setReceiptIssue(null);
+    fetchRiderReceipt(String(tripId))
+      .then((r) => { if (!cancelled) { setReceipt(r); setReceiptIssue(null); } })
+      .catch((e) => { if (!cancelled) { setReceipt(null); setReceiptIssue(describeReceiptError(e)); } })
+      .finally(() => { if (!cancelled) setReceiptLoading(false); });
+    return () => { cancelled = true; };
+  }, [tripId, trip?.status, receiptAttempt]);
 
   useEffect(() => {
     fetchTrip();
@@ -179,6 +208,54 @@ export default function TripDetailScreen() {
           </Text>
         </View>
       </View>
+
+      {/* Receipt — authoritative amounts from payment-service */}
+      {isCompleted ? (
+        <View style={styles.section} testID="detail-receipt">
+          <Text style={styles.sectionLabel}>RECEIPT</Text>
+          {receiptLoading && !receipt ? (
+            <Text style={styles.rowLabel} testID="detail-receipt-loading">Loading receipt…</Text>
+          ) : null}
+          {!receiptLoading && receiptIssue ? (
+            <View testID="detail-receipt-unavailable">
+              <Text style={styles.rowLabel}>{receiptIssue.message}</Text>
+              {receiptIssue.canRetry ? (
+                <TouchableOpacity
+                  onPress={() => setReceiptAttempt((n) => n + 1)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry loading receipt"
+                  testID="detail-receipt-retry"
+                >
+                  <Text style={styles.rowValue}>Try again</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+          {receipt ? (
+            <View testID="detail-receipt-ready">
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>{headlineAmount(receipt).label}</Text>
+                <Text style={[styles.rowValue, styles.fareAmount]}>
+                  {formatReceiptMoney(headlineAmount(receipt).amount, receipt.currency)}
+                </Text>
+              </View>
+              {refundState(receipt) !== 'none' ? (
+                <View style={styles.row} testID="detail-receipt-refund">
+                  <Text style={styles.rowLabel}>{refundLabel(refundState(receipt))}</Text>
+                  <Text style={styles.rowValue}>
+                    {formatReceiptMoney(receipt.refundedTotal, receipt.currency)} of{' '}
+                    {formatReceiptMoney(receipt.grossCharged, receipt.currency)}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={[styles.row, styles.rowLast]}>
+                <Text style={styles.rowLabel}>Receipt</Text>
+                <Text style={styles.rowValue}>{receipt.receiptId}</Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* Fare */}
       {isCompleted || trip.finalFare != null ? (

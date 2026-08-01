@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,16 @@ import { Star } from 'lucide-react-native';
 import { Colors, Fonts } from '../constants/theme';
 import { useTripStore } from '../store/trip.store';
 import { api } from '../api/client';
+import {
+  fetchRiderReceipt,
+  describeReceiptError,
+  formatReceiptMoney,
+  headlineAmount,
+  refundState,
+  refundLabel,
+  RiderReceipt,
+  ReceiptUnavailable,
+} from '../api/receipt';
 
 export default function TripCompleteScreen() {
   const { activeTrip, completedTrip, clearCompletedTrip } = useTripStore();
@@ -31,10 +41,33 @@ export default function TripCompleteScreen() {
   const [submitted, setSubmitted] = useState(false);
 
   const tripId = params.tripId ?? completedTrip?.id ?? activeTrip?.id;
+  // NOTE: trip fare is NOT the amount charged. It is kept only for the
+  // "saved vs AI fare" comparison below, never presented as the charge.
   const finalFare = completedTrip?.finalFare ?? params.finalFare ?? activeTrip?.finalFare ?? 0;
   const driverName = params.driverName ?? completedTrip?.driverName ?? activeTrip?.driverName ?? 'Your Driver';
   const pickupAddress = params.pickupAddress ?? completedTrip?.pickupAddress ?? activeTrip?.pickupAddress ?? '';
   const dropoffAddress = params.dropoffAddress ?? completedTrip?.dropoffAddress ?? activeTrip?.dropoffAddress ?? '';
+
+  // ── Authoritative receipt ────────────────────────────────────────────────
+  // The charged amount comes from payment-service, never from trip fare data.
+  // If it cannot be loaded we show an explicit state and offer retry — we never
+  // substitute an estimate for the amount actually charged.
+  const [receipt, setReceipt] = useState<RiderReceipt | null>(null);
+  const [receiptIssue, setReceiptIssue] = useState<ReceiptUnavailable | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptAttempt, setReceiptAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!tripId) return;
+    let cancelled = false;
+    setReceiptLoading(true);
+    setReceiptIssue(null);
+    fetchRiderReceipt(tripId)
+      .then((r) => { if (!cancelled) { setReceipt(r); setReceiptIssue(null); } })
+      .catch((e) => { if (!cancelled) { setReceipt(null); setReceiptIssue(describeReceiptError(e)); } })
+      .finally(() => { if (!cancelled) setReceiptLoading(false); });
+    return () => { cancelled = true; };
+  }, [tripId, receiptAttempt]);
 
   const aiFare = completedTrip?.aiFare ?? activeTrip?.aiFare;
   const savings = aiFare != null ? Math.max(0, aiFare - parseFloat(String(finalFare))) : 0;
@@ -73,16 +106,52 @@ export default function TripCompleteScreen() {
           <Text style={styles.title}>Trip Complete</Text>
         </View>
 
-        {/* Fare summary */}
-        <View style={styles.fareCard}>
-          <Text style={styles.fareLabel}>Total Fare</Text>
-          <Text style={styles.fareAmount}>${parseFloat(String(finalFare)).toFixed(2)}</Text>
-          {savings > 0.01 && (
-            <View style={styles.savingsRow}>
-              <Text style={styles.savingsText}>You saved ${savings.toFixed(2)} vs AI fare</Text>
+        {/* Receipt summary — authoritative amounts from payment-service */}
+        <View style={styles.fareCard} testID="receipt-summary">
+          {receiptLoading && !receipt && (
+            <Text style={styles.fareNote} testID="receipt-loading">Loading your receipt…</Text>
+          )}
+
+          {!receiptLoading && receiptIssue && (
+            <View testID="receipt-unavailable">
+              <Text style={styles.fareLabel}>Receipt</Text>
+              <Text style={styles.fareNote}>{receiptIssue.message}</Text>
+              {receiptIssue.canRetry && (
+                <TouchableOpacity
+                  onPress={() => setReceiptAttempt((n) => n + 1)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry loading receipt"
+                  testID="receipt-retry"
+                >
+                  <Text style={styles.savingsText}>Try again</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
-          <Text style={styles.fareNote}>Charged to card on file</Text>
+
+          {receipt && (
+            <View testID="receipt-ready">
+              <Text style={styles.fareLabel}>{headlineAmount(receipt).label}</Text>
+              <Text style={styles.fareAmount}>
+                {formatReceiptMoney(headlineAmount(receipt).amount, receipt.currency)}
+              </Text>
+              {refundState(receipt) !== 'none' && (
+                <View style={styles.savingsRow} testID="receipt-refund">
+                  <Text style={styles.savingsText}>
+                    {refundLabel(refundState(receipt))} ·{' '}
+                    {formatReceiptMoney(receipt.refundedTotal, receipt.currency)} refunded of{' '}
+                    {formatReceiptMoney(receipt.grossCharged, receipt.currency)} charged
+                  </Text>
+                </View>
+              )}
+              {savings > 0.01 && (
+                <View style={styles.savingsRow}>
+                  <Text style={styles.savingsText}>You saved ${savings.toFixed(2)} vs AI fare</Text>
+                </View>
+              )}
+              <Text style={styles.fareNote} testID="receipt-id">Receipt {receipt.receiptId}</Text>
+            </View>
+          )}
         </View>
 
         {/* Route */}
