@@ -77,6 +77,56 @@ resources. Everything before them is reversible.
 
 ---
 
+## Capacity profiles — staging is not a small production
+
+Staging and production are the **same root module rendered twice**, against two
+state files, differentiated by `var.environment` and the backend key. They must
+differ in capacity without differing in security.
+
+That is enforced by direction of travel: **every capacity variable defaults to
+the production value**, and `env/staging.tfvars` opts *down* explicitly.
+
+| Setting | Production (default) | Staging | Why staging can be smaller |
+|---|---|---|---|
+| NAT gateways | one per AZ | **1** | An AZ outage costing staging egress is acceptable |
+| RDS Multi-AZ | true | **false** | No synchronous standby; AZ failure = downtime until restore |
+| RDS read replicas | 2 | **0** | Nothing in this module reads from them; they exist to keep production analytics/admin load off the primary |
+| RDS class / storage | db.r6g.large / 100 GB | **db.t4g.medium / 50 GB** | Migrations and controlled beta traffic only |
+| Backup retention | 30 days | **7 days** | Never 0 — a validation block rejects it |
+| Redis nodes | 3 | **1** | Cache loss rebuilds; nothing of record lives there |
+| Log retention | 30 days | **7 days** | Long enough to debug a test session |
+| Tasks per service | 1–2 | **1** (airport 0) | No redundancy target in staging |
+
+**What is identical in both, and must stay identical:** encryption at rest and
+in transit, private subnet placement for ECS/RDS/Redis, security-group
+isolation, TLS policy, IAM boundaries, secret handling, automated backups,
+health checks, and deployment rollback. Cost reduction comes from capacity and
+redundancy — never from weaker security.
+
+Three consequences worth internalising:
+
+1. **An unset variable yields production.** A lost or truncated tfvars file
+   cannot silently shrink production; it can only fail to shrink staging.
+2. **`environment` has no default** and is validated against
+   `["staging","production"]`, so an unset environment cannot fall through to
+   production.
+3. **Redis failover and Multi-AZ are derived** from `cache_num_cache_clusters`,
+   not set independently — AWS rejects failover on a single node, so the
+   invalid combination cannot be written in tfvars at all.
+
+`airport-service` runs at desired_count **0** in staging: EWR is out of scope
+for the first Founder test. It is deferred, not deleted — the service, its task
+definition, log group and secrets all still exist. Raise it to 1 to enable.
+
+### What still costs money when nobody is testing
+
+NAT gateway, ALB, RDS instance and storage, Redis node, and the Secrets Manager
+entries bill hourly regardless of traffic. Fargate bills only for running tasks,
+so `service_desired_counts` set to all-zero is the lever that idles staging
+between test windows without destroying it. RDS and NAT are the floor.
+
+---
+
 ## The one rule that governs everything below
 
 **`terraform apply` is NOT a deployment.**

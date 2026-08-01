@@ -287,7 +287,7 @@ resource "aws_service_discovery_service" "services" {
 resource "aws_cloudwatch_log_group" "services" {
   for_each          = toset(local.ecr_services)
   name              = "/ecs/bidride/${each.key}-${var.environment}"
-  retention_in_days = 30
+  retention_in_days = var.log_retention_days
 }
 
 # ─── CloudWatch Alarms ────────────────────────────────────────────────────────
@@ -630,7 +630,7 @@ resource "aws_ecs_service" "alb_services" {
   name            = "bidride-${each.key}-${var.environment}"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.services[each.key].arn
-  desired_count   = each.value.desired_count
+  desired_count   = lookup(var.service_desired_counts, each.key, each.value.desired_count)
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -688,7 +688,7 @@ resource "aws_ecs_service" "internal_services" {
   name            = "bidride-${each.key}-${var.environment}"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.services[each.key].arn
-  desired_count   = each.value.desired_count
+  desired_count   = lookup(var.service_desired_counts, each.key, each.value.desired_count)
   launch_type     = "FARGATE"
 
   network_configuration {

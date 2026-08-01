@@ -32,6 +32,44 @@ db_instance_class = "db.t4g.medium"
 db_password       = "REPLACE_WITH_STRONG_PASSWORD_MIN_32_CHARS"
 cache_node_type   = "cache.t4g.micro"
 
+# ─── Capacity profile — STAGING ONLY ─────────────────────────────────────────
+# Every line here opts DOWN from a production default. Delete a line and you
+# get the production value back, so this file can only make staging smaller.
+# It cannot make production smaller: production has its own state and tfvars.
+#
+# What is NOT reduced, and must never be: encryption at rest and in transit,
+# private subnet placement, security-group isolation, TLS, IAM boundaries,
+# automated backups, health checks, and deployment rollback. The savings are
+# capacity and redundancy only.
+
+single_nat_gateway = true # one NAT; an AZ outage cuts staging egress
+
+db_multi_az              = false # no standby; AZ failure = downtime until restore
+db_read_replica_count    = 0     # nothing in this module reads from replicas
+db_allocated_storage     = 50
+db_backup_retention_days = 7 # >= 1 enforced; backups are never disabled
+
+cache_num_cache_clusters = 1 # single node; derives failover/Multi-AZ to false
+
+log_retention_days = 7
+
+# One task per service. airport-service is 0 because EWR is out of scope for
+# the first Founder test — DEFERRED, not deleted. Raise to 1 to enable it.
+service_desired_counts = {
+  auth-service         = 1
+  trip-service         = 1
+  driver-service       = 1
+  rider-service        = 1
+  pricing-service      = 1
+  safety-service       = 1
+  payment-service      = 1
+  notification-service = 1
+  trust-service        = 1
+  admin-service        = 1
+  ai-service           = 1
+  airport-service      = 0
+}
+
 # ─── Notifications ───────────────────────────────────────────────────────────
 # Subscribed to the CloudWatch alarm topic. The subscription needs a one-time
 # email confirmation before any alarm can notify anyone.

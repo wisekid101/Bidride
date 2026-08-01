@@ -34,6 +34,28 @@ db_instance_class = "db.r6g.large"
 db_password       = "REPLACE_WITH_STRONG_PASSWORD_MIN_32_CHARS"
 cache_node_type   = "cache.r6g.large"
 
+# ─── Capacity profile ────────────────────────────────────────────────────────
+# PRODUCTION TOPOLOGY. Every value below is also the variable's DEFAULT, so it
+# is what you get whether or not this file sets it — listed explicitly because
+# the topology should be readable here, not inferred from main.tf.
+#
+# Staging opts DOWN from these in env/staging.tfvars. Nothing in that file can
+# affect production: the two environments are separate state files rendered
+# from the same module, and every reduction is opt-in per environment.
+#
+# DO NOT copy staging's reduced values here.
+single_nat_gateway       = false # one NAT per AZ
+db_multi_az              = true  # synchronous standby
+db_read_replica_count    = 2     # analytics + admin
+db_allocated_storage     = 100
+db_backup_retention_days = 30
+cache_num_cache_clusters = 3 # primary + 2 replicas, failover + Multi-AZ
+log_retention_days       = 30
+
+# Per-service ECS desired_count overrides. Production deliberately leaves this
+# EMPTY so every service keeps its built-in count from ecs-services.tf.
+# service_desired_counts = {}
+
 # ─── Notifications ───────────────────────────────────────────────────────────
 founder_email = "brownmarq184@gmail.com"
 

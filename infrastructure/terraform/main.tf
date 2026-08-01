@@ -55,6 +55,76 @@ variable "db_instance_class" { default = "db.r6g.large" }
 variable "cache_node_type" { default = "cache.r6g.large" }
 variable "db_password" { sensitive = true }
 variable "founder_email" {}
+
+# ─── Capacity profile ────────────────────────────────────────────────────────
+# EVERY default below is the PRODUCTION value. Staging opts DOWN explicitly in
+# env/staging.tfvars. That direction matters: an unset variable, a typo'd name,
+# or a lost tfvars file yields production topology, never a silently degraded
+# one. Nothing here touches encryption, private networking, security groups,
+# TLS, IAM, or backups-on/off — this dial is capacity and availability only.
+
+variable "single_nat_gateway" {
+  description = "One shared NAT gateway instead of one per AZ. Production keeps one per AZ so a single AZ failure cannot cut egress for the whole fleet."
+  type        = bool
+  default     = false
+}
+
+variable "db_multi_az" {
+  description = "RDS Multi-AZ standby. Production only; staging accepts single-AZ."
+  type        = bool
+  default     = true
+}
+
+variable "db_read_replica_count" {
+  description = "Read replicas: 0 = none, 1 = analytics, 2 = analytics + admin."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.db_read_replica_count >= 0 && var.db_read_replica_count <= 2
+    error_message = "db_read_replica_count must be 0, 1, or 2."
+  }
+}
+
+variable "db_allocated_storage" {
+  description = "RDS gp3 storage in GB."
+  type        = number
+  default     = 100
+}
+
+variable "db_backup_retention_days" {
+  description = "Automated backup retention. Must stay >= 1: 0 DISABLES automated backups entirely, which is never acceptable, staging included."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.db_backup_retention_days >= 1
+    error_message = "db_backup_retention_days must be at least 1 — automated backups may not be disabled."
+  }
+}
+
+variable "cache_num_cache_clusters" {
+  description = "Redis nodes. 1 = single node (no failover). >1 enables automatic failover and Multi-AZ, which REQUIRE at least 2 nodes — both are derived from this, so an invalid combination cannot be expressed."
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.cache_num_cache_clusters >= 1 && var.cache_num_cache_clusters <= 6
+    error_message = "cache_num_cache_clusters must be between 1 and 6."
+  }
+}
+
+variable "log_retention_days" {
+  description = "CloudWatch log retention for service log groups."
+  type        = number
+  default     = 30
+}
+
+variable "service_desired_counts" {
+  description = "Per-service ECS desired_count overrides, keyed by service name. Unlisted services keep the built-in production count. 0 defers a service without deleting it."
+  type        = map(number)
+  default     = {}
+}
 variable "google_maps_api_key" {
   sensitive = true
   default   = ""
@@ -113,8 +183,10 @@ module "vpc" {
   public_subnets  = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
   private_subnets = ["10.0.10.0/24", "10.0.11.0/24", "10.0.12.0/24"]
 
-  enable_nat_gateway   = true
-  single_nat_gateway   = false # HA: one NAT per AZ
+  enable_nat_gateway = true
+  # Production: one NAT per AZ, so losing an AZ cannot cut egress fleet-wide.
+  # Staging sets this true — one NAT, and an AZ outage costs staging egress.
+  single_nat_gateway   = var.single_nat_gateway
   enable_dns_hostnames = true
   enable_dns_support   = true
 }
@@ -209,7 +281,7 @@ resource "aws_db_instance" "primary" {
   engine            = "postgres"
   engine_version    = "15.6"
   instance_class    = var.db_instance_class
-  allocated_storage = 100
+  allocated_storage = var.db_allocated_storage
   storage_encrypted = true
   storage_type      = "gp3"
 
@@ -217,11 +289,11 @@ resource "aws_db_instance" "primary" {
   username = "bidride_admin"
   password = var.db_password
 
-  multi_az               = true
+  multi_az               = var.db_multi_az
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
-  backup_retention_period = 30
+  backup_retention_period = var.db_backup_retention_days
   backup_window           = "03:00-04:00"
   maintenance_window      = "Mon:04:00-Mon:05:00"
 
@@ -236,7 +308,13 @@ resource "aws_db_instance" "primary" {
   tags = { Name = "bidride-primary-${var.environment}" }
 }
 
+# Read replicas are gated by db_read_replica_count (production default 2).
+# Nothing in this module reads from them — they exist to keep analytics and
+# admin queries off the primary under production load. Staging has neither that
+# load nor that separation requirement, so it runs 0.
 resource "aws_db_instance" "replica_analytics" {
+  count = var.db_read_replica_count > 0 ? 1 : 0
+
   identifier          = "bidride-${var.environment}-replica-analytics"
   replicate_source_db = aws_db_instance.primary.identifier
   instance_class      = var.db_instance_class
@@ -247,6 +325,8 @@ resource "aws_db_instance" "replica_analytics" {
 }
 
 resource "aws_db_instance" "replica_admin" {
+  count = var.db_read_replica_count > 1 ? 1 : 0
+
   identifier          = "bidride-${var.environment}-replica-admin"
   replicate_source_db = aws_db_instance.primary.identifier
   instance_class      = var.db_instance_class
@@ -268,7 +348,7 @@ resource "aws_elasticache_replication_group" "main" {
   description          = "BidRide Redis cluster"
 
   node_type            = var.cache_node_type
-  num_cache_clusters   = 3
+  num_cache_clusters   = var.cache_num_cache_clusters
   port                 = 6379
   parameter_group_name = "default.redis7"
 
@@ -277,8 +357,11 @@ resource "aws_elasticache_replication_group" "main" {
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true
 
-  automatic_failover_enabled = true
-  multi_az_enabled           = true
+  # Both DERIVED from the node count, never set independently: AWS rejects
+  # failover/Multi-AZ on a single-node group, so deriving them makes the
+  # invalid combination impossible to express in tfvars.
+  automatic_failover_enabled = var.cache_num_cache_clusters > 1
+  multi_az_enabled           = var.cache_num_cache_clusters > 1
 
   snapshot_retention_limit = 7
   snapshot_window          = "04:00-05:00"
