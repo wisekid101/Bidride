@@ -38,7 +38,19 @@ provider "aws" {
 # ─── Variables ────────────────────────────────────────────────────────────────
 
 variable "aws_region" { default = "us-east-1" }
-variable "environment" { default = "production" }
+# NO DEFAULT — deliberately. This variable selects which environment every
+# resource in this module belongs to; a default of "production" meant an unset
+# value silently rendered PRODUCTION resources. Terraform now fails closed and
+# demands it explicitly (tf.sh always supplies it via env/<environment>.tfvars).
+variable "environment" {
+  description = "Deployment environment. Must be set explicitly — no default."
+  type        = string
+
+  validation {
+    condition     = contains(["staging", "production"], var.environment)
+    error_message = "environment must be exactly \"staging\" or \"production\"."
+  }
+}
 variable "db_instance_class" { default = "db.r6g.large" }
 variable "cache_node_type" { default = "cache.r6g.large" }
 variable "db_password" { sensitive = true }
@@ -498,6 +510,9 @@ resource "aws_sns_topic_subscription" "alerts_email" {
 output "rds_endpoint" { value = aws_db_instance.primary.endpoint }
 output "redis_endpoint" { value = aws_elasticache_replication_group.main.primary_endpoint_address }
 output "alb_dns_name" { value = aws_lb.main.dns_name }
+output "alb_zone_id" { value = aws_lb.main.zone_id }
+output "api_fqdn" { value = var.api_hostname }
+output "certificate_arn" { value = aws_acm_certificate_validation.api.certificate_arn }
 output "ecs_cluster_name" { value = aws_ecs_cluster.main.name }
 output "recordings_bucket" { value = aws_s3_bucket.buckets["recordings"].bucket }
 output "documents_bucket" { value = aws_s3_bucket.buckets["documents"].bucket }

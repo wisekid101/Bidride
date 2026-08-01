@@ -4,20 +4,110 @@
 
 # ─── Variables ───────────────────────────────────────────────────────────────
 
-variable "domain_name" { default = "api.bidiride.com" }
-variable "acm_certificate_arn" { default = "" }
+variable "root_domain" {
+  description = "Canonical company domain. Used only to sanity-check api_hostname."
+  type        = string
+  default     = "bidiride.com"
+}
 
-# ─── ACM Certificate ─────────────────────────────────────────────────────────
+# The FULL hostname this environment serves. Environment-specific by
+# definition: staging-api.bidiride.com vs api.bidiride.com. No wildcard — each
+# environment's certificate covers exactly its own hostname, so a staging
+# mistake can never present a certificate valid for production.
+variable "api_hostname" {
+  description = "Full API hostname for THIS environment (e.g. staging-api.bidiride.com)."
+  type        = string
 
-data "aws_acm_certificate" "api" {
-  count       = var.acm_certificate_arn == "" ? 1 : 0
-  domain      = var.domain_name
-  statuses    = ["ISSUED"]
-  most_recent = true
+  validation {
+    condition     = endswith(var.api_hostname, ".bidiride.com")
+    error_message = "api_hostname must be under bidiride.com. bidride.com is a different domain this project does not control."
+  }
+}
+
+# Supplied explicitly from the dns/ state output `hosted_zone_id`. This root
+# module never creates or destroys the hosted zone — it only writes records
+# into a zone someone else owns.
+variable "route53_zone_id" {
+  description = "Route 53 zone ID from the dns/ state. Records are written here; the zone itself is never managed by this module."
+  type        = string
+}
+
+# ─── ACM Certificate (environment-owned) ─────────────────────────────────────
+#
+# Previously this module only LOOKED UP an externally created certificate. That
+# is how the failed api.bidride.com certificate came to exist outside Terraform
+# and time out unvalidated. Terraform now requests and validates the
+# certificate, so renewal cannot depend on a human remembering to publish a DNS
+# record.
+
+resource "aws_acm_certificate" "api" {
+  domain_name       = var.api_hostname
+  validation_method = "DNS"
+
+  # Replace before destroying: the listener always has a valid certificate
+  # attached, so a certificate change never interrupts HTTPS.
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name        = var.api_hostname
+    Environment = var.environment
+  }
+}
+
+# Validation records are written into the SHARED zone by zone id. Each record
+# is keyed on the certificate's own domain_validation_options, so staging and
+# production write distinct records and cannot collide.
+resource "aws_route53_record" "api_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.api.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  zone_id         = var.route53_zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+# Blocks until ACM observes the record and issues. Without this, the listener
+# could reference a PENDING_VALIDATION certificate and the apply would fail
+# late instead of waiting.
+resource "aws_acm_certificate_validation" "api" {
+  certificate_arn         = aws_acm_certificate.api.arn
+  validation_record_fqdns = [for r in aws_route53_record.api_cert_validation : r.fqdn]
+}
+
+# ─── API alias record ────────────────────────────────────────────────────────
+#
+# Alias (not CNAME) so the hostname resolves directly to the ALB with no extra
+# lookup. The ALB's DNS name and hosted-zone id come from the resource itself —
+# never hardcoded.
+resource "aws_route53_record" "api" {
+  zone_id = var.route53_zone_id
+  name    = var.api_hostname
+  type    = "A"
+
+  alias {
+    name    = aws_lb.main.dns_name
+    zone_id = aws_lb.main.zone_id
+    # The ALB already health-checks its targets; enabling this would withdraw
+    # DNS on partial target failure and remove the ability to serve a 503 from
+    # the load balancer itself.
+    evaluate_target_health = false
+  }
 }
 
 locals {
-  certificate_arn = var.acm_certificate_arn != "" ? var.acm_certificate_arn : data.aws_acm_certificate.api[0].arn
+  # The validation resource, not the certificate, so the listener can only ever
+  # attach a certificate that has actually reached ISSUED.
+  certificate_arn = aws_acm_certificate_validation.api.certificate_arn
 
   services = {
     # auth-service exposes /health/live (Sprint 12 H2 fix — setGlobalPrefix exclusions).

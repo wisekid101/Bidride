@@ -17,8 +17,17 @@ aws_region  = "us-east-1"
 environment = "production"
 
 # ─── Domain & TLS ─────────────────────────────────────────────────────────────
-domain_name         = "api.bidiride.com"
-acm_certificate_arn = ""
+# ─── DNS / TLS ───────────────────────────────────────────────────────────────
+# api_hostname is THIS environment's full hostname. Terraform now requests and
+# validates the ACM certificate for it, so acm_certificate_arn is no longer
+# part of the environment contract.
+root_domain  = "bidiride.com"
+api_hostname = "api.bidiride.com"
+
+# From the shared dns/ state: `terraform output hosted_zone_id`.
+# Supplied explicitly — this module writes records into the zone but never
+# creates or destroys it.
+route53_zone_id = "REPLACE_WITH_HOSTED_ZONE_ID_FROM_DNS_STATE"
 
 # ─── RDS / ElastiCache ────────────────────────────────────────────────────────
 db_instance_class = "db.r6g.large"

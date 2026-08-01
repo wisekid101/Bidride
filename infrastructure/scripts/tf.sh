@@ -39,6 +39,33 @@ PLAN_FILE="${TF_DIR}/${ENVIRONMENT}.tfplan"
 
 [[ -f "${BACKEND_CONFIG}" ]] || die "missing backend config: ${BACKEND_CONFIG}"
 
+# ─── Obsolete root terraform.tfvars gate ─────────────────────────────────────
+#
+# Terraform AUTO-LOADS ${TF_DIR}/terraform.tfvars from the working directory on
+# every variable-consuming command. -var-file does NOT disable that: it only
+# overrides variables both files set, so anything set ONLY in the root file
+# leaks silently into whichever environment is being planned.
+#
+# This is not theoretical. `terraform validate` in this repo reports:
+#   "The root module does not declare a variable named "domain_name" but a
+#    value was found in file "terraform.tfvars""
+# — that file still carries the obsolete api.bidride.com hostname.
+#
+# Fail closed for every command that can consume variables or touch state.
+# fmt and validate are exempt: they cannot apply variable values to cloud state.
+require_no_root_tfvars() {
+  test ! -f "${TF_DIR}/terraform.tfvars" || {
+    echo "FATAL: obsolete root terraform.tfvars exists. Remove it and use env/<environment>.tfvars."
+    exit 1
+  }
+}
+
+case "${COMMAND}" in
+  plan|apply|destroy|import|refresh|taint|untaint|state|console)
+    require_no_root_tfvars
+    ;;
+esac
+
 # A stale .terraform pointing at the other environment's state is the one
 # failure mode this wrapper exists to prevent. Record which environment the
 # working directory was last initialised for and force a re-init on change.

@@ -25,6 +25,58 @@ running system.
 
 ---
 
+## DNS and TLS — one authoritative zone, per-environment certificates
+
+**No Route 53 zone, certificate, validation record or alias record exists yet.**
+The Terraform below is committed but has never been applied.
+
+`infrastructure/terraform/dns/` is a SEPARATE root module and state
+(`dns/terraform.tfstate`) whose only job is to own the single authoritative
+public hosted zone for `bidiride.com`.
+
+Why separate: staging and production are the same root module rendered twice
+against two state files. A zone resource there would be created **once per
+state** — two authoritative zones with different nameservers, only one of which
+the registrar can delegate to. Keeping the zone in its own state makes
+duplication structurally impossible, and means `terraform destroy` on an
+environment cannot reach the company domain.
+
+The zone carries `lifecycle { prevent_destroy = true }`. Removing that is an
+extraordinary action, justified only by a Founder-approved domain migration:
+destroying the zone takes company DNS offline, and a recreated zone gets
+**different nameservers**, requiring another registrar change and another
+propagation window. Remove it, apply, restore it in the same change — never
+leave it off.
+
+Each environment owns its own certificate (`staging-api.bidiride.com` /
+`api.bidiride.com`), its own validation record, and its own alias record. No
+wildcard: a staging mistake can never present a certificate valid for
+production.
+
+### Execution sequence
+
+1. **Delete the obsolete local `infrastructure/terraform/terraform.tfvars`.**
+   Terraform auto-loads it and it still carries the old `api.bidride.com`
+   hostname. `tf.sh` now refuses `plan`/`apply`/`destroy`/`import`/`refresh`/
+   `taint`/`untaint`/`state`/`console` while it exists. Use only
+   `env/<environment>.tfvars`.
+2. Apply the DNS state:
+   `cd infrastructure/terraform/dns && terraform init -reconfigure -backend-config=../env/dns.backend.hcl && terraform apply`
+3. **Review the four nameservers**: `terraform output hosted_zone_name_servers`.
+4. **Founder updates the GoDaddy nameservers** to those four values.
+5. Confirm delegation: `dig +short NS bidiride.com` returns the Route 53 set.
+6. Copy `terraform output hosted_zone_id` into `route53_zone_id` in
+   `env/staging.tfvars`.
+7. Apply staging. Terraform requests the certificate, writes the validation
+   record, and blocks until ACM reports ISSUED.
+8. Confirm ISSUED, then verify `staging-api.bidiride.com` resolves to the ALB.
+9. Repeat 6–8 for production **only after staging is approved**.
+
+Steps 2 and 7 are the first commands in this repository that create AWS
+resources. Everything before them is reversible.
+
+---
+
 ## The one rule that governs everything below
 
 **`terraform apply` is NOT a deployment.**
