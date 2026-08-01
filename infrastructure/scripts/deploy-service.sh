@@ -22,7 +22,7 @@
 #   4. It refuses to report success until every running task is on that ARN.
 #
 # Usage:
-#   deploy-service.sh <staging|production> <service> <image-tag> [--no-wait]
+#   deploy-service.sh <staging|production> <service> <image-tag> [--no-wait] [--desired-count N]
 #
 # Environment:
 #   AWS_REGION            defaults to us-east-1
@@ -48,11 +48,33 @@ die()  { echo -e "${RED}✗ ERROR:${NC} $*" >&2; exit 1; }
 ENVIRONMENT="${1:-}"
 SERVICE="${2:-}"
 IMAGE_TAG="${3:-}"
-NO_WAIT="${4:-}"
+
+# Trailing flags, order-independent.
+#
+# --desired-count N exists because Terraform creates every ECS service with
+# `ignore_changes = [task_definition, desired_count]`. Terraform therefore sets
+# the count ONCE at creation and never again: it owns infrastructure shape, this
+# script owns what is running. Staging is bootstrapped at 0 so that `terraform
+# apply` never asks ECS to start a task before its image and secrets exist, and
+# the first real deployment scales the service to 1 as a deliberate, reviewable
+# act. Passing it on later deploys is unnecessary — omit it and the current
+# count is preserved.
+NO_WAIT=""
+DESIRED_COUNT=""
+while [[ $# -gt 3 ]]; do
+  case "${4}" in
+    --no-wait) NO_WAIT="--no-wait"; shift ;;
+    --desired-count)
+      DESIRED_COUNT="${5:-}"
+      [[ "${DESIRED_COUNT}" =~ ^[0-9]+$ ]] || die "--desired-count requires a non-negative integer (got '${DESIRED_COUNT:-<none>}')"
+      shift 2 ;;
+    *) die "unknown argument '${4}'" ;;
+  esac
+done
 
 case "${ENVIRONMENT}" in
   staging|production) ;;
-  *) die "usage: $0 <staging|production> <service> <image-tag> [--no-wait]" ;;
+  *) die "usage: $0 <staging|production> <service> <image-tag> [--no-wait] [--desired-count N]" ;;
 esac
 [[ -n "${SERVICE}"   ]] || die "service name required"
 [[ -n "${IMAGE_TAG}" ]] || die "image tag required (the git SHA the pipeline built)"
@@ -173,15 +195,35 @@ ok "registered: ${NEW_TD_ARN}"
 # ── 5. Deploy BY EXPLICIT ARN ───────────────────────────────────────────────
 # Not --force-new-deployment. The ARN is the whole point.
 
+SCALE_ARGS=()
+if [[ -n "${DESIRED_COUNT}" ]]; then
+  SCALE_ARGS=(--desired-count "${DESIRED_COUNT}")
+  info "scaling ${ECS_SERVICE} to desired-count=${DESIRED_COUNT}"
+fi
+
 aws ecs update-service \
   --cluster "${CLUSTER}" \
   --service "${ECS_SERVICE}" \
   --task-definition "${NEW_TD_ARN}" \
+  "${SCALE_ARGS[@]+"${SCALE_ARGS[@]}"}" \
   --region "${AWS_REGION}" \
   --query 'service.serviceName' --output text >/dev/null \
   || die "update-service failed"
 
 ok "update-service accepted ${NEW_TD_ARN}"
+
+# A service left at desired-count 0 goes "stable" instantly with zero tasks, and
+# the fleet check below would then fail with a misleading "no running tasks after
+# a successful rollout". Catch it here, where the cause is still obvious.
+CURRENT_DESIRED=$(aws ecs describe-services \
+  --cluster "${CLUSTER}" --services "${ECS_SERVICE}" --region "${AWS_REGION}" \
+  --query 'services[0].desiredCount' --output text)
+if [[ "${CURRENT_DESIRED}" == "0" ]]; then
+  die "${ECS_SERVICE} has desired-count 0 — the revision is deployed but nothing will run.
+     This is the expected state straight after the staging bootstrap apply.
+     Re-run with --desired-count 1 once the image exists and every secret this
+     service consumes has a value."
+fi
 
 # ── 6. Write the deploy record BEFORE waiting ───────────────────────────────
 # If the wait times out, or the shell dies, the rollback target must already be

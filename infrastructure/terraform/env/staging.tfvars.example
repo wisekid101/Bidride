@@ -53,20 +53,39 @@ cache_num_cache_clusters = 1 # single node; derives failover/Multi-AZ to false
 
 log_retention_days = 7
 
-# One task per service. airport-service is 0 because EWR is out of scope for
-# the first Founder test — DEFERRED, not deleted. Raise to 1 to enable it.
+# BOOTSTRAP: start every service at 0.
+#
+# `terraform apply` must never ask ECS to start a task before that task's image
+# exists in ECR and its Secrets Manager containers hold values. Immediately
+# after a first apply neither is true — Terraform creates the 21 secret
+# containers EMPTY and the ECR repositories EMPTY — so any service created at 1
+# would fail to launch, churn against the circuit breaker, and bill Fargate for
+# a task that cannot run.
+#
+# Everything else is still created: services, task definitions, ECR repos,
+# target groups, Cloud Map entries, log groups, IAM roles, alarms. Only the
+# running count is zero.
+#
+# Terraform sets desired_count ONCE at creation and thereafter ignores it
+# (`ignore_changes`), so scaling up is the deployment pipeline's job, one
+# service at a time, after its image and secrets exist:
+#
+#   infrastructure/scripts/deploy-service.sh staging <service> <tag> --desired-count 1
+#
+# airport-service stays 0 even after bootstrap — EWR is out of scope for the
+# first Founder test. Deferred, not deleted.
 service_desired_counts = {
-  auth-service         = 1
-  trip-service         = 1
-  driver-service       = 1
-  rider-service        = 1
-  pricing-service      = 1
-  safety-service       = 1
-  payment-service      = 1
-  notification-service = 1
-  trust-service        = 1
-  admin-service        = 1
-  ai-service           = 1
+  auth-service         = 0
+  trip-service         = 0
+  driver-service       = 0
+  rider-service        = 0
+  pricing-service      = 0
+  safety-service       = 0
+  payment-service      = 0
+  notification-service = 0
+  trust-service        = 0
+  admin-service        = 0
+  ai-service           = 0
   airport-service      = 0
 }
 

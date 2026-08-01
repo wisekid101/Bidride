@@ -118,6 +118,45 @@ Three consequences worth internalising:
 for the first Founder test. It is deferred, not deleted — the service, its task
 definition, log group and secrets all still exist. Raise it to 1 to enable.
 
+### Bootstrap: a first apply must not schedule tasks
+
+`terraform apply` creates the 21 Secrets Manager containers **empty** and the 12
+ECR repositories **empty**. Every task definition consumes secrets through
+`valueFrom` and pulls an image from ECR, so on a brand-new environment **no task
+can start** — the image does not exist and the secrets have no values.
+
+A service created at `desired_count = 1` would therefore try to launch, fail to
+pull or fail to resolve its secrets, trip the deployment circuit breaker, and
+bill Fargate for tasks that cannot run. Terraform itself would still finish
+(`wait_for_steady_state` is not set, so it does not block on ECS stability), but
+it would hand back a half-broken environment.
+
+So a **first apply sets every service to 0** via `service_desired_counts` in
+`env/staging.tfvars`. Infrastructure shape is complete; nothing is scheduled.
+
+**Ownership is unambiguous, and this is why the bootstrap is safe:**
+
+| Concern | Owner |
+|---|---|
+| Services, task definitions, ECR, ALB, IAM, alarms — the *shape* | Terraform |
+| Which revision runs, and how many — the *runtime* | `deploy-service.sh` |
+
+Every ECS service carries `lifecycle { ignore_changes = [task_definition, desired_count] }`.
+Terraform sets the count **once at creation** and never touches it again, so
+scaling up cannot be reverted by a later `terraform apply`. There is exactly one
+owner at any moment, and no drift loop.
+
+Scale a service up only when its image exists and every secret it consumes has a
+value:
+
+```bash
+infrastructure/scripts/deploy-service.sh staging <service> <tag> --desired-count 1
+```
+
+Omit `--desired-count` on subsequent deploys — the current count is preserved.
+If a service is still at 0, `deploy-service.sh` stops with an explicit message
+rather than reporting a deploy that put nothing into service.
+
 ### What still costs money when nobody is testing
 
 NAT gateway, ALB, RDS instance and storage, Redis node, and the Secrets Manager
