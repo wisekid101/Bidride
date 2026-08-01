@@ -1,12 +1,20 @@
 # BidiRide — Secrets Manager Population Checklist
 
 All secrets live at path: `bidride/{environment}/{secret-name}`
-For internal alpha use `environment = production`.
+
+**Use `environment = staging` for the first Founder test environment.** An
+earlier revision of this checklist directed alpha secrets at `production`;
+that is superseded — staging is populated and validated first, and production
+secrets are created only when a production rollout is separately approved.
+
+**Safety gate:** `PAYOUTS_ENABLED` must be absent or `false` in every staging
+task. It is not a Secrets Manager entry and must never be set to `true` in
+staging. Stripe must use **test-mode** keys in staging.
 
 Populate each secret with:
 ```bash
 aws secretsmanager put-secret-value \
-  --secret-id "bidride/production/SECRET-NAME" \
+  --secret-id "bidride/staging/SECRET-NAME" \
   --secret-string "VALUE" \
   --region us-east-1
 ```
@@ -208,7 +216,7 @@ And add to `main.tf` variables:
 variable "google_maps_api_key" { sensitive = true }
 ```
 
-Then add to `terraform.tfvars`:
+Then add to `env/<env>.tfvars`:
 ```
 google_maps_api_key = "AIza..."
 ```
@@ -216,4 +224,4 @@ google_maps_api_key = "AIza..."
 - [ ] Google Maps API key obtained (Google Cloud Console → APIs → Maps Geocoding API)
 - [ ] Billing enabled on Google Cloud project
 - [ ] Key restricted to your API server IPs or referrer domains
-- [ ] Added to `terraform.tfvars` and `ecs-services.tf`
+- [ ] Added to `env/<env>.tfvars` and `ecs-services.tf`

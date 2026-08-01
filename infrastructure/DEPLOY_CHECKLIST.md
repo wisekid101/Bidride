@@ -20,7 +20,7 @@ Do NOT share this file publicly — it references secret names.
 
 ## Phase 1 — Terraform State Backend Bootstrap
 
-The S3 bucket and DynamoDB table for Terraform state must exist before `terraform init`.
+The S3 bucket and DynamoDB table for Terraform state must exist before `tf.sh <env> init`.
 Run once, manually:
 
 ```bash
@@ -68,35 +68,37 @@ aws acm request-certificate \
 - [ ] Certificate requested in `us-east-1`
 - [ ] DNS CNAME records added to your domain registrar
 - [ ] Certificate status = ISSUED: `aws acm list-certificates --region us-east-1`
-- [ ] ARN copied into `terraform.tfvars` as `acm_certificate_arn`
+- [ ] ARN copied into `env/<env>.tfvars` as `acm_certificate_arn`
 
 ---
 
 ## Phase 3 — Terraform Init & Plan
 
 ```bash
+# Copy and edit variables for the target environment (<env> = staging|production)
 cd infrastructure/terraform
+cp env/<env>.tfvars.example env/<env>.tfvars
+# Edit env/<env>.tfvars — set db_password, acm_certificate_arn, founder_email.
+# Leave jwt_signing_alg = "HS256" (see infrastructure/RS256_ROLLOUT_RUNBOOK.md).
 
-# Copy and edit variables
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars — set db_password, acm_certificate_arn, founder_email
-
-# Initialize (downloads providers, connects to state backend)
-terraform init
-
-# Review the plan — expected: ~80 resources to create
-terraform plan -out=bidride.tfplan
+# Init + plan, environment-scoped. The wrapper selects the backend key and the
+# var file together, so staging can never plan against production state.
+cd "$(git rev-parse --show-toplevel)"
+infrastructure/scripts/tf.sh <env> init
+infrastructure/scripts/tf.sh <env> plan
 ```
 
-- [ ] `terraform init` — successful
-- [ ] `terraform plan` — no errors, review resource count
+- [ ] `tf.sh <env> init` — successful
+- [ ] `tf.sh <env> plan` — no errors, review resource count (~230)
 - [ ] Review: VPC, subnets, security groups look correct
 - [ ] Review: RDS Multi-AZ, ElastiCache 3-node cluster
 - [ ] Review: 11 ALB target groups, 12 listener rules
 - [ ] Review: 12 ECS task definitions (11 ALB + 1 internal ai-service)
-- [ ] Review: 13 Secrets Manager secrets (4 shared + 9 per-service)
-- [ ] Review: 11 CloudWatch log groups + 4 alarms
-- [ ] Review: IAM execution role + task role
+- [ ] Review: 21 Secrets Manager secrets (5 shared + 16 per-service)
+- [ ] Review: 12 CloudWatch log groups, 5 base alarms, deployment/JWT metric filters + alarms
+- [ ] Review: IAM execution role + shared task role + auth/admin signer task roles
+- [ ] Review: SNS alert topic `bidride-alerts-<env>` and its email subscription
+- [ ] Review: **zero `aws_ecs_service` changes** on a re-apply — expected, see Phase 8
 
 **Get Founder approval before running apply.**
 
@@ -106,8 +108,11 @@ terraform plan -out=bidride.tfplan
 
 ```bash
 # REQUIRES FOUNDER APPROVAL — this creates real AWS resources (~$400–600/month)
-terraform apply bidride.tfplan
+infrastructure/scripts/tf.sh <env> apply
 ```
+
+> **Apply is not a deployment.** It registers task-definition revisions; nothing
+> runs them until Phase 8. See `infrastructure/DEPLOYMENT_RUNBOOK.md`.
 
 Expected outputs after apply:
 - `rds_endpoint` — RDS writer endpoint
@@ -152,20 +157,30 @@ aws ecr get-login-password --region us-east-1 | \
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_BASE="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
 
+# The DEPLOYABLE tag. Immutable, one per commit — this is what Phase 8 resolves
+# to a digest. :latest is pushed only as a Docker layer cache source and is
+# never deployed from.
+SHA=$(git rev-parse HEAD)
+
 for svc in auth-service trip-service driver-service rider-service pricing-service \
            safety-service payment-service notification-service trust-service \
            airport-service admin-service ai-service; do
   echo "Building $svc..."
-  docker build -t "bidride/${svc}" "services/${svc}"
-  docker tag "bidride/${svc}:latest" "${ECR_BASE}/bidride/${svc}:latest"
+  docker build -f services/Dockerfile.template --build-arg SERVICE_NAME="${svc}" \
+    -t "${ECR_BASE}/bidride/${svc}:${SHA}" \
+    -t "${ECR_BASE}/bidride/${svc}:latest" \
+    --cache-from "${ECR_BASE}/bidride/${svc}:latest" .
+  docker push "${ECR_BASE}/bidride/${svc}:${SHA}"
   docker push "${ECR_BASE}/bidride/${svc}:latest"
   echo "✓ $svc pushed"
 done
+echo "Deploy this SHA in Phase 8: ${SHA}"
 ```
 
 - [ ] All 12 images built successfully
-- [ ] All 12 images pushed to ECR
-- [ ] Latest digest visible in ECR console
+- [ ] All 12 images pushed to ECR, tagged with the git SHA
+- [ ] SHA recorded for Phase 8
+- [ ] Digest visible in ECR console
 
 ---
 
@@ -190,41 +205,47 @@ aws ecs run-task \
 
 ---
 
-## Phase 8 — Force ECS Service Deployment
+## Phase 8 — ECS Service Deployment
 
 After images are pushed and secrets are set:
 
 ```bash
-for svc in auth-service trip-service driver-service rider-service pricing-service \
-           safety-service payment-service notification-service trust-service \
-           airport-service admin-service ai-service; do
-  aws ecs update-service \
-    --cluster bidride-production \
-    --service "bidride-${svc}-production" \
-    --force-new-deployment \
-    --region us-east-1
-done
+# <sha> is the git commit whose images were pushed in the build phase.
+infrastructure/scripts/deploy-fleet.sh production <sha>
 ```
 
-- [ ] All 12 ECS services updating
-- [ ] Wait for all services to reach RUNNING state (5–15 min): `aws ecs describe-services ...`
+Ordered (safety-service first, token issuers last), one service at a time, each
+deployed **by explicit task-definition ARN** with a digest-pinned image and
+verified before the next begins.
+
+> ⚠️ The loop that used to be here ran `aws ecs update-service
+> --force-new-deployment` across all 12 services. That restarts each service on
+> the revision it is **already** pinned to — so newly-applied task-definition
+> changes (new secrets, new environment variables) never shipped, while the
+> checklist below still ticked green. Do not reintroduce it.
+
+- [ ] `deploy-fleet.sh` completed without halting
+- [ ] Every service reports `verified: all N task(s) on <arn>`
+- [ ] `bash infrastructure/scripts/verify-deployment.sh production all` passes
 - [ ] CloudWatch log groups receiving logs
 
 ---
 
 ## Phase 9 — Post-Deploy Verification
 
-Run the smoke test script:
+Three scripts, three different questions. Run all three.
 
 ```bash
-# Set your ALB DNS or custom domain
+# 1. CONFIGURATION — "is it running what I deployed?"
+#    Proves revision, keysets, signing algorithm, KMS key, RS256 round trip.
+#    Health checks pass whether or not the keyset loaded; this is what catches that.
+bash infrastructure/scripts/verify-deployment.sh production all
+
+# 2. LIVENESS — "is it up?"
 export BIDRIDE_API_URL="https://api.bidiride.com"
 bash infrastructure/scripts/smoke-test.sh
-```
 
-Run the post-deploy verification script:
-
-```bash
+# 3. FUNCTION — "does a real request work?"
 bash infrastructure/scripts/post-deploy-verify.sh
 ```
 
@@ -259,7 +280,7 @@ bash infrastructure/scripts/post-deploy-verify.sh
 | S3 + CloudWatch + SQS | ~$15 |
 | **Total** | **~$765/month** |
 
-**For internal alpha cost reduction**, change these in `terraform.tfvars`:
+**For internal alpha cost reduction**, change these in `env/<env>.tfvars`:
 ```
 db_instance_class = "db.t4g.medium"   # saves ~$280/month, no replicas needed
 cache_node_type   = "cache.t4g.micro" # saves ~$175/month, single node OK

@@ -5,15 +5,72 @@ See `docs/FOUNDER_DEPLOYMENT_CHECKLIST.md` for the founder-facing simplified ver
 
 ---
 
+## Current status — nothing has been deployed
+
+As of this commit **no BidiRide environment exists**. The mechanism and the CI
+workflows are committed and reviewable, but Terraform has never been applied
+and no AWS resource has been created.
+
+Staging is **not yet deployable**. Outstanding blockers:
+
+- the ACM certificate for the API hostname is in **FAILED** state, so
+  `acm_certificate_arn` has no usable value
+- **Secrets Manager contains zero `bidride/staging/*` entries**
+- `infrastructure/terraform/env/staging.tfvars` does not exist locally (it is
+  gitignored and must never be committed — it carries `db_password`)
+- no `terraform plan` has been produced or reviewed
+
+Treat every procedure below as the intended process, not as a description of a
+running system.
+
+---
+
+## The one rule that governs everything below
+
+**`terraform apply` is NOT a deployment.**
+
+Every ECS service in this stack carries `lifecycle { ignore_changes = [task_definition] }`.
+Terraform *registers* task-definition revisions; it never moves a service onto
+one. A shape change — a new secret, a new environment variable — is not live
+until `deploy-service.sh` has explicitly pointed the service at a revision
+containing it.
+
+This is deliberate. Terraform owns the task definition's **shape**; the
+pipeline owns its **image**. If Terraform also asserted the running revision,
+every apply would roll the fleet back to the bootstrap image and undo the last
+deploy.
+
+The failure mode this replaced is worth remembering: `aws ecs update-service
+--force-new-deployment` (with no `--task-definition`) restarts tasks on the
+revision the service is *already* pinned to. It looks identical to a successful
+deploy at every checkpoint — services reach `stable`, health checks return 200,
+smoke tests pass — while the change you applied never reached production.
+**Never deploy with `--force-new-deployment`.**
+
+Deployment is therefore always three steps:
+
+| Step | Command | What it does |
+|---|---|---|
+| 1. Shape | `scripts/tf.sh <env> apply` | Registers new task-definition revisions |
+| 2. Deploy | `scripts/deploy-fleet.sh <env> <sha>` | Moves services onto them, **by explicit ARN** |
+| 3. Prove | `scripts/verify-deployment.sh <env> all` | Confirms what is actually running |
+
+---
+
 ## Prerequisites
 
 | Tool | Minimum Version | Install |
 |------|----------------|---------|
 | AWS CLI | 2.x | `brew install awscli` |
 | Terraform | ≥ 1.8 | `brew install terraform` |
+| jq | 1.6+ | `brew install jq` |
+| OpenSSL | 1.1+ / 3.x | `brew install openssl` |
 | Docker Desktop | 4.x | docker.com |
 | pnpm | 9.x | `npm install -g pnpm@9` |
 | Node.js | 20 LTS | `brew install node@20` |
+
+`jq` and `openssl` are required by the deployment and verification scripts, not
+optional conveniences.
 
 ### AWS IAM Permissions Required
 
@@ -83,34 +140,57 @@ aws acm wait certificate-validated \
   --region us-east-1
 ```
 
-Copy the certificate ARN into `terraform.tfvars`.
+Copy the certificate ARN into `env/<env>.tfvars` as `acm_certificate_arn`.
 
 ---
 
 ## Phase 3 — Terraform Init & Plan
 
-```bash
-cd infrastructure/terraform
+Terraform is **environment-scoped**. The backend `key` and the variable file
+together decide whether you are touching staging or production, so both are
+selected by one argument through the wrapper. Do not run bare `terraform` in
+this directory.
 
-# First-time setup
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars — fill in:
+```bash
+# First-time setup for an environment (<env> = staging | production)
+cd infrastructure/terraform
+cp env/<env>.tfvars.example env/<env>.tfvars
+# Edit env/<env>.tfvars — fill in:
 #   db_password (32+ chars, save to 1Password)
 #   acm_certificate_arn
 #   founder_email
 #   google_maps_api_key
 #   founder_signing_public_key (RSA public key for Founder JWT verification)
+#   jwt_signing_alg — LEAVE AS "HS256". See RS256_ROLLOUT_RUNBOOK.md.
+# env/<env>.tfvars is gitignored. Never commit it.
 
-terraform init
-terraform fmt -check    # must pass before apply
-terraform validate      # must pass before apply
-terraform plan -out=bidride.tfplan
-
-# Review the plan carefully:
-# Expected ~206 resources: VPC (28), ECS services+task defs+IAM (54), ECR (24),
-# Secrets Manager (19), Cloud Map (13), CloudWatch (16), RDS (3), ElastiCache (1),
-# S3 (16), SQS (16), ALB+listeners+TGs+rules (25), KMS+aliases (2), misc (9)
+cd "$(git rev-parse --show-toplevel)"
+infrastructure/scripts/tf.sh <env> fmt -check    # must pass
+infrastructure/scripts/tf.sh <env> validate      # must pass
+infrastructure/scripts/tf.sh <env> plan          # writes <env>.tfplan
 ```
+
+The wrapper runs `terraform init -reconfigure -backend-config=env/<env>.backend.hcl`
+for you, and re-initialises automatically if the working directory was last
+used for the *other* environment — which is the mistake that would otherwise
+plan staging against production state.
+
+State keys:
+
+| Environment | Backend key |
+|---|---|
+| staging | `staging/terraform.tfstate` |
+| production | `production/terraform.tfstate` |
+
+`production/terraform.tfstate` is byte-identical to the key that used to be
+hardcoded in `main.tf`, so initialising with the wrapper targets the **existing**
+production state. No migration is required.
+
+Review the plan carefully. Approximate resource count: ~230 — VPC (28), ECS
+services + task defs + IAM (54), ECR (24), Secrets Manager (19), Cloud Map (13),
+CloudWatch log groups + alarms + metric filters (60), RDS (3), ElastiCache (1),
+S3 (16), SQS (16), ALB + listeners + TGs + rules (25), KMS keys + aliases (6),
+SNS (2), misc (9).
 
 **STOP HERE. Show terraform plan output to Founder for approval before apply.**
 
@@ -119,14 +199,34 @@ terraform plan -out=bidride.tfplan
 ## Phase 4 — Terraform Apply (REQUIRES FOUNDER APPROVAL)
 
 ```bash
-cd infrastructure/terraform
-terraform apply bidride.tfplan
+infrastructure/scripts/tf.sh <env> apply       # consumes the reviewed <env>.tfplan
 
 # After apply, save outputs to 1Password:
-terraform output -json > /tmp/bidride-tf-outputs.json
-# Contains: rds_endpoint, redis_endpoint, alb_dns_name, ecs_cluster_name, bucket names
+infrastructure/scripts/tf.sh <env> output -json > /tmp/bidride-tf-outputs.json
+# Contains: rds_endpoint, redis_endpoint, alb_dns_name, ecs_cluster_name,
+#           bucket names, kms_jwt_user_key_id, kms_jwt_admin_key_id,
+#           alerts_topic_arn, jwt_verifier_services
 rm /tmp/bidride-tf-outputs.json  # don't leave outputs on disk
 ```
+
+> **Apply has changed nothing that is serving traffic.** It registered new
+> task-definition revisions. The running fleet is still on its previous
+> revisions until Phase 9. Expect the plan to show `aws_ecs_task_definition`
+> changes and **zero** `aws_ecs_service` changes — that is correct, not a
+> problem.
+
+### One-time: confirm the alert subscription
+
+`terraform apply` creates the `bidride-alerts-<env>` SNS topic and subscribes
+`founder_email`. AWS sends a confirmation email; **until someone clicks it,
+every CloudWatch alarm in the stack notifies nobody.**
+
+```bash
+aws sns list-subscriptions-by-topic \
+  --topic-arn "$(infrastructure/scripts/tf.sh <env> output -raw alerts_topic_arn)" \
+  --query 'Subscriptions[].[Endpoint,SubscriptionArn]' --output table
+```
+`SubscriptionArn` must not read `PendingConfirmation`.
 
 ### Post-Apply DNS
 
@@ -243,60 +343,105 @@ DATABASE_URL="postgresql://bidride_admin:PASSWORD@RDS_ENDPOINT:5432/bidride" \
 
 ## Phase 9 — ECS Service Deployment
 
-> **Payment-integrity releases: do NOT use the parallel loop below.** F4
-> introduced a required cross-service contract, so trip-service must be deployed
-> and fully drained BEFORE payment-service starts rolling, and rolled back in the
-> reverse order. Follow `docs/payment-integrity-deployment-runbook.md` for any
-> release touching trip-service or payment-service.
+This is the step that makes Phase 4 live. Until it runs, the fleet is still on
+its old revisions.
 
 ```bash
-CLUSTER="bidride-production"
+# <env> = staging | production ; <sha> = the git SHA the pipeline built
+infrastructure/scripts/deploy-fleet.sh <env> <sha>
+```
 
-# Deploy safety-service first (always — it's the most critical)
-aws ecs update-service \
-  --cluster "${CLUSTER}" \
-  --service bidride-safety-service-production \
-  --force-new-deployment
-aws ecs wait services-stable \
-  --cluster "${CLUSTER}" \
-  --services bidride-safety-service-production
+`deploy-fleet.sh` deploys **one service at a time**, and each service must both
+stabilise and pass verification before the next one starts. Any failure halts
+the run and prints the rollback commands for whatever already landed.
 
-# Deploy all other services
-for svc in auth-service trip-service driver-service rider-service pricing-service \
-           payment-service notification-service trust-service airport-service \
-           admin-service ai-service; do
-  aws ecs update-service \
-    --cluster "${CLUSTER}" \
-    --service "bidride-${svc}-production" \
-    --force-new-deployment
-done
+### What each service deploy actually does
 
-# Wait for all services to stabilize (5-15 min)
-for svc in auth-service trip-service driver-service rider-service pricing-service \
-           payment-service notification-service trust-service airport-service \
-           admin-service ai-service; do
-  echo "Waiting for ${svc}..."
-  aws ecs wait services-stable \
-    --cluster "${CLUSTER}" \
-    --services "bidride-${svc}-production"
-  echo "✓ ${svc} stable"
-done
+`deploy-service.sh` — invoked per service by the fleet script — performs:
+
+1. **Records the currently deployed ARN.** This is the rollback target, written
+   to `infrastructure/deploy-records/<env>/<service>.json` *before* anything
+   changes.
+2. **Reads the latest ACTIVE revision** of `bidride-<service>-<env>` — the shape
+   Terraform most recently registered.
+3. **Resolves `<sha>` to an image digest** and pins the revision to
+   `repo@sha256:…`. Deployments never reference a tag.
+4. **Registers** that revision.
+5. **`aws ecs update-service --task-definition <exact ARN>`.** Not
+   `--force-new-deployment`.
+6. **Waits** for `rolloutState=COMPLETED` and `running == desired`.
+7. **Proves it** — enumerates every running task and asserts they are all on the
+   ARN just deployed. `services-stable` alone is necessary but not sufficient:
+   a service can be "stable" while still serving an older revision.
+
+### Deployment order (not arbitrary)
+
+| Position | Service(s) | Why |
+|---|---|---|
+| 1 | safety-service | Its failure is a safety incident, not an outage. Clean fleet, full gate. |
+| 2 | trip-service | F4 cross-service contract — must fully drain before payment-service. |
+| 3 | payment-service | Depends on the trip-service contract above. |
+| 4–10 | driver, rider, pricing, notification, trust, airport, ai | Remaining verifiers and internal services. |
+| 11 | auth-service | **Token issuer.** Every verifier must already hold the keyset. |
+| 12 | admin-service | **Admin token issuer.** Same reason. |
+
+Issuers deploy **last** so that no token can ever exist which some verifier
+cannot check. Reversing this during an RS256 rollout would mint RS256 tokens
+that unrolled verifiers reject — a fleet-wide 401 storm.
+
+> **Payment-integrity releases** still follow
+> `docs/payment-integrity-deployment-runbook.md` for the rollback *ordering*
+> (payment-service first, then trip-service). The forward order above already
+> satisfies its deploy-order requirement.
+
+To deploy a subset — a single-service hotfix, or resuming a halted run:
+
+```bash
+infrastructure/scripts/deploy-fleet.sh <env> <sha> --only trip-service,payment-service
 ```
 
 ---
 
 ## Phase 10 — Post-Deploy Verification
 
+Three scripts, three different questions. Run all three.
+
 ```bash
-# Run smoke test (health checks only)
+# 1. CONFIGURATION — "is it running what I deployed?"  ← the one that matters
+bash infrastructure/scripts/verify-deployment.sh <env> all
+
+# 2. LIVENESS — "is it up?"
 BIDRIDE_API_URL=https://api.bidiride.com bash infrastructure/scripts/smoke-test.sh
 
-# Run full post-deploy verification
+# 3. FUNCTION — "does a real request work?"
 BIDRIDE_API_URL=https://api.bidiride.com \
 BIDRIDE_ADMIN_EMAIL=marq@bidiride.com \
 BIDRIDE_ADMIN_PASS=your-admin-password \
 bash infrastructure/scripts/post-deploy-verify.sh
 ```
+
+`verify-deployment.sh` is the one that closes the gap the other two cannot.
+Health checks pass whether or not the keyset loaded; it proves:
+
+| # | Check | How |
+|---|---|---|
+| 1 | Correct revision deployed | Every running task on ONE revision, and it is the latest ACTIVE. Image digest-pinned. |
+| 2 | `JWT_PUBLIC_KEYS` loaded | Revision references the secret; secret holds a schema-valid keyset; tasks are RUNNING on that revision. |
+| 3 | `JWT_ADMIN_PUBLIC_KEYS` loaded | Same, admin domain. Plus: the two keysets share no key material. |
+| 4 | Signing algorithm | Configured value on the deployed revision **and** the boot log line agree. |
+| 5 | KMS key | Each signer points at its own domain's key; its task role grants `kms:Sign` on exactly that key and cannot reach the other. |
+| 6 | RS256 verification | A real `kms:Sign` signature over a real JWT signing input, verified against the **published keyset** with openssl. |
+
+On (2) and (3): a container's environment cannot be read back from outside, so
+the proof is a chain — the revision references the secret, the secret has a
+valid value, and ECS placed RUNNING tasks on that revision. ECS refuses to start
+a task whose `secrets` entry cannot resolve, so running tasks are positive
+evidence the value was injected.
+
+Check (6) is the end-to-end proof that a token the issuer mints is one the
+verifiers can check. It runs even while `jwt_signing_alg = HS256` — it tests the
+key material, not the live token path — so the RS256 rollout is de-risked before
+it is switched on. It signs an inert payload and issues no usable credential.
 
 All checks must pass before declaring the deployment successful.
 
@@ -309,33 +454,51 @@ All checks must pass before declaring the deployment successful.
 > recreates the broken pairing and fails every bid authorization. See
 > `docs/payment-integrity-deployment-runbook.md`.
 
-### Fast Rollback (< 5 min): Revert to Previous ECS Task Definition
+### Fast Rollback (< 5 min): Revert to an EXACT Task-Definition ARN
 
 ```bash
-CLUSTER="bidride-production"
-SERVICE="bidride-auth-service-production"
+# Uses the ARN recorded before the deploy touched anything.
+bash infrastructure/scripts/rollback-service.sh <env> <service>
 
-# Get the previous task definition revision
-PREV_TASK=$(aws ecs describe-services \
-  --cluster "${CLUSTER}" --services "${SERVICE}" \
-  --query 'services[0].taskDefinition' --output text | \
-  sed 's/:[0-9]*$//')
-
-# Deregister in reverse to find the previous revision
-CURRENT_REV=$(aws ecs describe-services \
-  --cluster "${CLUSTER}" --services "${SERVICE}" \
-  --query 'services[0].taskDefinition' --output text | \
-  grep -oE '[0-9]+$')
-PREV_REV=$((CURRENT_REV - 1))
-
-# Roll back
-aws ecs update-service \
-  --cluster "${CLUSTER}" \
-  --service "${SERVICE}" \
-  --task-definition "${PREV_TASK}:${PREV_REV}"
-
-# Repeat for all affected services
+# Or target an ARN explicitly (incident recovery, older revision):
+bash infrastructure/scripts/rollback-service.sh <env> <service> arn:aws:ecs:...:task-definition/bidride-<service>-<env>:41
 ```
+
+Rollback targets live in `infrastructure/deploy-records/<env>/<service>.json`,
+written by `deploy-service.sh` *before* it changes anything. CI uploads the same
+records as the `deploy-records-<env>-<sha>` artifact on every run, including
+failed ones. If both are gone:
+
+```bash
+aws ecs list-task-definitions --family-prefix bidride-<service>-<env> \
+  --status ACTIVE --sort DESC --max-items 10
+```
+
+The script refuses to proceed unless the target exists and is `ACTIVE`, and
+warns if the target predates digest pinning.
+
+There is also a `workflow_dispatch` rollback: **Actions → BidRide Rollback**.
+It takes the exact ARN, validates it belongs to the named service, keeps the
+production approval gate, notifies SNS, and re-runs verification afterwards.
+
+#### Why not "current revision minus one"
+
+The previous procedure computed `CURRENT_REV - 1`. It was wrong three ways, and
+all three are now structurally impossible:
+
+| Old defect | Why it broke | Fixed by |
+|---|---|---|
+| Arithmetic on a stale pin | Under `ignore_changes`, the service's revision lags the family's latest, so `-1` lands an unpredictable number of generations back | Replaying a recorded ARN — no arithmetic |
+| Reverted config but not code | Every revision referenced the mutable `:latest` tag, so the container still pulled whatever was newest | Digest pinning: `repo@sha256:…` |
+| No existence check | Could target a deregistered revision, or produce `:0` at revision 1 | `describe-task-definition` + `ACTIVE` assertion |
+
+#### ECS-native automatic rollback
+
+Every service now sets `deployment_circuit_breaker { enable = true, rollback = true }`.
+A deployment that cannot reach a steady state is failed and reverted by ECS
+itself, without human intervention. `deploy-service.sh` detects
+`rolloutState=FAILED` and stops the fleet run rather than continuing into a
+half-deployed fleet.
 
 ### Full Rollback: Revert Git + Redeploy
 
@@ -444,15 +607,30 @@ aws logs filter-log-events \
   --start-time $(date -d '10 minutes ago' +%s000) \
   --filter-pattern "ERROR"
 
-# Common cause: secret not populated in Secrets Manager
-# Fix: populate the missing secret
+# Common cause: secret not populated in Secrets Manager.
+# ECS refuses to start a task whose `secrets` entry resolves to an empty secret,
+# so this presents as tasks that never reach RUNNING.
 aws secretsmanager put-secret-value \
   --secret-id "bidride/production/SECRET-NAME" \
   --secret-string "VALUE"
-# Then force a new deployment
+
+# Then restart the service ON ITS CURRENT REVISION to re-resolve secret VALUES.
+# Re-issuing the CURRENT ARN is a restart, not a deployment: the task definition
+# already references the secret and only its value changed. Naming the ARN
+# explicitly (rather than --force-new-deployment) keeps one habit for every
+# update-service call — you always say which revision you mean.
+CURRENT=$(aws ecs describe-services --cluster bidride-production \
+  --services bidride-auth-service-production \
+  --query 'services[0].taskDefinition' --output text)
 aws ecs update-service --cluster bidride-production \
-  --service bidride-auth-service-production --force-new-deployment
+  --service bidride-auth-service-production \
+  --task-definition "$CURRENT"
 ```
+
+If the secret is a NEW reference (it was added to the task definition by a
+Terraform change), restarting is not enough — the running revision does not
+reference it at all. Run the real deployment path:
+`infrastructure/scripts/deploy-fleet.sh production <sha> --only auth-service`.
 
 ### Service fails to start — Database connection refused
 

@@ -13,11 +13,44 @@ Applies to the two Secrets Manager placeholders created by B8B-1:
 > Do **not** run these commands as part of B8B-1. They are for the operator at
 > deploy time. B8B-1 only creates the KMS keys and empty secret placeholders.
 >
-> **Deployment ordering:** B8B-1 creates the placeholders but does **not** inject
-> them into any ECS task definition. Populate the keysets with these steps, then
-> a later batch (**B8B-2 — Public-Key Keyset Activation**) validates the keysets
-> and injects them into the verifier task definitions. This ordering prevents an
-> ECS task from rolling with a secret reference that has no value yet.
+> **For the full rollout procedure, follow `infrastructure/RS256_ROLLOUT_RUNBOOK.md`.**
+> This document covers only the keyset population itself (§1–§6) and rotation (§7).
+>
+> **Deployment ordering — READ THIS FIRST.** `SEC-RS256-B1` has landed:
+> `infrastructure/terraform/ecs-services.tf` now injects these secrets into the
+> verifier task definitions as `JWT_PUBLIC_KEYS` and `JWT_ADMIN_PUBLIC_KEYS`.
+>
+> ECS refuses to start a task whose `secrets` entry resolves to a secret with **no
+> value**. Therefore the order is mandatory and cannot be reversed:
+>
+> 1. **Populate both keysets first** (§1–§6 below).
+> 2. **Then** `tf.sh <env> apply` — which registers new task-definition revisions.
+> 3. **Then** `deploy-fleet.sh <env> <sha>` — which actually moves the verifier
+>    services onto those revisions.
+>
+> Step 3 is not optional and is not implied by step 2. Every ECS service carries
+> `lifecycle { ignore_changes = [task_definition] }`, so `terraform apply`
+> registers revisions but never moves a service onto one. **`terraform apply` is
+> not a deployment** — see `DEPLOYMENT_RUNBOOK.md`.
+>
+> Populating first is safe and inert: the verifiers accept both HS256 and RS256
+> per token, and nothing signs RS256 until `jwt_signing_alg` is set to `RS256`, so
+> a populated keyset changes no behaviour on its own.
+>
+> ⚠️ **Correction to earlier revisions of this runbook.** This section previously
+> claimed that "applying the Terraform before populating the keysets will fail
+> every verifier task launch". That was wrong. Because of `ignore_changes`, tasks
+> never moved to the new revision at all, so neither the failure *nor the intended
+> success* could occur — the guardrail operators were relying on did not exist.
+> Populate-first is still correct, but the real reason is step 3: once
+> `deploy-fleet.sh` moves services onto the new revision, an empty secret blocks
+> task startup for real.
+>
+> Services receiving `JWT_PUBLIC_KEYS` (user domain, 8): auth, trip, driver, rider,
+> pricing, safety, payment, admin. `admin-service` additionally receives
+> `JWT_ADMIN_PUBLIC_KEYS` because it verifies **both** domains — user tokens on the
+> support-ticket routes and its own admin sessions. notification, trust, airport,
+> and ai-service have no user-token verifier and are deliberately excluded.
 
 ---
 
@@ -141,6 +174,16 @@ the user keyset or vice-versa.
 
 ## 6. Verify the keyset format
 
+The scripted check does all of the below, plus an end-to-end `kms:Sign` →
+openssl-verify round trip proving the key and the keyset are a matching pair:
+
+```
+bash infrastructure/scripts/verify-deployment.sh <env> all
+```
+Sections 2, 3 and 6 must pass.
+
+Manual equivalent:
+
 ```
 aws secretsmanager get-secret-value \
   --secret-id bidride/<env>/jwt-public-keys \
@@ -149,8 +192,9 @@ aws secretsmanager get-secret-value \
 
 Checks:
 - Valid JSON object; each value begins with `-----BEGIN PUBLIC KEY-----`.
-- Each `kid` present matches a `kid` the issuer will stamp.
+- Each `kid` present matches a `kid` the issuer will stamp (`jwt_signing_kid`).
 - No private-key markers anywhere (`PRIVATE KEY` must never appear).
+- The user and admin keysets share no key material.
 
 ---
 
@@ -163,11 +207,20 @@ When rotating (new KMS key created via Terraform with a new alias/`kid`):
    ```json
    { "v1": "<current PEM>", "v2": "<new PEM>" }
    ```
-   `put-secret-value` the two-key set. Redeploy verifiers so they load both.
-2. Flip the **issuer** (auth/admin) to sign with the new `kid` (`v2`). Tokens
-   signed with `v1` remain valid because verifiers still hold `v1`.
+   `put-secret-value` the two-key set, then redeploy verifiers so they load both:
+   ```
+   infrastructure/scripts/deploy-fleet.sh <env> <sha>
+   ```
+2. Flip the **issuer** to sign with the new `kid`: set `jwt_signing_kid = "v2"`
+   in `env/<env>.tfvars`, `tf.sh <env> apply`, then
+   `deploy-fleet.sh <env> <sha> --only auth-service` (and `admin-service`).
+   Tokens signed with `v1` remain valid because verifiers still hold `v1`.
 3. After the access-token TTL window (plus refresh churn), remove `v1` from the
-   keyset and retire/disable the old KMS key.
+   keyset, redeploy verifiers again, and retire/disable the old KMS key.
+
+Steps 1 and 3 are real deployments, not restarts. A changed secret **value**
+under an existing reference is re-resolved when a task restarts; a changed
+**reference** requires a new task-definition revision to be deployed.
 
 At no point is a verifier without the key it needs — the overlap guarantees zero
 verification gap.
@@ -180,6 +233,17 @@ verification gap.
 - Never put key material in Git or Terraform state.
 - Never reuse one `kid` for two different keys.
 - Never merge the user and admin trust domains into one keyset.
+
+Domain separation is enforced in code, not by convention alone — two resolvers
+read two different environment variables and neither falls back to the other:
+
+| Domain | Resolver | Reads | Audience |
+|---|---|---|---|
+| user | `<service>/src/user-jwt-verification.ts` (8 copies) | `JWT_PUBLIC_KEYS` | `bidride-user` |
+| admin | `admin-service/src/admin-jwt-verification.ts` | `JWT_ADMIN_PUBLIC_KEYS` | `bidride-admin` |
+
+If a `kid` is placed in the wrong keyset, verification fails closed rather than
+crossing domains. Tests assert this explicitly.
 
 ---
 
