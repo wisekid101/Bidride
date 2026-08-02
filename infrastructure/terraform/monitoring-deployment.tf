@@ -143,12 +143,17 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_issuance_rs256" {
   log_group_name = aws_cloudwatch_log_group.services[each.key].name
   pattern        = "\"JWT issuance algorithm: RS256\""
 
+  # No dimensions: CloudWatch can only attach a dimension whose VALUE it can
+  # extract from the log event (a JSON $.field or a space-delimited $N token).
+  # These patterns are quoted substrings against Nest Logger text lines, so
+  # there is nothing to extract and PutMetricFilter answers "The specified
+  # filter pattern does not support dimensions". The service therefore lives in
+  # the metric NAME, which keeps per-service attribution intact.
   metric_transformation {
-    name       = "JwtIssuanceRs256"
-    namespace  = local.deployment_metric_namespace
-    value      = "1"
-    unit       = "Count"
-    dimensions = { service = each.key }
+    name      = "JwtIssuanceRs256-${each.key}"
+    namespace = local.deployment_metric_namespace
+    value     = "1"
+    unit      = "Count"
   }
 }
 
@@ -160,11 +165,10 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_issuance_hs256" {
   pattern        = "\"JWT issuance algorithm: HS256\""
 
   metric_transformation {
-    name       = "JwtIssuanceHs256"
-    namespace  = local.deployment_metric_namespace
-    value      = "1"
-    unit       = "Count"
-    dimensions = { service = each.key }
+    name      = "JwtIssuanceHs256-${each.key}"
+    namespace = local.deployment_metric_namespace
+    value     = "1"
+    unit      = "Count"
   }
 }
 
@@ -181,11 +185,10 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_rs256_boot_failure" {
   pattern        = "?\"RS256 issuance is enabled but\" ?\"does not match the keyset entry for kid\" ?\"is not a usable SPKI public key\" ?\"Could not fetch the KMS public key\""
 
   metric_transformation {
-    name       = "JwtRs256BootFailure"
-    namespace  = local.deployment_metric_namespace
-    value      = "1"
-    unit       = "Count"
-    dimensions = { service = each.key }
+    name      = "JwtRs256BootFailure-${each.key}"
+    namespace = local.deployment_metric_namespace
+    value     = "1"
+    unit      = "Count"
   }
 }
 
@@ -195,7 +198,7 @@ resource "aws_cloudwatch_metric_alarm" "jwt_rs256_boot_failure" {
   alarm_name          = "bidride-jwt-rs256-boot-failure-${each.key}-${var.environment}"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
-  metric_name         = "JwtRs256BootFailure"
+  metric_name         = "JwtRs256BootFailure-${each.key}"
   namespace           = local.deployment_metric_namespace
   period              = 60
   statistic           = "Sum"
@@ -208,8 +211,8 @@ resource "aws_cloudwatch_metric_alarm" "jwt_rs256_boot_failure" {
     re-run the keyset population runbook before retrying.
   EOT
 
+  # The service is in the metric name, not a dimension — see the filter above.
   alarm_actions = [aws_sns_topic.alerts.arn]
-  dimensions    = { service = each.key }
 }
 
 resource "aws_cloudwatch_log_metric_filter" "kms_signing_failure" {
@@ -220,11 +223,10 @@ resource "aws_cloudwatch_log_metric_filter" "kms_signing_failure" {
   pattern        = "?\"kms:Sign returned no signature\" ?\"KMS returned an empty signature\" ?\"kms:GetPublicKey returned no key\" ?\"KMSInvalidStateException\" ?\"AccessDeniedException\""
 
   metric_transformation {
-    name       = "KmsSigningFailure"
-    namespace  = local.deployment_metric_namespace
-    value      = "1"
-    unit       = "Count"
-    dimensions = { service = each.key }
+    name      = "KmsSigningFailure-${each.key}"
+    namespace = local.deployment_metric_namespace
+    value     = "1"
+    unit      = "Count"
   }
 }
 
@@ -234,7 +236,7 @@ resource "aws_cloudwatch_metric_alarm" "kms_signing_failure" {
   alarm_name          = "bidride-kms-signing-failure-${each.key}-${var.environment}"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
-  metric_name         = "KmsSigningFailure"
+  metric_name         = "KmsSigningFailure-${each.key}"
   namespace           = local.deployment_metric_namespace
   period              = 60
   statistic           = "Sum"
@@ -247,8 +249,8 @@ resource "aws_cloudwatch_metric_alarm" "kms_signing_failure" {
     is expected during a deliberate revocation).
   EOT
 
+  # The service is in the metric name, not a dimension — see the filter above.
   alarm_actions = [aws_sns_topic.alerts.arn]
-  dimensions    = { service = each.key }
 }
 
 # ─── ECS task health (deployment failures) ───────────────────────────────────

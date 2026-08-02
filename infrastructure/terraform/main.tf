@@ -277,9 +277,13 @@ resource "aws_db_subnet_group" "main" {
 }
 
 resource "aws_db_instance" "primary" {
-  identifier        = "bidride-${var.environment}"
-  engine            = "postgres"
-  engine_version    = "15.6"
+  identifier = "bidride-${var.environment}"
+  engine     = "postgres"
+  # RDS retired 15.6; CreateDBInstance answers "Cannot find version 15.6 for
+  # postgres". 15.18 is the current latest 15.x, so this stays on the major
+  # version the schema targets and only moves the patch level.
+  # Confirm before changing: aws rds describe-db-engine-versions --engine postgres
+  engine_version    = "15.18"
   instance_class    = var.db_instance_class
   allocated_storage = var.db_allocated_storage
   storage_encrypted = true
