@@ -51,12 +51,11 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_verification_failures" {
   pattern        = "{ $.message = \"http_request\" && $.statusCode = 401 }"
 
   metric_transformation {
-    name          = "JwtVerificationFailures"
-    namespace     = local.deployment_metric_namespace
-    value         = "1"
-    default_value = "0"
-    unit          = "Count"
-    dimensions    = { service = "$.service" }
+    name       = "JwtVerificationFailures"
+    namespace  = local.deployment_metric_namespace
+    value      = "1"
+    unit       = "Count"
+    dimensions = { service = "$.service" }
   }
 }
 
@@ -71,12 +70,11 @@ resource "aws_cloudwatch_log_metric_filter" "http_requests" {
   pattern        = "{ $.message = \"http_request\" }"
 
   metric_transformation {
-    name          = "HttpRequests"
-    namespace     = local.deployment_metric_namespace
-    value         = "1"
-    default_value = "0"
-    unit          = "Count"
-    dimensions    = { service = "$.service" }
+    name       = "HttpRequests"
+    namespace  = local.deployment_metric_namespace
+    value      = "1"
+    unit       = "Count"
+    dimensions = { service = "$.service" }
   }
 }
 
@@ -146,12 +144,11 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_issuance_rs256" {
   pattern        = "\"JWT issuance algorithm: RS256\""
 
   metric_transformation {
-    name          = "JwtIssuanceRs256"
-    namespace     = local.deployment_metric_namespace
-    value         = "1"
-    default_value = "0"
-    unit          = "Count"
-    dimensions    = { service = each.key }
+    name       = "JwtIssuanceRs256"
+    namespace  = local.deployment_metric_namespace
+    value      = "1"
+    unit       = "Count"
+    dimensions = { service = each.key }
   }
 }
 
@@ -163,12 +160,11 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_issuance_hs256" {
   pattern        = "\"JWT issuance algorithm: HS256\""
 
   metric_transformation {
-    name          = "JwtIssuanceHs256"
-    namespace     = local.deployment_metric_namespace
-    value         = "1"
-    default_value = "0"
-    unit          = "Count"
-    dimensions    = { service = each.key }
+    name       = "JwtIssuanceHs256"
+    namespace  = local.deployment_metric_namespace
+    value      = "1"
+    unit       = "Count"
+    dimensions = { service = each.key }
   }
 }
 
@@ -185,12 +181,11 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_rs256_boot_failure" {
   pattern        = "?\"RS256 issuance is enabled but\" ?\"does not match the keyset entry for kid\" ?\"is not a usable SPKI public key\" ?\"Could not fetch the KMS public key\""
 
   metric_transformation {
-    name          = "JwtRs256BootFailure"
-    namespace     = local.deployment_metric_namespace
-    value         = "1"
-    default_value = "0"
-    unit          = "Count"
-    dimensions    = { service = each.key }
+    name       = "JwtRs256BootFailure"
+    namespace  = local.deployment_metric_namespace
+    value      = "1"
+    unit       = "Count"
+    dimensions = { service = each.key }
   }
 }
 
@@ -225,12 +220,11 @@ resource "aws_cloudwatch_log_metric_filter" "kms_signing_failure" {
   pattern        = "?\"kms:Sign returned no signature\" ?\"KMS returned an empty signature\" ?\"kms:GetPublicKey returned no key\" ?\"KMSInvalidStateException\" ?\"AccessDeniedException\""
 
   metric_transformation {
-    name          = "KmsSigningFailure"
-    namespace     = local.deployment_metric_namespace
-    value         = "1"
-    default_value = "0"
-    unit          = "Count"
-    dimensions    = { service = each.key }
+    name       = "KmsSigningFailure"
+    namespace  = local.deployment_metric_namespace
+    value      = "1"
+    unit       = "Count"
+    dimensions = { service = each.key }
   }
 }
 
