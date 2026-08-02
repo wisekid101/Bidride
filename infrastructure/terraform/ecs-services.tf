@@ -210,8 +210,14 @@ resource "aws_iam_role_policy" "ecs_task_admin_jwt_sign" {
 # Secrets are created as empty placeholders. Actual values are set via the
 # AWS Console or CLI post-deploy — NEVER stored in Terraform state.
 
+# google-maps-api-key lives in `shared`, not `per_service`, because more than
+# one service consumes it (rider-service and safety-service). It is delivered as
+# a SECRET rather than a plain environment variable so the key never enters
+# Terraform state or the rendered task-definition JSON — an environment entry is
+# readable by anyone holding ecs:DescribeTaskDefinition, with no Secrets Manager
+# permission required.
 resource "aws_secretsmanager_secret" "shared" {
-  for_each                = toset(["database-url", "redis-url", "jwt-secret", "internal-service-key", "jwt-public-keys"])
+  for_each                = toset(["database-url", "redis-url", "jwt-secret", "internal-service-key", "jwt-public-keys", "google-maps-api-key"])
   name                    = "bidride/${var.environment}/${each.key}"
   recovery_window_in_days = 7
 
@@ -399,7 +405,10 @@ locals {
       memory        = 512
       desired_count = 2
       alb_key       = "rider"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys"]
+      # google-maps-api-key is REQUIRED here: GeocodingService reads it with
+      # config.getOrThrow in its constructor, so a missing value is a boot
+      # failure rather than a degraded feature.
+      secrets = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "google-maps-api-key"]
     }
     pricing-service = {
       port          = 3005
@@ -415,7 +424,10 @@ locals {
       memory        = 512
       desired_count = 2
       alb_key       = "safety"
-      secrets       = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "twilio-account-sid", "twilio-auth-token", "twilio-proxy-service-sid", "internal-service-key"]
+      # google-maps-api-key is OPTIONAL here: RouteService reads it with
+      # config.get, so its absence degrades route-polyline enrichment rather
+      # than blocking startup. Supplying it closes that functional gap.
+      secrets = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "twilio-account-sid", "twilio-auth-token", "twilio-proxy-service-sid", "internal-service-key", "google-maps-api-key"]
     }
     payment-service = {
       port          = 3007
@@ -466,7 +478,11 @@ locals {
       memory        = 2048
       desired_count = 1
       alb_key       = null # VPC-internal only — not exposed through ALB
-      secrets       = ["redis-url", "internal-service-key"]
+      # database-url is required, not optional: ai-service's PrismaService calls
+      # $connect() in onModuleInit and its health checker runs SELECT 1 with
+      # required = true. It shares the @bidride/database client and schema with
+      # every other service, so this is the same database, not a second one.
+      secrets = ["database-url", "redis-url", "internal-service-key"]
     }
   }
 }
@@ -579,9 +595,12 @@ resource "aws_ecs_task_definition" "services" {
         { name = "TRUST_SERVICE_URL", value = local.service_base_urls["trust-service"] },
         { name = "AIRPORT_SERVICE_URL", value = local.service_base_urls["airport-service"] },
       ] : [],
-      each.key == "rider-service" && var.google_maps_api_key != "" ? [
-        { name = "GOOGLE_MAPS_API_KEY", value = var.google_maps_api_key }
-      ] : [],
+      # GOOGLE_MAPS_API_KEY is deliberately NOT injected here. It was previously
+      # a plain environment value sourced from a tfvar, which placed the key in
+      # Terraform state AND in the rendered task-definition JSON — readable by
+      # anyone holding ecs:DescribeTaskDefinition, with no Secrets Manager
+      # permission required. It now arrives through the secrets/valueFrom path
+      # below, from bidride/<environment>/google-maps-api-key.
       each.key == "admin-service" && var.founder_signing_public_key != "" ? [
         { name = "FOUNDER_SIGNING_PUBLIC_KEY", value = var.founder_signing_public_key }
       ] : []

@@ -60,7 +60,10 @@ log_retention_days       = 30
 founder_email = "brownmarq184@gmail.com"
 
 # ─── Google Maps ──────────────────────────────────────────────────────────────
-google_maps_api_key = "AIzaSy-REPLACE-WITH-REAL-KEY"
+# NOT a tfvar. The key is a Secrets Manager container created by Terraform:
+#   bidride/production/google-maps-api-key
+# Populate it after apply (the container is created empty), never here — a tfvar
+# would place the key in Terraform state and in the task-definition JSON.
 
 # ─── Admin / Founder JWT ──────────────────────────────────────────────────────
 # openssl genrsa -out founder_private.pem 4096

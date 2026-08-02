@@ -204,22 +204,28 @@ aws secretsmanager list-secrets \
 
 ## Google Maps API Key
 
-**Not in Secrets Manager** — configured per-service in the ECS task definition environment block.
-Add to `ecs-services.tf` → `aws_ecs_task_definition.services` → `environment`:
+**In Secrets Manager** — `bidride/<environment>/google-maps-api-key`.
 
-```terraform
-{ name = "GOOGLE_MAPS_API_KEY", value = var.google_maps_api_key }
+It used to be a tfvar rendered into the task definition's `environment` block.
+That put the key in Terraform state *and* in the task-definition JSON, where any
+principal with `ecs:DescribeTaskDefinition` could read it — no Secrets Manager
+permission needed. It is now delivered through `valueFrom` like every other
+credential, so it appears in neither.
+
+Terraform creates the container **empty**; populate it after apply:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id bidride/<environment>/google-maps-api-key \
+  --secret-string file:///path/to/key.txt   # avoids the shell history
 ```
 
-And add to `main.tf` variables:
-```terraform
-variable "google_maps_api_key" { sensitive = true }
-```
+Consumed by **rider-service** (required — `config.getOrThrow`, will not boot
+without it) and **safety-service** (optional — `config.get`, absence only
+degrades route enrichment).
 
-Then add to `env/<env>.tfvars`:
-```
-google_maps_api_key = "AIza..."
-```
+Do not add `google_maps_api_key` to any `.tfvars` file; the variable no longer
+exists.
 
 - [ ] Google Maps API key obtained (Google Cloud Console → APIs → Maps Geocoding API)
 - [ ] Billing enabled on Google Cloud project

@@ -125,10 +125,11 @@ variable "service_desired_counts" {
   type        = map(number)
   default     = {}
 }
-variable "google_maps_api_key" {
-  sensitive = true
-  default   = ""
-}
+# google_maps_api_key was REMOVED deliberately. A tfvar reaches the container as
+# a plain environment entry, which stores the key in Terraform state and in the
+# task-definition JSON. The key is now a Secrets Manager container —
+# bidride/<environment>/google-maps-api-key — consumed by rider-service and
+# safety-service through valueFrom. Do not reintroduce it as a variable.
 variable "founder_signing_public_key" {
   sensitive = false
   default   = ""

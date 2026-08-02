@@ -300,8 +300,10 @@ cp env/<env>.tfvars.example env/<env>.tfvars
 #   db_password (32+ chars, save to 1Password)
 #   acm_certificate_arn
 #   founder_email
-#   google_maps_api_key
 #   founder_signing_public_key (RSA public key for Founder JWT verification)
+# NOT google_maps_api_key — that variable no longer exists. The key is the
+# Secrets Manager container bidride/<env>/google-maps-api-key, populated after
+# apply, so it never reaches Terraform state or the task-definition JSON.
 #   jwt_signing_alg — LEAVE AS "HS256". See RS256_ROLLOUT_RUNBOOK.md.
 # env/<env>.tfvars is gitignored. Never commit it.
 
