@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HealthController } from './health.controller';
 import { ConfigModule } from '@nestjs/config';
 import { InferenceModule } from './inference/inference.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
@@ -28,7 +29,13 @@ const VERSION = process.env.npm_package_version ?? '1.0.0';
 @Module({
   // PO-1C-ii: ai-service had no health route of any kind. These add /live,
   // /ready and /metrics.
-  controllers: [ObservabilityHealthController, ObservabilityMetricsController],
+  //
+  // HealthController adds the plain /health that the ECS container health check
+  // probes (`curl -sf http://localhost:3012/health`). Without it every probe hit
+  // the /* catch-all, returned 404 every 30s, and ECS SIGTERM'd the task until
+  // the deployment circuit breaker failed the rollout — even though the service
+  // itself booted cleanly. The other services already carry this controller.
+  controllers: [HealthController, ObservabilityHealthController, ObservabilityMetricsController],
   providers: [
     PrismaService,
     { provide: OBSERVABILITY_OPTIONS, useValue: { serviceName: SERVICE_NAME, version: VERSION } },
