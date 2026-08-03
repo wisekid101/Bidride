@@ -454,13 +454,22 @@ ECS_SG=$(aws ec2 describe-security-groups \
   --filters "Name=group-name,Values=bidride-ecs-production" \
   --query 'SecurityGroups[0].GroupId' --output text)
 
-# Run migration
+# Run migration.
+#
+# Both paths MUST be absolute. The image's WORKDIR is /app/services/<service>
+# (dist has to sit beside its own node_modules for pnpm's symlinks to resolve),
+# so every path relative to /app breaks. And pnpm does not populate
+# /app/node_modules/.bin — the real prisma binary lives under the .pnpm store.
+# Verified inside the image:
+#   /app/node_modules/.pnpm/node_modules/.bin/prisma   EXISTS
+#   /app/node_modules/.bin/prisma                      MISSING
+#   /app/packages/database/prisma/schema.prisma        EXISTS
 aws ecs run-task \
   --cluster "${CLUSTER}" \
   --task-definition "${TASK_DEF}" \
   --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${ECS_SG}],assignPublicIp=DISABLED}" \
-  --overrides '{"containerOverrides":[{"name":"auth-service","command":["node","node_modules/.bin/prisma","migrate","deploy","--schema","packages/database/prisma/schema.prisma"]}]}' \
+  --overrides '{"containerOverrides":[{"name":"auth-service","command":["node","/app/node_modules/.pnpm/node_modules/.bin/prisma","migrate","deploy","--schema","/app/packages/database/prisma/schema.prisma"]}]}' \
   --region us-east-1
 
 # Monitor the task until it stops (exit code 0 = migration successful)

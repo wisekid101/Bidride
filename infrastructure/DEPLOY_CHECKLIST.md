@@ -195,9 +195,14 @@ aws ecs run-task \
   --task-definition bidride-auth-service-production \
   --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={subnets=[PRIVATE_SUBNET_ID],securityGroups=[ECS_SG_ID],assignPublicIp=DISABLED}" \
-  --overrides '{"containerOverrides":[{"name":"auth-service","command":["sh","-c","npx prisma migrate deploy"]}]}' \
+  --overrides '{"containerOverrides":[{"name":"auth-service","command":["node","/app/node_modules/.pnpm/node_modules/.bin/prisma","migrate","deploy","--schema","/app/packages/database/prisma/schema.prisma"]}]}' \
   --region us-east-1
 ```
+
+Absolute paths are required — see DEPLOYMENT_RUNBOOK.md Phase 7 for why. Do not
+use `npx`: the task runs in a private subnet with no route to the npm registry,
+and prisma is not linked into `/app/node_modules/.bin`, so npx would try to fetch
+it and hang until the task times out.
 
 - [ ] Migration applied to production RDS
 - [ ] Seed founder admin: run seed script against production DB
