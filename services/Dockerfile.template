@@ -62,13 +62,38 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nestjs
 
 # Copy built artifacts
+#
+# dist is COLOCATED with the service's own node_modules, not placed at /app/dist.
+# pnpm keeps each workspace package's dependencies under that package, so with
+# dist at /app/dist Node resolved from /app/dist/main.js → /app/dist/node_modules
+# → /app/node_modules → /node_modules and never reached
+# /app/services/<service>/node_modules. /app/node_modules holds only hoisted root
+# dev tooling, so every service died at boot with:
+#   Error: Cannot find module '@nestjs/core' — Require stack: /app/dist/main.js
+# The WORKDIR below matches this directory, and pnpm's relative symlinks
+# (../../../../node_modules/.pnpm/…) continue to resolve from here.
 ARG SERVICE_NAME
-COPY --from=builder --chown=nestjs:nodejs /app/services/${SERVICE_NAME}/dist ./dist
+COPY --from=builder --chown=nestjs:nodejs /app/services/${SERVICE_NAME}/dist ./services/${SERVICE_NAME}/dist
+# @bidride/observability is a RUNTIME dependency of all 12 services
+# (`import … from '@bidride/observability/nest'`). Each service's
+# node_modules/@bidride/observability is a pnpm symlink to
+# ../../../../packages/observability, so without this copy the link dangles and
+# the service dies with MODULE_NOT_FOUND for '@bidride/observability/nest'.
+# Its dist is prebuilt (the image never builds this package), and the whole
+# package is ~428 KB. jest-preset is deliberately NOT copied — its symlink also
+# dangles, but nothing imports it at run time, only tests.
+COPY --from=builder --chown=nestjs:nodejs /app/packages/observability ./packages/observability
 COPY --from=builder --chown=nestjs:nodejs /app/packages/database/generated ./packages/database/generated
 # Copy Prisma schema and migrations so ECS run-task migration overrides work
 COPY --from=builder --chown=nestjs:nodejs /app/packages/database/prisma ./packages/database/prisma
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/services/${SERVICE_NAME}/node_modules ./services/${SERVICE_NAME}/node_modules
+
+# Run from the service directory so `node dist/main` finds dist/ and Node's
+# resolver walks services/<service>/node_modules first, then /app/node_modules.
+# The Prisma paths above stay absolute-safe: the migration override already uses
+# /app/... explicitly, so it is unaffected by this working directory.
+WORKDIR /app/services/${SERVICE_NAME}
 
 USER nestjs
 
