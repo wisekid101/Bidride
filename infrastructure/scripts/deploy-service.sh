@@ -215,14 +215,30 @@ ok "update-service accepted ${NEW_TD_ARN}"
 # A service left at desired-count 0 goes "stable" instantly with zero tasks, and
 # the fleet check below would then fail with a misleading "no running tasks after
 # a successful rollout". Catch it here, where the cause is still obvious.
+#
+# But `--desired-count 0` is also a deliberate, load-bearing move: it registers a
+# digest-pinned revision and makes it PRIMARY *without* launching a task, so that
+# a later circuit-breaker rollback lands on a pullable image instead of the
+# `:bootstrap` tag that does not exist in ECR. Every service deployed so far used
+# it as a rollback baseline. Treating that success as a failure made the script
+# exit 1 on a run that had done exactly what was asked, so operators learned to
+# ignore its exit code — which is far more dangerous than the original problem.
+#
+# So: intentional baseline → success. Unintended zero → still a hard error.
+BASELINE_ONLY=""
 CURRENT_DESIRED=$(aws ecs describe-services \
   --cluster "${CLUSTER}" --services "${ECS_SERVICE}" --region "${AWS_REGION}" \
   --query 'services[0].desiredCount' --output text)
 if [[ "${CURRENT_DESIRED}" == "0" ]]; then
-  die "${ECS_SERVICE} has desired-count 0 — the revision is deployed but nothing will run.
+  if [[ "${DESIRED_COUNT}" == "0" ]]; then
+    BASELINE_ONLY="yes"
+    ok "baseline established at desired-count 0 — revision is PRIMARY, no task launched"
+  else
+    die "${ECS_SERVICE} has desired-count 0 — the revision is deployed but nothing will run.
      This is the expected state straight after the staging bootstrap apply.
      Re-run with --desired-count 1 once the image exists and every secret this
      service consumes has a value."
+  fi
 fi
 
 # ── 6. Write the deploy record BEFORE waiting ───────────────────────────────
@@ -245,6 +261,16 @@ jq -n \
     image:$image, imageTag:$tag, deployedAt:$at}' > "${RECORD}"
 
 ok "rollback target recorded → ${RECORD#"${REPO_ROOT}/"}"
+
+# The baseline exits here, deliberately: there is no task to wait for and no
+# fleet to verify. Note this is *after* the deploy record is written — the old
+# code died before this point, so an intentional baseline left no rollback target
+# on disk at all, which is precisely the state the record exists to prevent.
+if [[ -n "${BASELINE_ONLY}" ]]; then
+  info "no task launched (desired-count 0). Deploy for real with:"
+  echo "  $0 ${ENVIRONMENT} ${SERVICE} ${IMAGE_TAG} --desired-count 1"
+  exit 0
+fi
 
 if [[ "${NO_WAIT}" == "--no-wait" ]]; then
   warn "--no-wait: not waiting for stability, not verifying"
