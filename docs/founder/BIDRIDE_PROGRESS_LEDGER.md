@@ -17,8 +17,8 @@
 |---|---|---|
 | **Current Phase** | Foundation → Production Mobility (MBO #1–#2) | Vision Lock; git history |
 | **Current Milestone** | **Bidiride Identity Platform — Phase 1** (Founder‑approved MBO reorder). **Sub‑Batch 1** (canonical branding + production onboarding UI foundation) BUILT + validated, awaiting Founder acceptance. Sprint 1 Observability paused (GAP‑001). | this session; §8 |
-| **Current Sprint** | Identity Platform Phase 1 · **Sub‑Batch 1 complete** (branding + UI foundation) — uncommitted on `feature/production-readiness` | this session |
-| **Current Product Gap (active)** | GAP‑001 Observability rollout (4/12 services) | `@bidride/observability` in auth/notification/airport/trust |
+| **Current Sprint** | Identity Platform Phase 1 · **Sub‑Batch 1 complete** (branding + UI foundation) — still uncommitted on `feature/production-readiness`, but **backed up** to branch `feature/identity-platform-wip` (`4bfee35`, pushed) so it no longer exists in only one place | this session |
+| **Current Product Gap (active)** | GAP‑001 Observability — **code rollout COMPLETE (12/12)**; dashboards + SNS on‑call still pending | `@bidride/observability/nest` imported and its controllers registered in all 12 `app.module.ts` (verified 2026‑08‑03) |
 | **Production Readiness** | **PARTIAL** — not launch‑ready | `production-readiness.md`; gaps below |
 | **Mobile Readiness** | **FUNCTIONAL** (runs in iOS sim; not store‑published) — **production UI polish + canonical Bidiride branding + animated splash landed on entry/onboarding (SB1)** | Founder Demo; SB1 sim screenshots |
 | **Backend Readiness** | **FUNCTIONAL** (12 services; demonstrated end‑to‑end) | Founder Demo; services tree |
@@ -119,8 +119,8 @@
 *Format: ID · Title — Description | Current → Desired | Business Value | Founder Priority (via MBO) | Dependencies | Suggested Milestone | Status. Category shown in each heading.*
 
 **— Production Blockers —**
-- **GAP‑001 · Observability rollout** — shared observability in only 4/12 services; dashboards/alerting pending. **Current:** PARTIAL → **Desired:** all 12 + CloudWatch dashboards + SNS on‑call. **Value:** operability/incident response. **Priority:** MBO #1–2. **Deps:** SNS topic. **Milestone:** Sprint 1 B3+. **Status:** IN PROGRESS.
-- **GAP‑002 · Alerting/on‑call not wired** — 4 alarms exist, unrouted; no dashboards/DLQ alarm. NOT STARTED → routed. MBO #2. Sprint 1 infra. `[KNOWN GAP]`
+- **GAP‑001 · Observability rollout** — shared observability now in **12/12 services** (verified 2026‑08‑03: `@bidride/observability/nest` imported and `ObservabilityHealthController` + `ObservabilityMetricsController` registered in every `app.module.ts`). Remaining: CloudWatch dashboards + SNS on‑call routing. **Current:** code COMPLETE, routing PENDING → **Desired:** dashboards + on‑call. **Priority:** MBO #1–2. **Milestone:** Sprint 1 B3+. **Status:** IN PROGRESS (narrowed).
+- **GAP‑002 · Alerting/on‑call not wired** — **29 CloudWatch alarms now exist** (all `OK` as of 2026‑08‑03), but they remain **effectively unrouted**: the `bidride-alerts-staging` SNS topic has **zero subscribers**. `aws_sns_topic_subscription.alerts_email` is in Terraform state yet absent from AWS — the confirmation email was never clicked and AWS deletes pending email subscriptions after ~3 days. Re‑applying only helps if the link is clicked within 3 days. No dashboards/DLQ alarm. MBO #2. Sprint 1 infra. `[KNOWN GAP]`
 - **GAP‑003 · Infra hardening** — WAF absent; confirm all 12 in ECS map; conn‑pools. PARTIAL → hardened. MBO #2/#6. Sprint 2. `[KNOWN GAP]`
 - **GAP‑004 · Live third‑party credentials** — Stripe live, Twilio, FCM, FlightAware, Checkr prod, S3 = placeholders/test. TEST → LIVE. MBO #6. Live integration sprint. `[KNOWN GAP]`
 - **GAP‑006 · Mobile store launch + device SOS validation** — apps not published; SOS/panic not hardware‑validated. FUNCTIONAL(sim) → LIVE(stores). MBO #5–6. Mobile launch sprint. `[KNOWN GAP]`
