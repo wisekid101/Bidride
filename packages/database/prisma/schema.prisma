@@ -4,6 +4,15 @@
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/client"
+
+  // The service images are node:20-alpine, which is now Alpine 3.23 and ships
+  // OpenSSL 3. Prisma's plain "linux-musl" target means musl + OpenSSL 1.1, and
+  // its engines link libssl.so.1.1 — absent on Alpine 3.23. Without this list,
+  // generate fetches only "native", which resolved to linux-musl and produced
+  // engines that cannot load ("Error loading shared library libssl.so.1.1").
+  // Declaring the target explicitly makes the OpenSSL 3 engines deterministic
+  // rather than dependent on platform auto-detection.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {

@@ -8,6 +8,15 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Same reason as the runner stage: @prisma/engines decides WHICH schema engine
+# to download during `pnpm install`, using the openssl CLI to detect the version.
+# Without it here, detection defaults to openssl-1.1.x and bundles a schema
+# engine linked against libssl.so.1.1, which Alpine 3.23 does not provide —
+# `prisma migrate deploy` would then try to download the correct engine from
+# binaries.prisma.sh at run time. binaryTargets covers the query engine; this
+# covers the schema engine.
+RUN apk add --no-cache openssl
+
 # Install pnpm
 RUN npm install -g pnpm@9
 
@@ -39,7 +48,12 @@ RUN pnpm --filter @bidride/${SERVICE_NAME} build
 # ─── Stage 2: Runner ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache dumb-init curl
+# openssl supplies the CLI that @prisma/get-platform uses to detect the OpenSSL
+# version. Without it detection fails, defaults to openssl-1.1.x, and the Prisma
+# client loads the WRONG engine filename even when the OpenSSL 3 engine is
+# present. libssl3/libcrypto3 are already base-image dependencies, so this adds
+# the detection binary only, not a new cryptographic library.
+RUN apk add --no-cache dumb-init curl openssl
 
 WORKDIR /app
 
