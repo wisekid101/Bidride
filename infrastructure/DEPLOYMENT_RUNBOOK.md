@@ -345,10 +345,20 @@ plan staging against production state.
 
 State keys:
 
-| Environment | Backend key |
-|---|---|
-| staging | `staging/terraform.tfstate` |
-| production | `production/terraform.tfstate` |
+| State | Backend key | Root module | Owns |
+|---|---|---|---|
+| staging | `staging/terraform.tfstate` | `terraform/` | per-environment infrastructure |
+| production | `production/terraform.tfstate` | `terraform/` | per-environment infrastructure |
+| shared DNS | `dns/terraform.tfstate` | `terraform/dns/` | the one authoritative hosted zone |
+| shared account | `account/terraform.tfstate` | `terraform/account/` | account+region singletons (ECR registry scanning) |
+
+staging and production are the **same root module** rendered twice, differentiated
+only by `var.environment` and the backend key. Anything that exists exactly once
+per AWS account therefore cannot live there — both states would declare it and
+overwrite each other on every apply, reporting perpetual drift. That is why the
+hosted zone lives in `dns/` and registry-level ECR scanning lives in `account/`.
+
+`account/` is **not yet created** — initialising that state is a Founder gate.
 
 `production/terraform.tfstate` is byte-identical to the key that used to be
 hardcoded in `main.tf`, so initialising with the wrapper targets the **existing**
