@@ -3,18 +3,29 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from './token.service';
+import { resolveUserJwtVerification } from './user-jwt-verification';
 
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
   constructor(config: ConfigService) {
+    // B8A fail-closed: no JWT_SECRET ⇒ construction throws (the HS256 path needs it).
+    config.getOrThrow('JWT_SECRET');
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // ignoreExpiration stays true (the refresh flow proves identity from an
+      // expired access token) — the opaque refresh token itself (Redis) is unchanged.
       ignoreExpiration: true,
-      secretOrKey: config.getOrThrow('JWT_SECRET'),
-      // B8A: pin algorithm + require issuer/audience. ignoreExpiration stays true
-      // (the refresh flow proves identity from an expired access token) — the
-      // opaque refresh token itself (Redis) is unchanged.
-      algorithms: ['HS256'],
+      // B8C: resolve the key per token — HS256⇒JWT_SECRET, RS256⇒keyset PEM by kid
+      // (strict alg→key mapping; no algorithm-confusion exposure).
+      secretOrKeyProvider: (_req, rawJwt, done) => {
+        try {
+          done(null, resolveUserJwtVerification(rawJwt).verifyKey);
+        } catch (err) {
+          done(err as Error, undefined);
+        }
+      },
+      // B8A: require issuer/audience.
+      algorithms: ['HS256', 'RS256'],
       issuer: 'bidride-auth',
       audience: 'bidride-user',
     });

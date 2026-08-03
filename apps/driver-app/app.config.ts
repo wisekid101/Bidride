@@ -1,7 +1,7 @@
 import { ExpoConfig } from 'expo/config';
 
 const config: ExpoConfig = {
-  name: 'BidRide Driver',
+  name: 'Bidiride Driver',
   slug: 'bidride-driver',
   version: '1.0.0',
   orientation: 'portrait',
@@ -16,11 +16,11 @@ const config: ExpoConfig = {
     bundleIdentifier: 'com.bidride.driver',
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
-        'BidRide Driver needs your location to receive trip requests.',
+        'Bidiride Driver needs your location to receive trip requests.',
       NSLocationAlwaysAndWhenInUseUsageDescription:
-        'BidRide Driver tracks your location during active shifts for dispatch.',
+        'Bidiride Driver tracks your location during active shifts for dispatch.',
       NSMicrophoneUsageDescription:
-        'BidRide records audio only during confirmed SOS events for your safety.',
+        'Bidiride records audio only during confirmed SOS events for your safety.',
       NSPhotoLibraryUsageDescription:
         'Upload vehicle and document photos for driver verification.',
       NSCameraUsageDescription:
@@ -48,7 +48,7 @@ const config: ExpoConfig = {
       'expo-location',
       {
         locationAlwaysAndWhenInUsePermission:
-          'BidRide Driver tracks location during active shifts.',
+          'Bidiride Driver tracks location during active shifts.',
       },
     ],
     [

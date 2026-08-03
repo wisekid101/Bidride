@@ -27,11 +27,16 @@ const mockPrisma = {
   },
 } as any;
 
+// B8C: the gateway now decodes the token header to resolve its verification key
+// before calling jwt.verify, so the handshake token must carry a real HS256
+// header (the payload/signature are irrelevant — jwt.verify is mocked).
+const HS256_TOKEN = `${Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')}.e30.sig`;
+
 function makeSocket(overrides: Partial<{ data: Record<string, unknown>; handshake: unknown; id: string }> = {}) {
   return {
     id: 'socket-1',
     data: {},
-    handshake: { auth: { token: 'valid-token' } },
+    handshake: { auth: { token: HS256_TOKEN } },
     join: jest.fn(),
     emit: jest.fn(),
     disconnect: jest.fn(),
@@ -43,6 +48,8 @@ let gateway: WebSocketEventGateway;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.JWT_SECRET = 'ws-gateway-test-secret'; // B8C resolver needs it for the HS256 path
+
   // Reset subscriber mock so duplicate() always returns a fresh stub
   mockRedis.duplicate.mockReturnValue({
     subscribe: jest.fn(),

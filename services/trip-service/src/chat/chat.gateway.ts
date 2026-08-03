@@ -12,6 +12,7 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { Logger } from '@nestjs/common';
 import { ChatService, QUICK_REPLIES } from './chat.service';
+import { resolveUserJwtVerification } from '../user-jwt-verification';
 
 interface JwtPayload {
   sub: string;
@@ -45,9 +46,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     try {
-      // B8A: pin algorithm + require issuer/audience so only bidride-user tokens pass.
+      // B8A: require issuer/audience so only bidride-user tokens pass.
+      // B8C: resolve the key per token — HS256⇒JWT_SECRET, RS256⇒keyset PEM by kid.
+      const { verifyKey, algorithm } = resolveUserJwtVerification(token);
       const payload = this.jwt.verify<JwtPayload>(token, {
-        algorithms: ['HS256'],
+        secret: verifyKey,
+        algorithms: [algorithm],
         issuer: 'bidride-auth',
         audience: 'bidride-user',
       });

@@ -120,12 +120,16 @@ In Terminal, go to the infrastructure/terraform folder:
 cd infrastructure/terraform
 ```
 
-Copy the example file:
+Copy the example file for the environment you are deploying:
 ```
-cp terraform.tfvars.example terraform.tfvars
+cp env/production.tfvars.example env/production.tfvars
 ```
 
-Open `terraform.tfvars` in a text editor (TextEdit, VS Code, etc.).
+Open `env/production.tfvars` in a text editor (TextEdit, VS Code, etc.).
+
+> Each environment has its own file — `env/production.tfvars` and
+> `env/staging.tfvars` — so staging and production can never be confused for
+> each other. Both are ignored by git and must never be committed.
 
 Fill in these values:
 
@@ -141,6 +145,7 @@ Fill in these values:
 | `cache_node_type` | `cache.t4g.micro` | Use this for internal alpha (saves money) |
 | `google_maps_api_key` | Your Google Maps key | Google Cloud Console |
 | `founder_signing_public_key` | Your RSA public key | See note below |
+| `jwt_signing_alg` | `HS256` | **Leave as-is.** Changing this to `RS256` is a separate, staged rollout — see `infrastructure/RS256_ROLLOUT_RUNBOOK.md`. Never flip it during a first deploy. |
 
 **Important — Founder signing key:** This is a security key that only you control. Generate it once:
 ```bash
@@ -151,29 +156,38 @@ cat founder_public.pem
 Copy the contents of `founder_public.pem` into the `founder_signing_public_key` field (including the BEGIN/END lines).
 Store `founder_private.pem` somewhere safe — never upload it anywhere.
 
-- [ ] `terraform.tfvars` filled out and saved
+- [ ] `env/production.tfvars` filled out and saved
 
 ---
 
 ## Part 3 — Create AWS Infrastructure
 
+Run these from the **repository root**, not the terraform folder:
+```
+cd "$(git rev-parse --show-toplevel)"
+```
+
 ### Step 3.1 — Initialize Terraform
 
 ```
-terraform init
+infrastructure/scripts/tf.sh production init
 ```
 
 Should say "Terraform has been successfully initialized!"
+
+The `production` word is required and is what selects the production settings
+and the production state file. There is no way to run this without saying which
+environment you mean.
 
 - [ ] Done
 
 ### Step 3.2 — Preview what will be created
 
 ```
-terraform plan -out=bidride.tfplan
+infrastructure/scripts/tf.sh production plan
 ```
 
-This lists everything Terraform will create. It should say something like "Plan: ~206 to add, 0 to change, 0 to destroy."
+This lists everything Terraform will create. It should say something like "Plan: ~230 to add, 0 to change, 0 to destroy."
 
 Read through it. If anything says "destroy" that you didn't expect, stop and call your engineer.
 
@@ -188,10 +202,18 @@ The figure $185 in earlier docs was incorrect — see cost note at the bottom of
 ⚠️ **This costs real money. Make sure your AWS billing is set up.**
 
 ```
-terraform apply bidride.tfplan
+infrastructure/scripts/tf.sh production apply
 ```
 
 This takes 15-25 minutes. Don't close Terminal.
+
+> **This creates the infrastructure but does not start your code running.**
+> Starting the services is Part 7. That separation is deliberate — see the note
+> there.
+
+**One thing you must do by hand afterwards:** AWS will email you asking to
+confirm the alert subscription. **Click the link in that email.** Until you do,
+none of the monitoring alarms can reach you.
 
 When it finishes, it shows "Outputs:" — save these somewhere safe (1Password):
 - `rds_endpoint` — your database address
@@ -224,7 +246,7 @@ Now you need to put your API keys into AWS Secrets Manager.
 Run each command below, replacing `VALUE` with the actual key.
 
 ```bash
-# Your database URL (fill in your RDS endpoint and db_password from terraform.tfvars)
+# Your database URL (fill in your RDS endpoint and db_password from env/production.tfvars)
 aws secretsmanager put-secret-value \
   --secret-id bidride/production/database-url \
   --secret-string "postgresql://bidride_admin:YOUR_DB_PASSWORD@YOUR_RDS_ENDPOINT:5432/bidride"
@@ -417,25 +439,23 @@ DATABASE_URL="postgresql://bidride_admin:YOUR_PASSWORD@YOUR_RDS_ENDPOINT:5432/bi
 
 ## Part 7 — Start the Services
 
+One command. It starts services in the correct order — safety first, token
+issuers last — and checks each one before moving to the next.
+
 ```bash
-CLUSTER="bidride-production"
-
-# Start safety first (most important)
-aws ecs update-service --cluster ${CLUSTER} \
-  --service bidride-safety-service-production --desired-count 1 --force-new-deployment
-sleep 30
-
-# Start all other services
-for svc in auth-service trip-service driver-service rider-service pricing-service \
-           payment-service notification-service trust-service airport-service \
-           admin-service ai-service; do
-  aws ecs update-service --cluster ${CLUSTER} \
-    --service bidride-${svc}-production --force-new-deployment
-  echo "✓ Started ${svc}"
-done
-
-echo "Waiting for services to start (5-15 minutes)..."
+# <sha> is the git commit that was built in Part 5.
+infrastructure/scripts/deploy-fleet.sh production <sha>
 ```
+
+This takes 15–40 minutes. It prints progress per service and stops immediately
+if anything is wrong, telling you exactly what to run to undo it.
+
+> **Why not the old loop?** The previous version of this checklist used
+> `aws ecs update-service --force-new-deployment`, which restarts a service on
+> the task definition it is *already* using. It cannot pick up new settings or
+> new secrets, and it reports success either way. The script above deploys a
+> specific, named version instead — and refuses to say "done" until it has
+> confirmed that version is the one actually running.
 
 Check the admin portal to watch services come up:
 https://console.aws.amazon.com/ecs/v2/clusters/bidride-production/services
@@ -474,8 +494,9 @@ Log in with marq@bidiride.com and the password set during seeding.
 - [ ] Write down the database password and store it in 1Password (not in a file)
 - [ ] Store `founder_private.pem` securely offline — this controls the earnings floor formula
 - [ ] Delete `founder_private.pem` from your computer after backing it up
-- [ ] Enable CloudWatch alarms notification email (AWS Console → CloudWatch → Alarms → each alarm → Actions → Add notification)
-- [ ] Confirm `bidride/production/terraform.tfvars` is NOT committed to git: `git status` should not show it
+- [ ] Confirm the CloudWatch alert email subscription (Terraform creates it; AWS emails you a confirmation link that must be clicked). Verify with:
+      `bash infrastructure/scripts/verify-deployment.sh production all` — section 7 must pass
+- [ ] Confirm `infrastructure/terraform/env/production.tfvars` is NOT committed to git: `git status` should not show it
 
 ---
 
@@ -492,5 +513,5 @@ BidiRide is running on AWS. For day-to-day operations, see `docs/OPERATIONS_RUNB
 **Cost reminder:** Running at internal alpha sizing costs ~$500/month.
 Primary drivers: 18 Fargate task instances ($225), 3 HA NAT Gateways ($99), RDS Multi-AZ + 2 replicas ($107).
 To reduce alpha cost, consider reducing desired_count to 1 for all services (~$72 savings) or using
-single_nat_gateway=true in terraform.tfvars (~$66 savings) — discuss with your engineer before changing.
+single_nat_gateway=true in env/production.tfvars (~$66 savings) — discuss with your engineer before changing.
 Scale up to production sizing (`db.r6g.large`, `cache.r6g.large`) when you have consistent traffic.

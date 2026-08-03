@@ -1,11 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
+import { BrandSplash } from '../src/components/ui/BrandSplash';
 import { useAuthStore } from '../src/store/auth.store';
 import { useSocketStore } from '../src/store/socket.store';
 import { useTripStore } from '../src/store/trip.store';
@@ -109,6 +110,10 @@ Notifications.setNotificationHandler({
 
 export default function RootLayout() {
   const { loadTokens, isAuthenticated } = useAuthStore();
+  // Branded animated splash: it covers the app until session hydration settles,
+  // then fades. `hydrated` gates the fade so Home never flashes mid-restore.
+  const [hydrated, setHydrated] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   const [fontsLoaded] = useFonts({
     'Inter-Regular': require('../assets/fonts/Inter-Regular.ttf'),
@@ -132,7 +137,7 @@ export default function RootLayout() {
         await restoreActiveTrip();
       }
       return SplashScreen.hideAsync();
-    }).catch(() => SplashScreen.hideAsync());
+    }).catch(() => SplashScreen.hideAsync()).finally(() => setHydrated(true));
   }, []);
 
   useEffect(() => {
@@ -184,6 +189,7 @@ export default function RootLayout() {
   } as const;
 
   return (
+    <View style={{ flex: 1 }}>
     <StripeProvider publishableKey={stripeKey} merchantIdentifier="merchant.com.bidride.rider" urlScheme="bidride-rider">
       <StatusBar style="light" backgroundColor="#0A2342" />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
@@ -205,5 +211,9 @@ export default function RootLayout() {
         <Stack.Screen name="signup/permissions" options={{ animation: 'slide_from_right', gestureEnabled: false }} />
       </Stack>
     </StripeProvider>
+      {showSplash && (
+        <BrandSplash ready={hydrated} onFinish={() => setShowSplash(false)} />
+      )}
+    </View>
   );
 }

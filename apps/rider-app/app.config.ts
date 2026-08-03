@@ -1,7 +1,7 @@
 import { ExpoConfig } from 'expo/config';
 
 const config: ExpoConfig = {
-  name: 'BidRide',
+  name: 'Bidiride',
   slug: 'bidride-rider',
   version: '1.0.0',
   orientation: 'portrait',
@@ -16,11 +16,11 @@ const config: ExpoConfig = {
     bundleIdentifier: 'com.bidride.rider',
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
-        'BidRide needs your location to show nearby drivers and calculate pickup.',
+        'Bidiride needs your location to show nearby drivers and calculate pickup.',
       NSLocationAlwaysAndWhenInUseUsageDescription:
-        'BidRide uses your location during active trips.',
+        'Bidiride uses your location during active trips.',
       NSMicrophoneUsageDescription:
-        'BidRide records audio only during confirmed SOS events for your safety.',
+        'Bidiride records audio only during confirmed SOS events for your safety.',
     },
   },
   android: {
@@ -42,7 +42,7 @@ const config: ExpoConfig = {
       'expo-location',
       {
         locationAlwaysAndWhenInUsePermission:
-          'BidRide uses your location during active trips.',
+          'Bidiride uses your location during active trips.',
       },
     ],
     [

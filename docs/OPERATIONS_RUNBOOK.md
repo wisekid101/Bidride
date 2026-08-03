@@ -279,11 +279,14 @@ aws ecs describe-services \
   --services bidride-ai-service-production \
   --query 'services[0].{Running:runningCount,Desired:desiredCount}'
 
-# Restart if down
+# Restart if down — on its CURRENT revision. This is a restart, not a deploy.
+CURRENT=$(aws ecs describe-services --cluster bidride-production \
+  --services bidride-ai-service-production \
+  --query 'services[0].taskDefinition' --output text)
 aws ecs update-service \
   --cluster bidride-production \
   --service bidride-ai-service-production \
-  --force-new-deployment
+  --task-definition "$CURRENT"
 ```
 
 ### Impact Assessment
@@ -368,12 +371,17 @@ aws secretsmanager put-secret-value \
   --secret-id bidride/production/database-url \
   --secret-string "postgresql://bidride_admin:PASSWORD@NEW_ENDPOINT:5432/bidride"
 
-# Force ECS service restarts to pick up new DATABASE_URL
+# Restart each service ON ITS CURRENT REVISION to re-resolve the secret VALUE.
+# The task definition already references database-url and is unchanged, so this
+# is a restart, not a deployment — it will not pick up any task-definition change.
 for svc in auth-service trip-service driver-service rider-service pricing-service \
            safety-service payment-service notification-service trust-service \
            airport-service admin-service; do
+  CURRENT=$(aws ecs describe-services --cluster bidride-production \
+    --services "bidride-${svc}-production" \
+    --query 'services[0].taskDefinition' --output text)
   aws ecs update-service --cluster bidride-production \
-    --service bidride-${svc}-production --force-new-deployment
+    --service "bidride-${svc}-production" --task-definition "$CURRENT"
 done
 ```
 
@@ -454,9 +462,23 @@ Is the issue UI-only (no backend impact)?
 
 ### How to Rollback
 
-See `infrastructure/DEPLOYMENT_RUNBOOK.md → Rollback Procedure`.
+```bash
+bash infrastructure/scripts/rollback-service.sh <env> <service>
+```
 
-For quick rollback (< 5 min), revert the ECS task definition to the previous revision.
+It rolls back to the **exact** task-definition ARN recorded before the deploy —
+found in `infrastructure/deploy-records/<env>/<service>.json`, or in the CI run's
+`deploy-records-<env>-<sha>` artifact. There is also a `workflow_dispatch`
+rollback: **Actions → BidRide Rollback**.
+
+Never compute the target as "current revision minus one". Under
+`ignore_changes = [task_definition]` the service's pinned revision lags the
+family's latest, so the arithmetic lands an unpredictable number of generations
+back. See `infrastructure/DEPLOYMENT_RUNBOOK.md → Rollback Procedure`.
+
+Because deployed revisions are pinned to an image **digest**, rolling back to an
+ARN restores the exact bytes that were running — configuration *and* code.
+
 For schema rollback: requires RDS point-in-time restore — involves downtime. Decide carefully.
 
 ---

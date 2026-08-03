@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { resolveUserJwtVerification } from '../user-jwt-verification';
 
 export interface SafetyJwtPayload {
   sub: string;
@@ -26,9 +27,12 @@ export class SafetyJwtGuard implements CanActivate {
     const token = header && header.startsWith('Bearer ') ? header.slice(7) : null;
     if (!token) throw new UnauthorizedException('Missing bearer token.');
     try {
-      // B8A: pin algorithm + require issuer/audience so only bidride-user tokens pass.
+      // B8A: require issuer/audience so only bidride-user tokens pass.
+      // B8C: resolve the key per token — HS256⇒JWT_SECRET, RS256⇒keyset PEM by kid.
+      const { verifyKey, algorithm } = resolveUserJwtVerification(token);
       const payload = this.jwt.verify<SafetyJwtPayload>(token, {
-        algorithms: ['HS256'],
+        secret: verifyKey,
+        algorithms: [algorithm],
         issuer: 'bidride-auth',
         audience: 'bidride-user',
       });

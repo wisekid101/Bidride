@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Stack, usePathname, router } from 'expo-router';
 import { api } from '../../src/api/client';
-import {
-  resolveDriverRoute,
-  onboardingStepIndex,
-} from '../../src/utils/onboardingRoute';
+import { displayStepIndex, fetchHasVehicle, resolveOnboardingRoute } from '../../src/utils/onboardingPlan';
 
 export default function OnboardingLayout() {
   const pathname = usePathname();
@@ -12,22 +9,34 @@ export default function OnboardingLayout() {
 
   // Refetch on every navigation; null the gate while stale so a legitimate
   // forward step (screen advanced right after a successful submit) is never
-  // bounced by an outdated snapshot.
+  // bounced by an outdated snapshot. The allowed step is derived from the
+  // VISIBLE order (onboardingPlan) so Vehicle-before-Documents isn't bounced.
   useEffect(() => {
     let cancelled = false;
     setAllowedRoute(null);
-    api
-      .get<{ status: string; onboardingStep: string }>('/drivers/me')
-      .then((me) => { if (!cancelled) setAllowedRoute(resolveDriverRoute(me)); })
-      .catch(() => {});
+    (async () => {
+      try {
+        const me = await api.get<{ status: string; onboardingStep: string }>('/drivers/me');
+        const hasVehicle = await fetchHasVehicle(api.get);
+        if (!cancelled) setAllowedRoute(resolveOnboardingRoute(me, hasVehicle));
+      } catch { /* ignore — auth/token flows handle failures */ }
+    })();
     return () => { cancelled = true; };
   }, [pathname]);
 
-  // No skipping ahead: deep links / stale navigation past the server-side
-  // current step get bounced back to it. Revisiting earlier steps is allowed.
+  // Keep the driver on the right screen. Two cases:
+  //  1. An approved / non-onboarding driver stranded in the onboarding group
+  //     (e.g. a flaky resume dropped them here) is routed OUT — never trapped
+  //     on the Welcome screen with no way forward.
+  //  2. No skipping ahead in the VISIBLE order: deep links / stale navigation
+  //     past the current step get bounced back. Revisiting earlier steps is OK.
   useEffect(() => {
-    if (!allowedRoute || !allowedRoute.startsWith('/onboarding')) return;
-    if (onboardingStepIndex(pathname) > onboardingStepIndex(allowedRoute)) {
+    if (!allowedRoute) return;
+    if (!allowedRoute.startsWith('/onboarding')) {
+      router.replace(allowedRoute as never);
+      return;
+    }
+    if (displayStepIndex(pathname) > displayStepIndex(allowedRoute)) {
       router.replace(allowedRoute as never);
     }
   }, [allowedRoute, pathname]);

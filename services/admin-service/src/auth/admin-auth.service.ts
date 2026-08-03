@@ -1,5 +1,7 @@
 import {
+  Inject,
   Injectable,
+  Optional,
   UnauthorizedException,
   Logger,
 } from '@nestjs/common';
@@ -8,6 +10,9 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { resolveAdminJwtVerification } from '../admin-jwt-verification';
+import { KmsJwtSigner } from './kms-jwt-signer';
+import { ADMIN_JWT_RSA_SIGNER } from './jwt-signer.provider';
 
 export interface AdminTokenPayload {
   sub: string;
@@ -26,6 +31,9 @@ export class AdminAuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    // SEC-RS256-B2: present ONLY when JWT_SIGNING_ALG=RS256. Optional so the
+    // default deployment resolves without it and keeps signing HS256 as before.
+    @Optional() @Inject(ADMIN_JWT_RSA_SIGNER) private readonly rsaSigner?: KmsJwtSigner,
   ) {}
 
   async login(email: string, password: string, ipAddress?: string) {
@@ -43,10 +51,22 @@ export class AdminAuthService {
     const ttl = parseInt(this.config.get('ADMIN_SESSION_TTL_SECONDS', '28800'));
     // B8A: admin session tokens carry the dedicated admin audience so they are
     // NEVER accepted by user-facing services (which require 'bidride-user').
-    const token = this.jwt.sign(
-      { sub: admin.id, email: admin.email, role: admin.adminRole },
-      { expiresIn: ttl, issuer: 'bidride-auth', audience: 'bidride-admin' },
-    );
+    // SEC-RS256-B2: when an RS256 signer is configured the same claims are signed
+    // in KMS with the ADMIN key instead — identical payload, issuer, audience and
+    // TTL, plus a header kid. KMS failures propagate; no HS256 fallback, because a
+    // failure-induced algorithm downgrade would be an attack primitive.
+    const claims = { sub: admin.id, email: admin.email, role: admin.adminRole };
+    const token = this.rsaSigner
+      ? await this.rsaSigner.sign(claims, {
+          issuer: 'bidride-auth',
+          audience: 'bidride-admin',
+          expiresInSeconds: ttl,
+        })
+      : this.jwt.sign(claims, {
+          expiresIn: ttl,
+          issuer: 'bidride-auth',
+          audience: 'bidride-admin',
+        });
 
     await Promise.all([
       this.prisma.adminUser.update({
@@ -87,10 +107,16 @@ export class AdminAuthService {
   }
 
   verifyToken(token: string): AdminTokenPayload {
-    // B8A: pin algorithm + require the admin issuer/audience so a user token can
-    // never be replayed as an admin session.
+    // B8A: require the admin issuer/audience so a user token can never be
+    // replayed as an admin session.
+    // SEC-RS256-B1: resolve the key per token from the ADMIN trust domain —
+    // HS256⇒ADMIN_JWT_SECRET/JWT_SECRET, RS256⇒JWT_ADMIN_PUBLIC_KEYS PEM by kid.
+    // The admin keyset is deliberately separate from JWT_PUBLIC_KEYS, so a
+    // user-domain key can never authenticate an admin session.
+    const { verifyKey, algorithm } = resolveAdminJwtVerification(token);
     return this.jwt.verify<AdminTokenPayload>(token, {
-      algorithms: ['HS256'],
+      secret: verifyKey,
+      algorithms: [algorithm],
       issuer: 'bidride-auth',
       audience: 'bidride-admin',
     });

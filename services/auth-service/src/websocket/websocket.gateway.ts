@@ -13,6 +13,7 @@ import { Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { JwtPayload } from '../auth/token.service';
+import { resolveUserJwtVerification } from '../auth/user-jwt-verification';
 import { PrismaService } from '../prisma/prisma.service';
 
 const DRIVER_SESSION_TTL_SEC = 86400; // 24h max session key lifetime
@@ -65,10 +66,13 @@ export class WebSocketEventGateway implements OnGatewayConnection, OnGatewayDisc
     }
 
     try {
-      // B8A: pin algorithm + require issuer/audience. Both user tokens and the
-      // admin WS token carry the 'bidride-user' audience for this gateway.
+      // B8A: require issuer/audience. Both user tokens and the admin WS token
+      // carry the 'bidride-user' audience for this gateway.
+      // B8C: resolve the key per token — HS256⇒JWT_SECRET, RS256⇒keyset PEM by kid.
+      const { verifyKey, algorithm } = resolveUserJwtVerification(token);
       const payload = this.jwt.verify<JwtPayload>(token, {
-        algorithms: ['HS256'],
+        secret: verifyKey,
+        algorithms: [algorithm],
         issuer: 'bidride-auth',
         audience: 'bidride-user',
       });

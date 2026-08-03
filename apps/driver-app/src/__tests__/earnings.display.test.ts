@@ -1,5 +1,5 @@
 /**
- * Enforces BidRide business rules:
+ * Enforces Bidiride business rules:
  * - Driver take-home shown first and prominently
  * - Accept button includes take-home amount (not AI fare)
  * - No numerical trust score exposed to driver

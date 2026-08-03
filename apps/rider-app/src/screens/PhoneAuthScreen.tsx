@@ -1,19 +1,22 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
-  Alert,
   SafeAreaView,
+  TouchableOpacity,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Colors, Typography, Spacing, Radius } from '../constants/theme';
+import { Colors, Fonts, Typography, Spacing } from '../constants/theme';
 import { ScreenHeader } from '../components/ui/ScreenHeader';
+import { BrandMark } from '../components/ui/BrandMark';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { OtpInput } from '../components/ui/OtpInput';
+import { InlineBanner } from '../components/ui/Feedback';
 import { api } from '../api/client';
 import { useAuthStore } from '../store/auth.store';
 import { useSocketStore } from '../store/socket.store';
@@ -30,58 +33,64 @@ export function PhoneAuthScreen() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [resendCountdown, setResendCountdown] = useState(0);
   const otpRef = useRef<TextInput>(null);
 
   const formatPhone = (raw: string): string => {
-    const digits = raw.replace(/\D/g, '');
-    if (digits.length <= 3) return `(${digits}`;
-    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+    const d = raw.replace(/\D/g, '');
+    if (d.length <= 3) return `(${d}`;
+    if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}`;
   };
 
-  const e164Phone = `+1${phone.replace(/\D/g, '')}`;
+  const digits = phone.replace(/\D/g, '');
+  const phoneValid = digits.length === 10;
+  const e164Phone = `+1${digits}`;
+
+  const startResendTimer = () => {
+    setResendCountdown(30);
+    const interval = setInterval(() => {
+      setResendCountdown((c) => {
+        if (c <= 1) { clearInterval(interval); return 0; }
+        return c - 1;
+      });
+    }, 1000);
+  };
 
   const sendOtp = async () => {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length < 10) {
-      Alert.alert('Invalid number', 'Please enter a valid US phone number.');
+    if (!phoneValid) {
+      setError('Please enter a valid 10-digit US phone number.');
       return;
     }
-
+    setError(null);
     setLoading(true);
     try {
       await api.post('/auth/send-otp', { phone: e164Phone, role: 'rider' });
       setPhase('otp');
       setTimeout(() => otpRef.current?.focus(), 300);
-      setResendCountdown(30);
-      const interval = setInterval(() => {
-        setResendCountdown((c) => {
-          if (c <= 1) { clearInterval(interval); return 0; }
-          return c - 1;
-        });
-      }, 1000);
+      startResendTimer();
     } catch (err: any) {
       if (err.code === 'AUTH_OTP_RATE_LIMITED') {
-        Alert.alert('Too many attempts', 'Please wait 10 minutes before requesting a new code.');
+        setError('Too many attempts. Please wait 10 minutes before requesting a new code.');
       } else {
-        Alert.alert('Error', 'Could not send verification code. Try again.');
+        setError('Could not send your verification code. Please try again.');
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const verifyOtp = async () => {
-    if (otp.length < 6) return;
-
+  const verifyOtp = async (code = otp) => {
+    if (code.length < 6) return;
+    setError(null);
     setLoading(true);
     try {
       const result = await api.post<{
         access_token: string;
         refresh_token: string;
         user: { id: string; role: string; isNew: boolean };
-      }>('/auth/verify-otp', { phone: e164Phone, code: otp, role: 'rider' });
+      }>('/auth/verify-otp', { phone: e164Phone, code, role: 'rider' });
 
       await setTokens(result.access_token, result.refresh_token, result.user.id);
       useSocketStore.getState().connect(result.access_token);
@@ -104,10 +113,10 @@ export function PhoneAuthScreen() {
       }
     } catch (err: any) {
       if (err.code === 'AUTH_INVALID_OTP') {
-        Alert.alert('Incorrect code', 'The code you entered is invalid or expired.');
+        setError('That code is invalid or expired. Please try again.');
         setOtp('');
       } else {
-        Alert.alert('Error', 'Verification failed. Try again.');
+        setError('Verification failed. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -123,92 +132,95 @@ export function PhoneAuthScreen() {
         <ScreenHeader />
       </SafeAreaView>
       <View style={styles.inner}>
-        {/* Logo */}
-        <Text style={styles.logo}>BidiRide</Text>
-        <Text style={styles.appLabel}>{isSignup ? 'Create your account' : 'Welcome back'}</Text>
-        <Text style={styles.tagline}>AI-powered rides. Fair prices. Fast.</Text>
+        <BrandMark layout="horizontal" size="sm" style={styles.brand} />
+        <Text style={styles.title}>
+          {phase === 'phone'
+            ? isSignup ? 'Create your account' : 'Welcome back'
+            : 'Enter your code'}
+        </Text>
+        <Text style={styles.subtitle}>
+          {phase === 'phone'
+            ? 'AI-powered rides. Fair prices. Fast.'
+            : `We sent a 6-digit code to ${phone}`}
+        </Text>
+
+        {error && <InlineBanner variant="error" message={error} style={styles.banner} />}
 
         {phase === 'phone' && (
           <>
-            <Text style={styles.label}>Enter your phone number</Text>
-            <View style={styles.phoneRow}>
-              <Text style={styles.countryCode}>+1</Text>
-              <TextInput
-                style={styles.phoneInput}
-                value={phone}
-                onChangeText={(t) => setPhone(formatPhone(t))}
-                placeholder="(201) 555-0100"
-                placeholderTextColor={Colors.textSecondary}
-                keyboardType="phone-pad"
-                maxLength={14}
-                autoFocus
-              />
-            </View>
+            <Input
+              label="Phone number"
+              icon="call-outline"
+              prefix="+1"
+              value={phone}
+              onChangeText={(t) => { setPhone(formatPhone(t)); if (error) setError(null); }}
+              placeholder="(201) 555-0100"
+              keyboardType="phone-pad"
+              maxLength={14}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={sendOtp}
+              helper="We'll text you a verification code. Standard rates may apply."
+            />
             <Text style={styles.disclaimer}>
               By continuing you agree to our Terms of Service and Privacy Policy.
-              We'll send a verification code.
             </Text>
             {__DEV__ && (
-              <Text style={styles.devNote}>
-                DEV MODE — Code appears in the auth-service terminal log. No SMS is sent.
-              </Text>
+              <View style={styles.devNote}>
+                <Text style={styles.devNoteText}>
+                  DEV MODE — the code prints in the auth-service terminal log. No SMS is sent.
+                </Text>
+              </View>
             )}
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
+            <Button
+              title="Continue"
               onPress={sendOtp}
-              disabled={loading || phone.replace(/\D/g, '').length < 10}
-            >
-              {loading ? (
-                <ActivityIndicator color={Colors.primaryText} />
-              ) : (
-                <Text style={styles.buttonText}>Continue</Text>
-              )}
-            </TouchableOpacity>
+              loading={loading}
+              disabled={!phoneValid}
+              icon="arrow-forward"
+              iconPosition="right"
+              style={styles.cta}
+            />
           </>
         )}
 
         {phase === 'otp' && (
           <>
-            <Text style={styles.label}>Enter verification code</Text>
-            <Text style={styles.sublabel}>
-              Sent to {phone}
-            </Text>
-            <TextInput
+            <OtpInput
               ref={otpRef}
-              style={styles.otpInput}
               value={otp}
-              onChangeText={(t) => {
-                const digits = t.replace(/\D/g, '').slice(0, 6);
-                setOtp(digits);
-                if (digits.length === 6) verifyOtp();
-              }}
-              placeholder="000000"
-              placeholderTextColor={Colors.textSecondary}
-              keyboardType="number-pad"
-              maxLength={6}
+              error={!!error}
               autoFocus
-              textContentType="oneTimeCode"
+              onChangeText={(v) => {
+                setOtp(v);
+                if (error) setError(null);
+                if (v.length === 6) verifyOtp(v);
+              }}
             />
-            <TouchableOpacity
-              style={[styles.button, (loading || otp.length < 6) && styles.buttonDisabled]}
-              onPress={verifyOtp}
-              disabled={loading || otp.length < 6}
-            >
-              {loading ? (
-                <ActivityIndicator color={Colors.primaryText} />
-              ) : (
-                <Text style={styles.buttonText}>Verify</Text>
-              )}
-            </TouchableOpacity>
+            <Button
+              title="Verify"
+              onPress={() => verifyOtp()}
+              loading={loading}
+              disabled={otp.length < 6}
+              style={styles.cta}
+            />
             <View style={styles.resendRow}>
-              <TouchableOpacity onPress={resendCountdown > 0 ? undefined : sendOtp} disabled={resendCountdown > 0}>
+              <TouchableOpacity
+                onPress={resendCountdown > 0 ? undefined : sendOtp}
+                disabled={resendCountdown > 0}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: resendCountdown > 0 }}
+              >
                 <Text style={[styles.resendText, resendCountdown > 0 && styles.resendDisabled]}>
                   {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend code'}
                 </Text>
               </TouchableOpacity>
               <Text style={styles.resendSep}> · </Text>
-              <TouchableOpacity onPress={() => { setPhase('phone'); setOtp(''); }}>
-                <Text style={styles.resendText}>Change number</Text>
+              <TouchableOpacity
+                onPress={() => { setPhase('phone'); setOtp(''); setError(null); }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.resendLink}>Change number</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -221,108 +233,43 @@ export function PhoneAuthScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   inner: { flex: 1, padding: Spacing['2xl'], justifyContent: 'center' },
-  logo: {
-    color: Colors.primary,
-    fontSize: 36,
-    fontWeight: Typography.weight.extrabold,
-    letterSpacing: -1,
+  brand: { marginBottom: Spacing.xl },
+  title: {
+    color: Colors.text,
+    fontSize: Typography.size['2xl'],
+    fontFamily: Fonts.sansExtraBold,
+    letterSpacing: -0.5,
     marginBottom: Spacing.xs,
   },
-  appLabel: {
-    color: Colors.primary,
-    fontSize: Typography.size.sm,
-    fontWeight: Typography.weight.semibold,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginBottom: Spacing.xs,
-  },
-  tagline: {
+  subtitle: {
     color: Colors.textSecondary,
     fontSize: Typography.size.base,
-    marginBottom: Spacing['3xl'],
+    fontFamily: Fonts.sans,
+    marginBottom: Spacing.xl,
+    lineHeight: 21,
+  },
+  banner: { marginBottom: Spacing.lg },
+  disclaimer: {
+    color: Colors.textTertiary,
+    fontSize: Typography.size.xs,
+    fontFamily: Fonts.sans,
+    lineHeight: 17,
+    marginBottom: Spacing.md,
   },
   devNote: {
-    color: Colors.gold,
-    fontSize: Typography.size.xs,
-    lineHeight: 16,
-    marginBottom: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.gold + '50',
-    borderRadius: Radius.sm,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  label: {
-    color: Colors.text,
-    fontSize: Typography.size.xl,
-    fontWeight: Typography.weight.bold,
+    backgroundColor: Colors.gold + '14',
+    borderRadius: 8,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
     marginBottom: Spacing.md,
   },
-  sublabel: {
-    color: Colors.textSecondary,
-    fontSize: Typography.size.base,
-    marginBottom: Spacing.xl,
-  },
-  phoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: Spacing.md,
-    overflow: 'hidden',
-  },
-  countryCode: {
-    color: Colors.text,
-    fontSize: Typography.size.md,
-    fontWeight: Typography.weight.medium,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 16,
-    borderRightWidth: 1,
-    borderRightColor: Colors.border,
-  },
-  phoneInput: {
-    flex: 1,
-    color: Colors.text,
-    fontSize: Typography.size.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 16,
-  },
-  disclaimer: {
-    color: Colors.textDisabled,
-    fontSize: Typography.size.xs,
-    lineHeight: 18,
-    marginBottom: Spacing.xl,
-  },
-  otpInput: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    color: Colors.text,
-    fontSize: 32,
-    fontWeight: Typography.weight.bold,
-    textAlign: 'center',
-    letterSpacing: 12,
-    paddingVertical: Spacing.base,
-    marginBottom: Spacing.xl,
-    fontFamily: Typography.fontFamilyMono,
-  },
-  button: {
-    backgroundColor: Colors.primary,
-    borderRadius: Radius.lg,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: {
-    color: Colors.primaryText,
-    fontSize: Typography.size.md,
-    fontWeight: Typography.weight.bold,
-  },
-  resendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: Spacing.lg, gap: 4 },
-  resendText: { color: Colors.textSecondary, fontSize: Typography.size.sm },
+  devNoteText: { color: Colors.gold, fontSize: Typography.size.xs, fontFamily: Fonts.sansMedium, lineHeight: 16 },
+  cta: { marginTop: Spacing.sm },
+  resendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: Spacing.xl },
+  resendText: { color: Colors.textSecondary, fontSize: Typography.size.sm, fontFamily: Fonts.sansMedium },
+  resendLink: { color: Colors.primary, fontSize: Typography.size.sm, fontFamily: Fonts.sansSemiBold },
   resendSep: { color: Colors.textDisabled, fontSize: Typography.size.sm },
   resendDisabled: { color: Colors.textDisabled },
 });

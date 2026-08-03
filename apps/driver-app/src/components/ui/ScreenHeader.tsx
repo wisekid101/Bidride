@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 
-// BidiRide in-screen header: [back] [centered title] [right accessory].
+// Bidiride in-screen header: [back] [centered title] [right accessory].
 // Keep the rider-app and driver-app copies identical.
 interface ScreenHeaderProps {
   title?: string;
