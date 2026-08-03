@@ -176,8 +176,19 @@ index so the working tree, real index and HEAD were untouched. `.gitignore` was
 honoured, so it contains no `.env`, tfvars, tfstate, key or credential file.
 
 It is a backup, not reviewed work — nothing in it was built or tested. Recover a
-file with `git checkout feature/identity-platform-wip -- <path>`. **Re-snapshot
-if that work continues**; this copy is point-in-time, not a live mirror.
+file with `git checkout feature/identity-platform-wip -- <path>`.
+
+**Re-snapshot whenever that work continues** — the copy is point-in-time, not a
+live mirror:
+
+```bash
+infrastructure/scripts/snapshot-wip.sh feature/identity-platform-wip --push
+```
+
+Safe to run at any moment, including mid-edit: it builds the tree in a temporary
+index, so the working tree, the real index and HEAD are never touched, and it
+asserts all four afterwards. It is idempotent — if nothing changed it makes no
+commit, and it still pushes when origin is behind.
 
 ## Cost
 
