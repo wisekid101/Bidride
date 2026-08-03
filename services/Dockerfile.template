@@ -44,19 +44,28 @@ RUN pnpm --filter @bidride/database generate
 
 # Build @bidride/observability BEFORE the service.
 #
-# It declares `main: dist/index.js` and is a runtime dependency of all 12
-# services, but packages/observability/dist is NOT tracked in git — and
-# .dockerignore deliberately admits it into the build context so the copy at the
-# runner stage has something to copy. That made image contents depend on whether
-# the host happened to have run a build: a clean checkout or a CI runner would
-# produce an image whose @bidride/observability symlink resolves to a directory
-# with no dist, and every service would die with MODULE_NOT_FOUND for
-# '@bidride/observability/nest' — the same crash f222439 fixed, from a different
-# cause and only on machines other than the one that built it.
+# It declares `main: dist/index.js` + `types: dist/index.d.ts`, and is a compile
+# AND runtime dependency of all 12 services. But packages/observability/dist is
+# NOT tracked in git, and .dockerignore deliberately admits it into the build
+# context so the runner stage has something to copy — so the build depended on
+# whether the host happened to have run `pnpm build` at some point.
 #
-# Building it here makes the image hermetic: the dist in the image is always
-# produced from the source in the image. `pnpm --filter` does not build
-# dependencies, so this cannot be left to the service build below.
+# On a clean checkout or a CI runner that directory does not exist, and the
+# build FAILS HARD (verified by removing dist and building the previous
+# Dockerfile):
+#
+#   src/app.module.ts:12:8 - error TS2307: Cannot find module
+#     '@bidride/observability/nest' or its corresponding type declarations.
+#   ERROR: process "pnpm --filter @bidride/<svc> build" ... exit code: 1
+#
+# It fails rather than shipping a broken image because there is no nest-cli.json,
+# so `nest build` uses the tsc builder and type-checks. That is the good outcome
+# — but it means image builds were impossible anywhere except a machine that had
+# already built the package locally, which is every CI runner.
+#
+# `pnpm --filter <svc> build` does NOT build dependencies, so this cannot be left
+# implicit. Building observability here makes the image hermetic: the dist inside
+# the image is always compiled from the source inside the image.
 RUN pnpm --filter @bidride/observability build
 
 # Build target service
