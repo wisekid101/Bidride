@@ -42,6 +42,23 @@ RUN pnpm install --frozen-lockfile
 # Generate Prisma client
 RUN pnpm --filter @bidride/database generate
 
+# Build @bidride/observability BEFORE the service.
+#
+# It declares `main: dist/index.js` and is a runtime dependency of all 12
+# services, but packages/observability/dist is NOT tracked in git — and
+# .dockerignore deliberately admits it into the build context so the copy at the
+# runner stage has something to copy. That made image contents depend on whether
+# the host happened to have run a build: a clean checkout or a CI runner would
+# produce an image whose @bidride/observability symlink resolves to a directory
+# with no dist, and every service would die with MODULE_NOT_FOUND for
+# '@bidride/observability/nest' — the same crash f222439 fixed, from a different
+# cause and only on machines other than the one that built it.
+#
+# Building it here makes the image hermetic: the dist in the image is always
+# produced from the source in the image. `pnpm --filter` does not build
+# dependencies, so this cannot be left to the service build below.
+RUN pnpm --filter @bidride/observability build
+
 # Build target service
 RUN pnpm --filter @bidride/${SERVICE_NAME} build
 
