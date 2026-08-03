@@ -76,10 +76,26 @@ ${SENSITIVE}
 COUNT=$(GIT_INDEX_FILE="${IDX}" git diff --cached --name-only HEAD | wc -l | tr -d ' ')
 TREE=$(GIT_INDEX_FILE="${IDX}" git write-tree) || die "write-tree failed"
 
-# Nothing to do if the tree already matches the branch tip.
+# Nothing to COMMIT if the tree already matches the branch tip — but "already
+# snapshotted locally" is not the same as "protected". If --push was requested and
+# the remote is behind, push anyway: the earlier version of this script exited
+# here, so `snapshot-wip.sh --push` could report success while origin still held
+# an older tree and the newest work existed on one machine only. That is the exact
+# failure this script exists to prevent.
 if EXISTING=$(git rev-parse --verify --quiet "${BRANCH}^{tree}"); then
   if [[ "${EXISTING}" == "${TREE}" ]]; then
-    ok "${BRANCH} already matches the working tree — no new snapshot needed"
+    ok "${BRANCH} already matches the working tree — no new commit needed"
+    if [[ -n "${PUSH}" ]]; then
+      LOCAL=$(git rev-parse "${BRANCH}")
+      REMOTE=$(git rev-parse --verify --quiet "origin/${BRANCH}" || echo none)
+      if [[ "${LOCAL}" != "${REMOTE}" ]]; then
+        git push -q --force-with-lease origin "${BRANCH}" \
+          && ok "origin was behind — pushed ${LOCAL:0:12}" \
+          || die "push failed — the snapshot exists locally as ${BRANCH}"
+      else
+        ok "origin already up to date"
+      fi
+    fi
     exit 0
   fi
 fi
