@@ -19,6 +19,14 @@ COPY packages/ ./packages/
 ARG SERVICE_NAME
 COPY services/${SERVICE_NAME}/ ./services/${SERVICE_NAME}/
 
+# The root package.json runs `postinstall: node scripts/dev/link-db-env.mjs`.
+# Without scripts/ present, pnpm's postinstall hook exits non-zero with
+# "Cannot find module '/app/scripts/dev/link-db-env.mjs'" and the install fails
+# for EVERY service. The script is self-guarding — it has no throw and no
+# non-zero exit path — so with packages/database/.env absent (as it is here, by
+# design) it warns and exits 0. Builder stage only; the runner never copies it.
+COPY scripts/ ./scripts/
+
 # Install dependencies (production only for service, full for database package)
 RUN pnpm install --frozen-lockfile
 
