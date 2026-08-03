@@ -117,7 +117,7 @@ the production value**, and `env/staging.tfvars` opts *down* explicitly.
 | Backup retention | 30 days | **7 days** | Never 0 — a validation block rejects it |
 | Redis nodes | 3 | **1** | Cache loss rebuilds; nothing of record lives there |
 | Log retention | 30 days | **7 days** | Long enough to debug a test session |
-| Tasks per service | 1–2 | **1** (airport 0) | No redundancy target in staging |
+| Tasks per service | 1–2 | **0 at bootstrap**, raised per service | Nothing may schedule before images and secrets exist |
 
 **What is identical in both, and must stay identical:** encryption at rest and
 in transit, private subnet placement for ECS/RDS/Redis, security-group
@@ -136,13 +136,16 @@ Three consequences worth internalising:
    not set independently — AWS rejects failover on a single node, so the
    invalid combination cannot be written in tfvars at all.
 
-`airport-service` runs at desired_count **0** in staging: EWR is out of scope
-for the first Founder test. It is deferred, not deleted — the service, its task
-definition, log group and secrets all still exist. Raise it to 1 to enable.
+`env/staging.tfvars` sets **every** service to desired_count 0, not just
+airport — see the bootstrap section below for why a first apply must not schedule
+anything. Services are raised to 1 individually by `deploy-service.sh` as each
+becomes deployable; five are at 1 today and seven remain at 0, blocked on
+credentials. Nothing is deleted at 0: the service, task definition, log group and
+secrets all still exist.
 
 ### Bootstrap: a first apply must not schedule tasks
 
-`terraform apply` creates the 21 Secrets Manager containers **empty** and the 12
+`terraform apply` creates the 22 Secrets Manager containers **empty** and the 12
 ECR repositories **empty**. Every task definition consumes secrets through
 `valueFrom` and pulls an image from ECR, so on a brand-new environment **no task
 can start** — the image does not exist and the secrets have no values.
