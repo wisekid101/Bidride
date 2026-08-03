@@ -92,10 +92,14 @@ infrastructure/scripts/deploy-service.sh   staging auth-service <tag> --desired-
 infrastructure/scripts/deploy-service.sh   staging auth-service <tag> --desired-count 1  # deploy
 ```
 
-Preflight is read-only and names the exact blocker. The zero-count baseline pins
-a digest and makes it PRIMARY without launching a task, so a circuit-breaker
-rollback lands on a pullable image instead of the `:bootstrap` tag, which does
-not exist in ECR.
+Preflight is read-only and names the exact blocker. Both scripts accept either
+`auth` or `auth-service`. The zero-count baseline pins a digest and makes it
+PRIMARY without launching a task, so a circuit-breaker rollback lands on a
+pullable image instead of the `:bootstrap` tag, which does not exist in ECR.
+
+For several services at once use `deploy-fleet.sh`, which preflights the **whole**
+order before deploying any of it and aborts with nothing changed if any service
+fails. Both CI deploy jobs call it, so they inherit that gate.
 
 ## Gated on Founder approval
 
@@ -125,6 +129,22 @@ not exist in ECR.
 - Only `admin-service` registers a global auth guard. Every `/health` route is
   `@SkipThrottle()`, so probes cannot be rate-limited into a task kill.
 - ECR lifecycle retains 60 tagged builds as the rollback horizon.
+
+## Uncommitted work outside this milestone
+
+Roughly 8,000 lines of in-progress Identity Platform and branding work sit
+uncommitted on `feature/production-readiness` — 51 modified tracked files and 43
+untracked ones. It is **not** part of this milestone and was deliberately never
+staged into any of its commits.
+
+It is backed up: branch **`feature/identity-platform-wip`** (`4bfee35`, pushed) is
+a point-in-time snapshot of all 94, taken with git plumbing against a temporary
+index so the working tree, real index and HEAD were untouched. `.gitignore` was
+honoured, so it contains no `.env`, tfvars, tfstate, key or credential file.
+
+It is a backup, not reviewed work — nothing in it was built or tested. Recover a
+file with `git checkout feature/identity-platform-wip -- <path>`. **Re-snapshot
+if that work continues**; this copy is point-in-time, not a live mirror.
 
 ## Cost
 
