@@ -1,0 +1,68 @@
+# Docker build context exclusions — repository root.
+#
+# services/Dockerfile.template builds every service from this context with
+# `COPY packages/ ./packages/` and `COPY services/${SERVICE_NAME}/ ...`. COPY of
+# a directory includes dotfiles, so without this file a local build ships every
+# .env and the real staging tfvars to the Docker daemon and bakes them into the
+# builder layer. CI never saw it because actions/checkout produces a tree with
+# no .env files at all.
+
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+**/.env
+**/.env.*
+!**/.env.example
+
+infrastructure/terraform/env/*.tfvars
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/.terraform/
+
+# ─── VCS ─────────────────────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ─── Dependencies (reinstalled in-image by `pnpm install --frozen-lockfile`) ──
+**/node_modules
+**/.pnpm-store
+
+# ─── Build and run artefacts ─────────────────────────────────────────────────
+#
+# `dist` is deliberately NOT `**/dist`. It is anchored to the context root and
+# matches only a root-level dist directory.
+#
+# DO NOT change it to `**/dist`. packages/observability declares
+# "main": "dist/index.js", is imported by all 12 services, and is NEVER built
+# inside the image — the Dockerfile only runs `--filter @bidride/database
+# generate` and `--filter @bidride/<service> build`. Its prebuilt dist/ must
+# reach the build context or every service build fails to resolve the import.
+coverage
+dist
+tmp
+temp
+logs
+
+# Stale per-service build output. `pnpm --filter @bidride/<service> build`
+# regenerates dist inside the builder, so shipping the local copy only adds
+# ~12 MB and drags compiled *.spec.js fixtures into the image layer.
+# Scoped to services/*/ — NOT **/dist — so packages/observability/dist survives.
+services/*/dist
+
+# The mobile apps are never COPYed by services/Dockerfile.template, so excluding
+# them changes no image. It keeps the iOS Google Maps key out of the context
+# that is transferred to the Docker daemon. `apps/*` is a pnpm workspace member,
+# but the image never contained it, so `pnpm install` behaviour is unchanged.
+apps
+
+infrastructure/deploy-records
+
+# ─── Key material ────────────────────────────────────────────────────────────
+#
+# `**/` prefixed deliberately: a bare `*.pem` is anchored to the context root and
+# would let certs/tls.key or services/x/private.pem through. The repo contains no
+# key or certificate files today, so nothing legitimate is excluded by this.
+**/*.pem
+**/*.key
+**/*.p12
+**/*.crt
+**/*.csr
