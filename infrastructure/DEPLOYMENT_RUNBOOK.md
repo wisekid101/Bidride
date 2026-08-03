@@ -5,30 +5,48 @@ See `docs/FOUNDER_DEPLOYMENT_CHECKLIST.md` for the founder-facing simplified ver
 
 ---
 
-## Current status — nothing has been deployed
+## Current status — staging is live, 5 of 12 services running
 
-As of this commit **no BidiRide environment exists**. The mechanism and the CI
-workflows are committed and reviewable, but Terraform has never been applied
-and no AWS resource has been created.
+Verified against AWS on 2026-08-03. See `docs/STAGING_RECOVERY_CHECKPOINT.md`
+for image digests, task-definition revisions and the exact resume procedure.
 
-Staging is **not yet deployable**. Outstanding blockers:
+**Production has never been applied** — its state key does not exist.
 
-- the ACM certificate for the API hostname is in **FAILED** state, so
-  `acm_certificate_arn` has no usable value
-- **Secrets Manager contains zero `bidride/staging/*` entries**
-- `infrastructure/terraform/env/staging.tfvars` does not exist locally (it is
-  gitignored and must never be committed — it carries `db_password`)
-- no `terraform plan` has been produced or reviewed
+Staging:
 
-Treat every procedure below as the intended process, not as a description of a
-running system.
+- **266 resources** in `staging/terraform.tfstate`; drift is 0 apart from two
+  reviewed, unapplied ALB webhook rules
+- ACM `staging-api.bidiride.com` is **ISSUED**; the hostname resolves to the ALB
+  and serves TLS
+- **22 `bidride/staging/*` secret containers exist, 9 hold values.** The 13 empty
+  ones are third-party credentials and are the only thing blocking the remaining
+  seven services
+- `infrastructure/terraform/env/staging.tfvars` exists locally at mode 600. It is
+  gitignored and must never be committed — it carries `db_password`
+- **Live and healthy:** trust, pricing, trip, ai, admin — each 1/1/0
+- **Blocked on credentials:** auth, rider, safety, notification, payment, driver,
+  airport. Their images are built, validated and waiting in ECR
+
+Two changes are written, reviewed and **deliberately unapplied**, because a
+`terraform apply` is a Founder gate: the ALB rules routing `/webhooks/stripe` and
+`/webhooks/checkr`, and the new `account/` state that makes ECR image scanning
+actually run.
+
+> There is also an unrelated ACM certificate for **`api.bidride.com`** in FAILED
+> state. Note the spelling — `bidride`, not `bidiride`. It is for a domain this
+> project does not own and cannot validate, is referenced by nothing, and is
+> safe to delete. Do not confuse it with the working `staging-api.bidiride.com`
+> certificate.
 
 ---
 
 ## DNS and TLS — one authoritative zone, per-environment certificates
 
-**No Route 53 zone, certificate, validation record or alias record exists yet.**
-The Terraform below is committed but has never been applied.
+**Applied for staging.** The hosted zone `bidiride.com` exists
+(`Z0146569VNVGTD6VDLMB`), the registrar delegates to its Route 53 nameservers,
+the `staging-api.bidiride.com` certificate is ISSUED, and the alias record
+resolves to the ALB. The sequence below is what produced that, and is the
+procedure to repeat for **production**, which has not been applied.
 
 `infrastructure/terraform/dns/` is a SEPARATE root module and state
 (`dns/terraform.tfstate`) whose only job is to own the single authoritative
@@ -54,6 +72,10 @@ wildcard: a staging mistake can never present a certificate valid for
 production.
 
 ### Execution sequence
+
+Steps 1–5 are **done** — they created the shared zone and the delegation, which
+exist once for the company and are not repeated per environment. Step 6 onward is
+what production still needs.
 
 1. **Delete the obsolete local `infrastructure/terraform/terraform.tfvars`.**
    Terraform auto-loads it and it still carries the old `api.bidride.com`
