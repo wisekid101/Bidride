@@ -142,6 +142,26 @@ locals {
     trust        = { priority = 90, service = "trust", paths = ["/internal/trust/*"] }
     airport      = { priority = 100, service = "airport", paths = ["/airport/*"] }
     admin        = { priority = 110, service = "admin", paths = ["/admin/*"] }
+
+    # Provider webhook callbacks. Both controllers use @Controller('webhooks'),
+    # so the paths are /webhooks/stripe (payment) and /webhooks/checkr (driver).
+    #
+    # These must be routed individually — a single /webhooks/* rule cannot fan
+    # out to two different target groups, and matching the prefix to one service
+    # would silently blackhole the other provider's callbacks.
+    #
+    # Without these rules both paths fall through to the listener's fixed-response
+    # 404. Stripe and Checkr would each accept the endpoint at registration and
+    # then fail every delivery: Stripe retries for up to three days before
+    # disabling the endpoint, and Checkr's background-check results would never
+    # arrive, stranding every driver mid-onboarding. Neither failure is visible
+    # from the BidiRide side — the requests never reach a service, so nothing
+    # logs them.
+    #
+    # Exact paths, not wildcards: these are single POST endpoints, and a wildcard
+    # would route unintended sub-paths into the payment and driver services.
+    payment-webhook = { priority = 120, service = "payment", paths = ["/webhooks/stripe"] }
+    driver-webhook  = { priority = 130, service = "driver", paths = ["/webhooks/checkr"] }
   }
 }
 
