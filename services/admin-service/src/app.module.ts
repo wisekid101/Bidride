@@ -5,6 +5,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { throttlerClientIp } from './throttler-tracker';
 import { AdminSessionGuard } from './auth/admin-session.guard';
+import { NoAdminSession } from './auth/public-route.decorator';
 import { RolesGuard } from './auth/roles.guard';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditModule } from './audit/audit.module';
@@ -32,6 +33,23 @@ import { PrismaService } from './prisma/prisma.service';
 
 const SERVICE_NAME = 'admin-service';
 const VERSION = process.env.npm_package_version ?? '1.0.0';
+
+// The shared observability controllers carry no @NoAdminSession() marker — they
+// are written for eleven services that have no session guard at all. Under
+// admin's global AdminSessionGuard that made /live, /ready and /metrics return
+// 401 "No admin session": readiness was unobservable from outside the process
+// and Prometheus could not scrape this service. Only /health was exempt, so the
+// gap was invisible to both ECS and the ALB, which probe /health alone.
+//
+// Marked here rather than in @bidride/observability because the guard is
+// admin's; putting an admin-specific exemption in a package the other eleven
+// services import would be the wrong coupling.
+//
+// This does not widen public exposure. The ALB routes only /admin/* to this
+// service, so these three paths remain reachable solely from inside the VPC,
+// from localhost, and from the target-group health check.
+NoAdminSession()(ObservabilityHealthController);
+NoAdminSession()(ObservabilityMetricsController);
 
 @Module({
   // PO-1C-ii: the existing HealthController keeps serving /health for the ALB
