@@ -130,6 +130,39 @@ fails. Both CI deploy jobs call it, so they inherit that gate.
   `@SkipThrottle()`, so probes cannot be rate-limited into a task kill.
 - ECR lifecycle retains 60 tagged builds as the rollback horizon.
 
+## Findings that would otherwise be re-derived
+
+Recorded because each cost real investigation and each would otherwise be
+repeated — or, worse, re-decided the wrong way.
+
+- **No usable provider credentials exist on this workstation.** All 18 real
+  `.env` files were checked. Twilio values are fake or malformed (SID is `AC` +
+  32 *alphanumeric*, real ones are hex; the phone is `+1555000…`, a reserved
+  fictional range that can never send). Stripe webhook/platform, Checkr and
+  FlightAware are placeholders. FCM has a project id and service-account email
+  but the **private key is empty**, so the set is unusable. Do not re-scan
+  unless told new credentials were added.
+- **The Maps key in `services/rider-service/.env` is byte-identical to the key
+  that leaked**, confirmed by hash comparison. It is the only local value that
+  would have passed format validation, so an unverified write would have pushed
+  a compromised key into staging. Delete it in Google Cloud; do not reuse it.
+- **Do not pre-establish zero-count baselines for the seven blocked services.**
+  It looks helpful and is not: a service at desired-count 0 can never experience a
+  rollback, and step 5 of the deployment workflow establishes a fresh
+  digest-pinned baseline at deploy time from these same images.
+- **Image freshness cannot be derived from service-source git history.** The
+  seven blocked images were stale because of a change to
+  `services/Dockerfile.template`, which no per-service path filter would show.
+  Always check the Dockerfile too. This error was made once and cost a full
+  re-verification cycle.
+- **`grep --include="*.env" --exclude="*.example"` does not exclude as expected** —
+  the example files still matched, which briefly made placeholder credentials look
+  real. Filter in code when the answer matters.
+- **The throttler is correct, do not re-audit.** `throttlerClientIp` trusts only
+  the ALB-appended rightmost `X-Forwarded-For` entry, so one client cannot consume
+  everyone's rate-limit bucket. Every `/health` route carries `@SkipThrottle()`,
+  so probes cannot be throttled into a task kill.
+
 ## Uncommitted work outside this milestone
 
 Roughly 8,000 lines of in-progress Identity Platform and branding work sit
