@@ -147,15 +147,40 @@ scaling up cannot be reverted by a later `terraform apply`. There is exactly one
 owner at any moment, and no drift loop.
 
 Scale a service up only when its image exists and every secret it consumes has a
-value:
+value. Verify that with preflight rather than by inspection — it is read-only and
+exits non-zero with the exact reason:
+
+```bash
+infrastructure/scripts/preflight-service.sh staging <service> <tag>
+```
+
+It checks the four things that have actually broken a staging deployment: the
+`/health` route the ECS health check probes (ai-service had only `/live` and
+`/ready`, so every probe 404'd and ECS killed the task while the app ran fine);
+the task definition exists; every `config.getOrThrow()` variable is supplied by
+that task definition; and every referenced secret holds an `AWSCURRENT` version —
+an empty container fails task initialisation before the process starts, so
+nothing is logged and the service cannot tell you why.
+
+Once preflight exits 0:
 
 ```bash
 infrastructure/scripts/deploy-service.sh staging <service> <tag> --desired-count 1
 ```
 
+On a service still pinned to the `:bootstrap` tag, establish a rollback baseline
+first — this registers a digest-pinned revision and makes it PRIMARY **without**
+launching a task, so a later circuit-breaker rollback lands on a pullable image:
+
+```bash
+infrastructure/scripts/deploy-service.sh staging <service> <tag> --desired-count 0
+```
+
 Omit `--desired-count` on subsequent deploys — the current count is preserved.
-If a service is still at 0, `deploy-service.sh` stops with an explicit message
-rather than reporting a deploy that put nothing into service.
+
+An explicit `--desired-count 0` is the baseline above and **exits 0**: it did what
+was asked. A service found at 0 *without* being asked still fails with an explicit
+message rather than reporting a deploy that put nothing into service.
 
 ### What still costs money when nobody is testing
 
