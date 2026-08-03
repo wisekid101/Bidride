@@ -87,9 +87,9 @@ always `--secret-string file://…` so no value enters argv or shell history.
 ## Deploying, once credentials land
 
 ```bash
-infrastructure/scripts/preflight-service.sh staging <service> <tag>   # must exit 0
-infrastructure/scripts/deploy-service.sh   staging <service> <tag> --desired-count 0  # baseline
-infrastructure/scripts/deploy-service.sh   staging <service> <tag> --desired-count 1  # deploy
+infrastructure/scripts/preflight-service.sh staging auth-service <tag>   # must exit 0
+infrastructure/scripts/deploy-service.sh   staging auth-service <tag> --desired-count 0  # baseline
+infrastructure/scripts/deploy-service.sh   staging auth-service <tag> --desired-count 1  # deploy
 ```
 
 Preflight is read-only and names the exact blocker. The zero-count baseline pins

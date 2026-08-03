@@ -82,6 +82,15 @@ esac
 command -v jq  >/dev/null || die "jq is required"
 command -v aws >/dev/null || die "aws CLI is required"
 
+# Accept "auth" or "auth-service" and mean the same thing.
+#
+# Every name below is derived from ${SERVICE}, so the short form silently
+# produced bidride-auth-staging — an ECS service that does not exist — and the
+# script died on "could not read the current task definition (does the service
+# exist?)". That is a confusing failure at the worst possible moment, and the
+# runbook's adjacent preflight/deploy examples both read <service>, inviting it.
+SERVICE="${SERVICE%-service}-service"
+
 CLUSTER="bidride-${ENVIRONMENT}"
 ECS_SERVICE="bidride-${SERVICE}-${ENVIRONMENT}"
 FAMILY="bidride-${SERVICE}-${ENVIRONMENT}"

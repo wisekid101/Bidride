@@ -151,7 +151,7 @@ value. Verify that with preflight rather than by inspection — it is read-only 
 exits non-zero with the exact reason:
 
 ```bash
-infrastructure/scripts/preflight-service.sh staging <service> <tag>
+infrastructure/scripts/preflight-service.sh staging <service>-service <tag>
 ```
 
 It checks the four things that have actually broken a staging deployment: the
@@ -162,10 +162,12 @@ that task definition; and every referenced secret holds an `AWSCURRENT` version 
 an empty container fails task initialisation before the process starts, so
 nothing is logged and the service cannot tell you why.
 
-Once preflight exits 0:
+Both scripts accept either `auth` or `auth-service`; the full name is written
+here because it is what `deploy-fleet.sh` lists and what the ECR repository is
+called. Once preflight exits 0:
 
 ```bash
-infrastructure/scripts/deploy-service.sh staging <service> <tag> --desired-count 1
+infrastructure/scripts/deploy-service.sh staging <service>-service <tag> --desired-count 1
 ```
 
 On a service still pinned to the `:bootstrap` tag, establish a rollback baseline
@@ -173,7 +175,7 @@ first — this registers a digest-pinned revision and makes it PRIMARY **without
 launching a task, so a later circuit-breaker rollback lands on a pullable image:
 
 ```bash
-infrastructure/scripts/deploy-service.sh staging <service> <tag> --desired-count 0
+infrastructure/scripts/deploy-service.sh staging <service>-service <tag> --desired-count 0
 ```
 
 Omit `--desired-count` on subsequent deploys — the current count is preserved.

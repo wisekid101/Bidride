@@ -46,12 +46,23 @@ command -v aws     >/dev/null || die "aws CLI is required"
 command -v python3 >/dev/null || die "python3 is required"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SRC="${REPO_ROOT}/services/${SERVICE}-service/src"
-FAMILY="bidride-${SERVICE}-service-${ENVIRONMENT}"
 
-[[ -d "${SRC}" ]] || die "no such service: services/${SERVICE}-service"
+# Accept "auth" or "auth-service" and mean the same thing.
+#
+# deploy-service.sh takes the FULL name (it builds bidride/${SERVICE} for ECR),
+# deploy-fleet.sh lists full names, and this script originally took the short
+# one. The runbook shows both as <service> on adjacent lines, so following it
+# literally produced "no such service" from one tool or a lookup against a
+# non-existent ECS service from the other — while deploying. Normalising here
+# means neither form can be wrong.
+SERVICE="${SERVICE%-service}"
+FULL_SERVICE="${SERVICE}-service"
+SRC="${REPO_ROOT}/services/${FULL_SERVICE}/src"
+FAMILY="bidride-${FULL_SERVICE}-${ENVIRONMENT}"
 
-echo "── preflight: ${SERVICE}-service (${ENVIRONMENT}) ──"
+[[ -d "${SRC}" ]] || die "no such service: services/${FULL_SERVICE}"
+
+echo "── preflight: ${FULL_SERVICE} (${ENVIRONMENT}) ──"
 
 # ── 1. The /health route the container health check probes ───────────────────
 # ECS runs `curl -sf http://localhost:<PORT>/health`. The observability
@@ -120,13 +131,13 @@ fi
 
 # ── 5. The image exists in ECR ───────────────────────────────────────────────
 if [[ -n "${IMAGE_TAG}" ]]; then
-  DIGEST=$(aws ecr describe-images --repository-name "bidride/${SERVICE}-service" \
+  DIGEST=$(aws ecr describe-images --repository-name "bidride/${FULL_SERVICE}" \
     --image-ids "imageTag=${IMAGE_TAG}" --region "${AWS_REGION}" \
     --query 'imageDetails[0].imageDigest' --output text 2>/dev/null)
   if [[ "${DIGEST}" == sha256:* ]]; then
-    ok "image bidride/${SERVICE}-service:${IMAGE_TAG} → ${DIGEST}"
+    ok "image bidride/${FULL_SERVICE}:${IMAGE_TAG} → ${DIGEST}"
   else
-    bad "image bidride/${SERVICE}-service:${IMAGE_TAG} not found in ECR — build and push it first"
+    bad "image bidride/${FULL_SERVICE}:${IMAGE_TAG} not found in ECR — build and push it first"
   fi
 else
   warn "no image tag given — skipping the ECR check (pass one to verify)"
@@ -134,7 +145,7 @@ fi
 
 echo
 if (( FAILED == 0 )); then
-  ok "preflight passed — safe to deploy ${SERVICE}-service to ${ENVIRONMENT}"
+  ok "preflight passed — safe to deploy ${FULL_SERVICE} to ${ENVIRONMENT}"
   exit 0
 fi
 echo "${RED}${FAILED} blocking problem(s) — do not deploy${NC}"
