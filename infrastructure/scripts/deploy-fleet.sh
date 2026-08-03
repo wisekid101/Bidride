@@ -74,6 +74,31 @@ echo "  tag   : ${IMAGE_TAG}"
 echo "  order : ${ORDER[*]}"
 echo "════════════════════════════════════════════════════"
 
+# Preflight the WHOLE fleet before touching anything.
+#
+# Without this, a fleet deploy discovers a blocked service only when it reaches
+# it — after the services before it have already been deployed. The operator is
+# then holding a half-deployed fleet and a rollback list, for a problem that was
+# visible before the first mutation: an empty secret container, a missing
+# /health route, a required variable absent from the task definition, or an image
+# tag that is not in ECR.
+#
+# preflight-service.sh is read-only, so this loop cannot change anything. Failing
+# here costs seconds and leaves the environment untouched.
+echo
+echo -e "${BLUE}━━━ preflight (read-only, nothing is deployed yet) ━━━${NC}"
+PF_FAILED=()
+for svc in "${ORDER[@]}"; do
+  bash "${SCRIPT_DIR}/preflight-service.sh" "${ENVIRONMENT}" "${svc}" "${IMAGE_TAG}" \
+    || PF_FAILED+=("${svc}")
+done
+if (( ${#PF_FAILED[@]} > 0 )); then
+  echo
+  die "preflight failed for: ${PF_FAILED[*]}
+     NOTHING was deployed and the environment is untouched.
+     Fix the reasons printed above, then re-run."
+fi
+
 DEPLOYED=()
 for svc in "${ORDER[@]}"; do
   echo

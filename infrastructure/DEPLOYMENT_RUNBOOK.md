@@ -5,30 +5,48 @@ See `docs/FOUNDER_DEPLOYMENT_CHECKLIST.md` for the founder-facing simplified ver
 
 ---
 
-## Current status — nothing has been deployed
+## Current status — staging is live, 5 of 12 services running
 
-As of this commit **no BidiRide environment exists**. The mechanism and the CI
-workflows are committed and reviewable, but Terraform has never been applied
-and no AWS resource has been created.
+Verified against AWS on 2026-08-03. See `docs/STAGING_RECOVERY_CHECKPOINT.md`
+for image digests, task-definition revisions and the exact resume procedure.
 
-Staging is **not yet deployable**. Outstanding blockers:
+**Production has never been applied** — its state key does not exist.
 
-- the ACM certificate for the API hostname is in **FAILED** state, so
-  `acm_certificate_arn` has no usable value
-- **Secrets Manager contains zero `bidride/staging/*` entries**
-- `infrastructure/terraform/env/staging.tfvars` does not exist locally (it is
-  gitignored and must never be committed — it carries `db_password`)
-- no `terraform plan` has been produced or reviewed
+Staging:
 
-Treat every procedure below as the intended process, not as a description of a
-running system.
+- **266 resources** in `staging/terraform.tfstate`; drift is 0 apart from two
+  reviewed, unapplied ALB webhook rules
+- ACM `staging-api.bidiride.com` is **ISSUED**; the hostname resolves to the ALB
+  and serves TLS
+- **22 `bidride/staging/*` secret containers exist, 9 hold values.** The 13 empty
+  ones are third-party credentials and are the only thing blocking the remaining
+  seven services
+- `infrastructure/terraform/env/staging.tfvars` exists locally at mode 600. It is
+  gitignored and must never be committed — it carries `db_password`
+- **Live and healthy:** trust, pricing, trip, ai, admin — each 1/1/0
+- **Blocked on credentials:** auth, rider, safety, notification, payment, driver,
+  airport. Their images are built, validated and waiting in ECR
+
+Two changes are written, reviewed and **deliberately unapplied**, because a
+`terraform apply` is a Founder gate: the ALB rules routing `/webhooks/stripe` and
+`/webhooks/checkr`, and the new `account/` state that makes ECR image scanning
+actually run.
+
+> There is also an unrelated ACM certificate for **`api.bidride.com`** in FAILED
+> state. Note the spelling — `bidride`, not `bidiride`. It is for a domain this
+> project does not own and cannot validate, is referenced by nothing, and is
+> safe to delete. Do not confuse it with the working `staging-api.bidiride.com`
+> certificate.
 
 ---
 
 ## DNS and TLS — one authoritative zone, per-environment certificates
 
-**No Route 53 zone, certificate, validation record or alias record exists yet.**
-The Terraform below is committed but has never been applied.
+**Applied for staging.** The hosted zone `bidiride.com` exists
+(`Z0146569VNVGTD6VDLMB`), the registrar delegates to its Route 53 nameservers,
+the `staging-api.bidiride.com` certificate is ISSUED, and the alias record
+resolves to the ALB. The sequence below is what produced that, and is the
+procedure to repeat for **production**, which has not been applied.
 
 `infrastructure/terraform/dns/` is a SEPARATE root module and state
 (`dns/terraform.tfstate`) whose only job is to own the single authoritative
@@ -54,6 +72,10 @@ wildcard: a staging mistake can never present a certificate valid for
 production.
 
 ### Execution sequence
+
+Steps 1–5 are **done** — they created the shared zone and the delegation, which
+exist once for the company and are not repeated per environment. Step 6 onward is
+what production still needs.
 
 1. **Delete the obsolete local `infrastructure/terraform/terraform.tfvars`.**
    Terraform auto-loads it and it still carries the old `api.bidride.com`
@@ -95,7 +117,7 @@ the production value**, and `env/staging.tfvars` opts *down* explicitly.
 | Backup retention | 30 days | **7 days** | Never 0 — a validation block rejects it |
 | Redis nodes | 3 | **1** | Cache loss rebuilds; nothing of record lives there |
 | Log retention | 30 days | **7 days** | Long enough to debug a test session |
-| Tasks per service | 1–2 | **1** (airport 0) | No redundancy target in staging |
+| Tasks per service | 1–2 | **0 at bootstrap**, raised per service | Nothing may schedule before images and secrets exist |
 
 **What is identical in both, and must stay identical:** encryption at rest and
 in transit, private subnet placement for ECS/RDS/Redis, security-group
@@ -114,13 +136,16 @@ Three consequences worth internalising:
    not set independently — AWS rejects failover on a single node, so the
    invalid combination cannot be written in tfvars at all.
 
-`airport-service` runs at desired_count **0** in staging: EWR is out of scope
-for the first Founder test. It is deferred, not deleted — the service, its task
-definition, log group and secrets all still exist. Raise it to 1 to enable.
+`env/staging.tfvars` sets **every** service to desired_count 0, not just
+airport — see the bootstrap section below for why a first apply must not schedule
+anything. Services are raised to 1 individually by `deploy-service.sh` as each
+becomes deployable; five are at 1 today and seven remain at 0, blocked on
+credentials. Nothing is deleted at 0: the service, task definition, log group and
+secrets all still exist.
 
 ### Bootstrap: a first apply must not schedule tasks
 
-`terraform apply` creates the 21 Secrets Manager containers **empty** and the 12
+`terraform apply` creates the 22 Secrets Manager containers **empty** and the 12
 ECR repositories **empty**. Every task definition consumes secrets through
 `valueFrom` and pulls an image from ECR, so on a brand-new environment **no task
 can start** — the image does not exist and the secrets have no values.
@@ -151,7 +176,7 @@ value. Verify that with preflight rather than by inspection — it is read-only 
 exits non-zero with the exact reason:
 
 ```bash
-infrastructure/scripts/preflight-service.sh staging <service> <tag>
+infrastructure/scripts/preflight-service.sh staging <service>-service <tag>
 ```
 
 It checks the four things that have actually broken a staging deployment: the
@@ -162,10 +187,12 @@ that task definition; and every referenced secret holds an `AWSCURRENT` version 
 an empty container fails task initialisation before the process starts, so
 nothing is logged and the service cannot tell you why.
 
-Once preflight exits 0:
+Both scripts accept either `auth` or `auth-service`; the full name is written
+here because it is what `deploy-fleet.sh` lists and what the ECR repository is
+called. Once preflight exits 0:
 
 ```bash
-infrastructure/scripts/deploy-service.sh staging <service> <tag> --desired-count 1
+infrastructure/scripts/deploy-service.sh staging <service>-service <tag> --desired-count 1
 ```
 
 On a service still pinned to the `:bootstrap` tag, establish a rollback baseline
@@ -173,7 +200,7 @@ first — this registers a digest-pinned revision and makes it PRIMARY **without
 launching a task, so a later circuit-breaker rollback lands on a pullable image:
 
 ```bash
-infrastructure/scripts/deploy-service.sh staging <service> <tag> --desired-count 0
+infrastructure/scripts/deploy-service.sh staging <service>-service <tag> --desired-count 0
 ```
 
 Omit `--desired-count` on subsequent deploys — the current count is preserved.
