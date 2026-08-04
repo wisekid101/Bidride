@@ -284,6 +284,43 @@ the intent explicit and its wildcard covers repositories created later, which a
 per-repository flag can be missed on. But it repaired nothing; the control was
 already functioning.
 
+## CloudTrail proof: the credential writes and SNS confirmation never reached AWS
+
+Checked 2026-08-04 after the gates were reported complete twice while AWS showed
+no change. CloudTrail settles it — this is **not** eventual consistency, a caching
+artifact, or a permissions problem:
+
+- **`PutSecretValue`, last 24h: 9 events.** All at 2026-08-03T11:41 by
+  `bidride-deploy`, all `err=none`, and all for the **nine secrets that are
+  already populated** (database-url, jwt-secret, redis-url, admin-jwt-secret,
+  internal-service-key, founder-jwt-secret, jwt-public-keys,
+  jwt-admin-public-keys, stripe-secret-key).
+  **Zero events for any twilio-* or google-maps-api-key.** No attempt arrived —
+  not a rejected one, not a failed one. None.
+- **`ConfirmSubscription`, last 24h: 0 events.**
+
+Those nine successes prove the mechanism, IAM permissions, account and region are
+all correct. The five writes simply were never issued against this account.
+
+**For SNS this confirms the earlier diagnosis.** Clicking an *expired*
+confirmation link generates no `ConfirmSubscription` call at all — exactly the
+zero observed. The 2026-08-01 subscription was deleted after expiring; its email
+is inert. Only the email sent at **2026-08-04T01:40:50Z** can confirm the live
+subscription.
+
+**Diagnostic to run before retrying** — proves which account is being written to:
+
+```bash
+aws sts get-caller-identity --query Account --output text   # must be 898711549003
+aws configure get region                                    # must be us-east-1
+aws secretsmanager put-secret-value --secret-id bidride/staging/twilio-account-sid \
+  --secret-string file:///tmp/s ; echo "exit=$?"            # exit MUST be 0
+```
+
+A non-zero exit, a different account, or a different region explains it
+immediately. If the command reports exit 0 and `LastChangedDate` still does not
+advance, that would be genuinely anomalous and worth escalating.
+
 ## Findings that would otherwise be re-derived
 
 Recorded because each cost real investigation and each would otherwise be
