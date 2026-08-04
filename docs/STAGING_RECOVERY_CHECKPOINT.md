@@ -157,6 +157,30 @@ None found. Do not repeat without new evidence.
   **enabled** and all 12 task-count alarms are in `OK` — they are receiving data,
   not silently starved.
 
+### Health-endpoint semantics — do not "fix" `/health` to fail on dependencies
+
+`/health` is the path the **ECS container health check** curls and, for most
+services, the ALB target group too. It is deliberately a **liveness** check:
+
+- most services return a flat `{status:"ok"}` with no dependency calls
+- `auth-service` is different — its `/health` calls `ready()`, but that method
+  catches every error and still returns **HTTP 200**, with `status:"not_ready"`
+  in the *body*. `curl -sf` only inspects the status code, so it passes
+- `auth-service`'s ALB target group uses `/health/live`, which is genuinely
+  dependency-free (uptime and heap only)
+
+**Consequence, both directions.** A green ECS health check does NOT mean a
+service can serve traffic — during a database outage auth stays "healthy" while
+failing every login. Check `/health/ready` or `/ready` for that, and the
+`ecs-tasks-below-desired` and `jwt-401-ratio` alarms for the operational signal.
+
+**Do not make `/health` return 503 when a dependency is unhealthy.** It looks like
+a correctness improvement and is a cascading-outage generator: a brief RDS blip
+would fail every container health check simultaneously, ECS would kill and
+replace every task across all twelve services at once, and the replacements would
+fail their health checks too while the database was still recovering. Liveness
+and readiness are separate on purpose.
+
 > **Trap, recorded so it is not repeated:** the 12 task-count alarms are
 > metric-math alarms, so their `MetricName` field is **null**. Filtering alarms by
 > `MetricName` makes them invisible and produces the false conclusion that no
