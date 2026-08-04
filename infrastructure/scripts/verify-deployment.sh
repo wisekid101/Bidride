@@ -151,9 +151,26 @@ verify_keyset_secret() {
     bad "${label} — secret bidride/${ENVIRONMENT}/${secret_name} is EMPTY (tasks referencing it cannot start)"
     return 1
   fi
-  if ! jq -e 'type == "object" and length > 0' >/dev/null 2>&1 <<<"${value}"; then
-    bad "${label} — not a non-empty JSON object"
+  if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"${value}"; then
+    bad "${label} — not a JSON object"
     return 1
+  fi
+
+  # An EMPTY keyset is the correct pre-RS256 state, not a failure.
+  #
+  # RS256_ROLLOUT_RUNBOOK step 3 requires both secrets to exist as placeholders
+  # before the rollout begins, and issuance stays HS256 until deliberately
+  # switched — so `{}` is exactly what a correctly configured environment holds
+  # today. Treating it as a failure made this script exit non-zero for every
+  # healthy service, and deploy-fleet.sh runs it as a per-service gate: the first
+  # service would deploy successfully, fail verification, and halt the fleet with
+  # instructions to roll back a service that was working perfectly.
+  #
+  # Still a hard failure once RS256 is actually in force — that is checked below,
+  # where a kid referenced by JWT_SIGNING_ALG=RS256 must be present in the keyset.
+  if jq -e 'length == 0' >/dev/null 2>&1 <<<"${value}"; then
+    skip "${label} — empty placeholder (expected while JWT_SIGNING_ALG=HS256; populate before enabling RS256)"
+    return 0
   fi
   if grep -q "PRIVATE KEY" <<<"${value}"; then
     bad "${label} — CONTAINS A PRIVATE KEY. Rotate immediately."
@@ -268,12 +285,20 @@ for svc in ${SERVICES}; do
 
   # Cross-check against what the service actually logged at boot. Configuration
   # says what should happen; the log says what did.
+  # `aws logs filter-log-events` auto-paginates, and --query is applied to EACH
+  # page, so an empty result spread over two pages prints "None\nNone" — which is
+  # not equal to "None" and slipped past the guard below, producing
+  # "configured HS256 but boot log says: None" for a service that had simply aged
+  # out of the 2h window. That reads as a signing misconfiguration and would send
+  # someone hunting one during an incident. Drop the None markers and keep the
+  # last real line.
   logged=$(aws logs filter-log-events \
     --log-group-name "/ecs/bidride/${svc}-${ENVIRONMENT}" \
     --region "${AWS_REGION}" \
     --start-time "$(( ($(date +%s) - 7200) * 1000 ))" \
     --filter-pattern '"JWT issuance algorithm:"' \
-    --query 'events[-1].message' --output text 2>/dev/null)
+    --query 'events[-1].message' --output text 2>/dev/null \
+    | grep -v '^None$' | tail -1)
 
   if [[ -z "${logged}" || "${logged}" == "None" ]]; then
     skip "${svc} — no 'JWT issuance algorithm' log line in the last 2h (task may predate the window)"
