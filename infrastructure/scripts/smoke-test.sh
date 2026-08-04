@@ -49,14 +49,31 @@ check_service() {
 
   local attempt=0
   while [[ $attempt -lt $RETRIES ]]; do
+    body=$(curl -s --max-time "${TIMEOUT}" --connect-timeout 5 "${url}" 2>/dev/null | head -c 200)
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
       --max-time "${TIMEOUT}" --connect-timeout 5 "${url}" 2>/dev/null || echo "000")
 
-    # In production mode: /health paths go directly to containers (not ALB-routed).
-    # We accept 200 (direct/local) or 401 (ALB-routed auth-protected endpoint).
-    # 401 proves the service is running and responding; auth just isn't satisfied.
-    if [[ "${http_code}" == "200" || ( "${LOCAL_MODE}" == "false" && "${http_code}" == "401" ) ]]; then
-      pass "${name} (${url}) — HTTP ${http_code}"
+    # Local mode probes /health directly on the container: only 200 means alive.
+    #
+    # ALB mode probes an unmatched path under the service's prefix, so "alive"
+    # means the request reached the application at all:
+    #   401 — a global guard rejected it before routing
+    #   404 with a statusCode field — NestJS's own not-found
+    # A 404 WITHOUT statusCode is the ALB's fixed response (prefix not routed),
+    # and 503 means the target group has no healthy target. Both are failures.
+    alive=1
+    if [[ "${http_code}" == "200" ]]; then
+      alive=0
+    elif [[ "${LOCAL_MODE}" == "false" ]]; then
+      if [[ "${http_code}" == "401" ]]; then
+        alive=0
+      elif [[ "${http_code}" == "404" && "${body}" == *'"statusCode"'* ]]; then
+        alive=0
+      fi
+    fi
+
+    if [[ ${alive} -eq 0 ]]; then
+      pass "${name} (${url}) — HTTP ${http_code} (application reached)"
       return 0
     fi
 
@@ -102,20 +119,45 @@ declare -a SERVICES=(
   "ai-service:3012:/ai/health"            # local: /ai/health;   prod: SKIPPED (VPC-internal)
 )
 
-# Production-mode paths (ALB-routable, returns 401 = service is alive)
-declare -A PROD_PATHS=(
-  ["auth-service"]="/auth/session"
-  ["trip-service"]="/trips"
-  ["driver-service"]="/drivers"
-  ["rider-service"]="/riders/me"
-  ["pricing-service"]="/pricing/surge/default"
-  ["safety-service"]="/safety/sos"
-  ["payment-service"]="/payments"
-  ["notification-service"]="/internal/notifications/push"
-  ["trust-service"]="/internal/trust/recalculate"
-  ["airport-service"]="/airport/queue"
-  ["admin-service"]="/admin/analytics"
-)
+# Production-mode probing.
+#
+# The previous table listed one "auth-protected endpoint" per service and expected
+# 401. Most entries were wrong: /internal/trust/recalculate and
+# /internal/notifications/push are @Post-only, so a GET returns 404 and a healthy
+# service reported as down; /drivers, /safety/sos and /admin/analytics are not
+# routes at all (the real ones are /drivers/me, /safety/sos/initiate,
+# /admin/analytics/dashboard). CI runs this as an unguarded step after every
+# staging and production deploy, so a perfect deploy still failed the job.
+#
+# "Fix the methods" is the wrong repair: POSTing those paths would initiate a real
+# SOS and send real push notifications from a smoke test.
+#
+# Instead probe an unmatched path under each service's ALB prefix with GET. That
+# needs no per-route knowledge, mutates nothing, and distinguishes cleanly —
+# verified against staging:
+#
+#   alive, guard first   401 {"message":"Unauthorized","statusCode":401}
+#   alive, no route      404 {"message":"Cannot GET /…","statusCode":404}   (NestJS)
+#   no healthy target    503 + HTML                                          (ALB)
+#   prefix not routed    404 {"error":"Not Found"}                           (ALB fixed response)
+#
+# The discriminator between a NestJS 404 and the ALB's is the statusCode field.
+alb_prefix() {
+  case "$1" in
+    auth-service)         echo "/auth" ;;
+    trip-service)         echo "/trips" ;;
+    driver-service)       echo "/drivers" ;;
+    rider-service)        echo "/riders" ;;
+    pricing-service)      echo "/pricing" ;;
+    safety-service)       echo "/safety" ;;
+    payment-service)      echo "/payments" ;;
+    notification-service) echo "/internal/notifications" ;;
+    trust-service)        echo "/internal/trust" ;;
+    airport-service)      echo "/airport" ;;
+    admin-service)        echo "/admin" ;;
+    *)                    echo "" ;;
+  esac
+}
 
 for entry in "${SERVICES[@]}"; do
   name="${entry%%:*}"
@@ -130,8 +172,9 @@ for entry in "${SERVICES[@]}"; do
   fi
 
   # In production mode, use ALB-routable paths (health endpoints are not ALB-routed).
-  if [[ "${LOCAL_MODE}" == "false" && -n "${PROD_PATHS[$name]:-}" ]]; then
-    path="${PROD_PATHS[$name]}"
+  if [[ "${LOCAL_MODE}" == "false" ]]; then
+    prefix=$(alb_prefix "${name}")
+    [[ -n "${prefix}" ]] && path="${prefix}/__smoke"
   fi
 
   check_service "${name}" "${port}" "${path}" || FAILURES=$((FAILURES + 1))

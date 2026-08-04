@@ -73,14 +73,62 @@ echo "════════════════════════�
 
 section "1. Service Health Checks"
 
+# ALB prefix per service. /health is NOT ALB-routed — the listener has no rule for
+# it — so in production mode every check below used to resolve to
+# https://<host>/health and get the ALB's fixed-response 404. All twelve services
+# reported as failing even when all twelve were healthy, and the runbooks tell
+# operators to run this right after a production deploy.
+#
+# Probe an unmatched path under the service's own prefix instead. Same technique
+# as smoke-test.sh: GET only, no side effects, no per-route knowledge.
+alb_prefix() {
+  case "$1" in
+    auth-service)         echo "/auth" ;;
+    trip-service)         echo "/trips" ;;
+    driver-service)       echo "/drivers" ;;
+    rider-service)        echo "/riders" ;;
+    pricing-service)      echo "/pricing" ;;
+    safety-service)       echo "/safety" ;;
+    payment-service)      echo "/payments" ;;
+    notification-service) echo "/internal/notifications" ;;
+    trust-service)        echo "/internal/trust" ;;
+    airport-service)      echo "/airport" ;;
+    admin-service)        echo "/admin" ;;
+    *)                    echo "" ;;
+  esac
+}
+
 check_health() {
   local name=$1 port=$2 path=$3
-  local url; url=$(svc_url "${port}" "${path}")
   if [[ "${LOCAL_MODE}" == "false" && "${name}" == "ai-service" ]]; then
     echo -e "  ${YELLOW}⚠${NC} ${name} — SKIPPED (VPC-internal)"; return
   fi
+
+  local url
+  if [[ "${LOCAL_MODE}" == "true" ]]; then
+    url=$(svc_url "${port}" "${path}")
+    code=$(http_code "${url}")
+    [[ "${code}" == "200" ]] && ok "${name} — HTTP 200" || fail "${name} — HTTP ${code} (${url})"
+    return
+  fi
+
+  local prefix; prefix=$(alb_prefix "${name}")
+  if [[ -z "${prefix}" ]]; then
+    echo -e "  ${YELLOW}⚠${NC} ${name} — SKIPPED (no ALB prefix)"; return
+  fi
+  url="${BASE_URL}${prefix}/__verify"
   code=$(http_code "${url}")
-  [[ "${code}" == "200" ]] && ok "${name} — HTTP 200" || fail "${name} — HTTP ${code} (${url})"
+  local body; body=$(curl -s --max-time "${TIMEOUT}" "${url}" 2>/dev/null | head -c 200)
+
+  # Reaching the application is the signal: 401 from a global guard, or NestJS's
+  # own 404 (which carries statusCode). The ALB's fixed-response 404 does not,
+  # and 503 means the target group has no healthy target.
+  if [[ "${code}" == "200" || "${code}" == "401" ]] \
+     || [[ "${code}" == "404" && "${body}" == *'"statusCode"'* ]]; then
+    ok "${name} — HTTP ${code} (application reached)"
+  else
+    fail "${name} — HTTP ${code} (${url})"
+  fi
 }
 
 check_health auth-service        3001 /health/live
@@ -102,7 +150,7 @@ section "2. Auth — OTP Request (canary phone)"
 
 AUTH_URL=$(svc_url 3001 "")
 OTP_RESP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time "${TIMEOUT}" \
-  -X POST "${AUTH_URL}/v1/auth/send-otp" \
+  -X POST "${AUTH_URL}/auth/send-otp" \
   -H "Content-Type: application/json" \
   -d '{"phone":"+15550000001","role":"rider"}' 2>/dev/null || echo "000")
 
@@ -121,7 +169,7 @@ if [[ "${LOCAL_MODE}" == "true" ]]; then
 
   # Request OTP for demo rider
   REQ_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time "${TIMEOUT}" \
-    -X POST "${AUTH_URL}/v1/auth/send-otp" \
+    -X POST "${AUTH_URL}/auth/send-otp" \
     -H "Content-Type: application/json" \
     -d '{"phone":"+15551234567","role":"rider"}' 2>/dev/null || echo "000")
   info "OTP request → HTTP ${REQ_CODE}"
@@ -134,7 +182,7 @@ if [[ "${LOCAL_MODE}" == "true" ]]; then
 
     if [[ -n "${OTP}" ]]; then
       VERIFY_RESP=$(curl -sf --max-time "${TIMEOUT}" \
-        -X POST "${AUTH_URL}/v1/auth/verify-otp" \
+        -X POST "${AUTH_URL}/auth/verify-otp" \
         -H "Content-Type: application/json" \
         -d "{\"phone\":\"+15551234567\",\"code\":\"${OTP}\",\"role\":\"rider\"}" 2>/dev/null || echo "{}")
       RIDER_JWT=$(echo "${VERIFY_RESP}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || echo "")

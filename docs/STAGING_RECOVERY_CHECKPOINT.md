@@ -111,6 +111,15 @@ fails. Both CI deploy jobs call it, so they inherit that gate.
    (`account/terraform.tfstate`) that makes ECR image scanning actually run.
    Never initialised.
 
+> **CI deploys are blocked until the SNS subscription is confirmed.** The
+> workflow runs `verify-deployment.sh <env> all` and `smoke-test.sh` as unguarded
+> steps, so a non-zero exit fails the deploy job — and the alerting check fails
+> while the topic has no confirmed subscriber. That is correct behaviour (alerting
+> really is broken), but it means a CI deploy will go red *after* deploying
+> successfully. Manual `deploy-service.sh` / `deploy-fleet.sh` runs are unaffected:
+> the fleet gate calls `verify-deployment.sh <service>`, which does not run the
+> alerting section.
+
 > **Staging alerting is currently dead.** `aws_sns_topic_subscription.alerts_email`
 > is in state but absent from AWS — the confirmation email was never clicked and
 > AWS deletes pending email subscriptions after ~3 days. All 29 alarms are `OK`,
@@ -129,6 +138,88 @@ fails. Both CI deploy jobs call it, so they inherit that gate.
 - Only `admin-service` registers a global auth guard. Every `/health` route is
   `@SkipThrottle()`, so probes cannot be rate-limited into a task kill.
 - ECR lifecycle retains 60 tagged builds as the rollback horizon.
+
+## Deployment-readiness verification — 2026-08-03, all CLEAN
+
+Checked explicitly for hidden boot blockers in the seven undeployed services.
+None found. Do not repeat without new evidence.
+
+- **IAM execution role** — one shared role, `bidride-ecs-execution-staging`, whose
+  inline policy allows `secretsmanager:GetSecretValue` on
+  `arn:aws:secretsmanager:us-east-1:*:secret:bidride/staging/*`. A **wildcard**, so
+  secrets added later (as `google-maps-api-key` was) are covered automatically —
+  there is no per-ARN list to fall out of date. Plus the managed
+  `AmazonECSTaskExecutionRolePolicy` for ECR pulls and log writes.
+- **KMS** — staging secrets have `KmsKeyId: None`, i.e. the AWS-managed key, so no
+  explicit `kms:Decrypt` grant is required. Not a blocker.
+- **Task roles** — `bidride-ecs-task-staging` grants S3 on all five buckets
+  (object *and* bucket level), SQS on all eight queues, and one KMS key.
+  `auth` and `admin` have **dedicated** roles each scoped to their own KMS key, so
+  neither JWT signer can reach the other's — the RS256 domain isolation the
+  runbook describes is real, not aspirational.
+- **Health-check alignment** — for all seven, container `PORT`, the port mapping
+  and the port in the health-check command agree (3001/3003/3004/3006/3007/3008/
+  3010). No repeat of the ai-service mismatch.
+- **CloudWatch alarms — 29, complete coverage.** 12 × `ecs-tasks-below-desired`
+  (one per service), 8 × `jwt-401-ratio`, 4 × deployment (RS256 boot + KMS signing
+  for auth/admin), 2 × ALB 4XX/5XX, 3 × RDS/ElastiCache. Container Insights is
+  **enabled** and all 12 task-count alarms are in `OK` — they are receiving data,
+  not silently starved.
+
+### Health-endpoint semantics — do not "fix" `/health` to fail on dependencies
+
+`/health` is the path the **ECS container health check** curls and, for most
+services, the ALB target group too. It is deliberately a **liveness** check:
+
+- most services return a flat `{status:"ok"}` with no dependency calls
+- `auth-service` is different — its `/health` calls `ready()`, but that method
+  catches every error and still returns **HTTP 200**, with `status:"not_ready"`
+  in the *body*. `curl -sf` only inspects the status code, so it passes
+- `auth-service`'s ALB target group uses `/health/live`, which is genuinely
+  dependency-free (uptime and heap only)
+
+**Consequence, both directions.** A green ECS health check does NOT mean a
+service can serve traffic — during a database outage auth stays "healthy" while
+failing every login. Check `/health/ready` or `/ready` for that, and the
+`ecs-tasks-below-desired` and `jwt-401-ratio` alarms for the operational signal.
+
+**Do not make `/health` return 503 when a dependency is unhealthy.** It looks like
+a correctness improvement and is a cascading-outage generator: a brief RDS blip
+would fail every container health check simultaneously, ECS would kill and
+replace every task across all twelve services at once, and the replacements would
+fail their health checks too while the database was still recovering. Liveness
+and readiness are separate on purpose.
+
+> **Trap, recorded so it is not repeated:** the 12 task-count alarms are
+> metric-math alarms, so their `MetricName` field is **null**. Filtering alarms by
+> `MetricName` makes them invisible and produces the false conclusion that no
+> service has a task-count alarm. Query `Metrics[]`, not `MetricName`.
+
+The whole alarm stack publishes to `bidride-alerts-staging`. It is correctly
+built and correctly wired — the *only* break is that the topic has no subscriber
+(see above), which is a one-line fix gated behind the Terraform apply.
+
+## Expected `verify-deployment.sh` output at this stage
+
+Run `bash infrastructure/scripts/verify-deployment.sh staging all`. It currently
+exits 1 with **8 failures and 4 skips — every one expected**. Triage before
+investigating anything:
+
+| Result | Meaning |
+|---|---|
+| 7 × `<svc> — no RUNNING tasks` | the credential gate; not defects |
+| 1 × `no CONFIRMED subscriptions` | the SNS gap; fixed by the gated apply + clicking the link |
+| 2 × `empty placeholder` keyset skips | correct pre-RS256 state, `JWT_SIGNING_ALG=HS256` |
+| 2 × `no 'JWT issuance algorithm' log line` skips | task started outside the 2h log window |
+
+**A healthy service must return exit 0 per-service** — that is the gate
+`deploy-fleet.sh` applies after each deploy. All five live services do. If one
+starts failing, that is real.
+
+Two false failures were fixed in `075742b`; do not reintroduce them. An empty
+keyset is not a failure, and `aws logs filter-log-events` auto-paginates while
+applying `--query` per page, so an empty result prints `None\nNone` rather than
+`None` and slips past a naive equality guard.
 
 ## Findings that would otherwise be re-derived
 
@@ -163,6 +254,36 @@ repeated — or, worse, re-decided the wrong way.
   everyone's rate-limit bucket. Every `/health` route carries `@SkipThrottle()`,
   so probes cannot be throttled into a task kill.
 
+## One defect left UNFIXED — it lives in a file you are editing
+
+`docs/FOUNDER_DEPLOYMENT_CHECKLIST.md` line ~418 carries the broken production
+migration command that was corrected in `DEPLOYMENT_RUNBOOK.md` and
+`DEPLOY_CHECKLIST.md` (commit `d0e277c`):
+
+```
+["node","node_modules/.bin/prisma","migrate","deploy",
+ "--schema","packages/database/prisma/schema.prisma"]
+```
+
+Both paths are wrong for the current image. pnpm never populates
+`/app/node_modules/.bin`, and WORKDIR is `/app/services/<service>`, so every
+relative path breaks. Replace with:
+
+```
+["node","/app/node_modules/.pnpm/node_modules/.bin/prisma","migrate","deploy",
+ "--schema","/app/packages/database/prisma/schema.prisma"]
+```
+
+**Deliberately not fixed by the assistant.** That file is modified in the working
+tree (Founder's Identity Platform edits, 49 insertions / 28 deletions), and the
+defect is present in the committed version too. Editing the working copy would
+sweep those unrelated changes into an infrastructure commit; patching only the
+committed version would be silently reverted the moment the Founder commits their
+copy. It is a one-line change for whoever owns that file.
+
+It is the FOUNDER-facing checklist, so this is the copy most likely to be used
+during a real production migration.
+
 ## Uncommitted work outside this milestone
 
 Roughly 8,000 lines of in-progress Identity Platform and branding work sit
@@ -176,8 +297,19 @@ index so the working tree, real index and HEAD were untouched. `.gitignore` was
 honoured, so it contains no `.env`, tfvars, tfstate, key or credential file.
 
 It is a backup, not reviewed work — nothing in it was built or tested. Recover a
-file with `git checkout feature/identity-platform-wip -- <path>`. **Re-snapshot
-if that work continues**; this copy is point-in-time, not a live mirror.
+file with `git checkout feature/identity-platform-wip -- <path>`.
+
+**Re-snapshot whenever that work continues** — the copy is point-in-time, not a
+live mirror:
+
+```bash
+infrastructure/scripts/snapshot-wip.sh feature/identity-platform-wip --push
+```
+
+Safe to run at any moment, including mid-edit: it builds the tree in a temporary
+index, so the working tree, the real index and HEAD are never touched, and it
+asserts all four afterwards. It is idempotent — if nothing changed it makes no
+commit, and it still pushes when origin is behind.
 
 ## Cost
 
