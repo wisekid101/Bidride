@@ -85,14 +85,36 @@ fi
 ok "task definition family ${FAMILY} exists"
 
 # ── 3. Every required variable is supplied by the task definition ────────────
-# A var read with config.getOrThrow(), or enforced by a main.ts refuse-to-start
-# guard, must appear in secrets[] or environment[]. Otherwise the service boots
-# far enough to look alive and then dies on first use.
+# A var the service refuses to start without must appear in secrets[] or
+# environment[]. Otherwise the task launches, dies in the DI container, and the
+# ECS circuit breaker rolls back — onto revision 1, whose `:bootstrap` tag does
+# not exist in ECR, so the service then churns on CannotPullContainerError and
+# the original cause is two failures deep in the log.
+#
+# THREE patterns, because relying on the first one alone let a real deployment
+# through. rider-service failed exactly this way: its PaymentMethodsService
+# constructor does
+#
+#   const key = process.env.STRIPE_SECRET_KEY;
+#   if (!key) throw new Error('STRIPE_SECRET_KEY environment variable is required');
+#
+# which is neither getOrThrow() nor the main.ts guard, so preflight passed a
+# service that could not boot.
+#
+#   (a) config.getOrThrow('X')
+#   (b) any throw message naming an ALL_CAPS var as required — this generalises
+#       the old hardcoded INTERNAL_SERVICE_KEY check and catches the constructor
+#       pattern above
 REQUIRED=$(grep -rhoE "getOrThrow<?[^(]*\(\s*['\"][A-Za-z_]+['\"]" "${SRC}" --include="*.ts" 2>/dev/null \
   | grep -v spec | grep -oE "['\"][A-Za-z_]+['\"]" | tr -d "\"'" | sort -u)
-if grep -q "INTERNAL_SERVICE_KEY is required" "${SRC}/main.ts" 2>/dev/null; then
-  REQUIRED="${REQUIRED}"$'\n'"INTERNAL_SERVICE_KEY"
-fi
+
+#       The variable must sit IMMEDIATELY before "is required". An earlier
+#       version allowed filler between them, so "FATAL: INTERNAL_SERVICE_KEY is
+#       required" yielded "FATAL" and failed two healthy services.
+REQUIRED_THROWN=$(grep -rhoE "[A-Z][A-Z0-9_]{2,}( environment variable)? is required" "${SRC}" --include="*.ts" 2>/dev/null \
+  | grep -v spec | sed -E 's/( environment variable)? is required$//' | sort -u)
+
+REQUIRED=$(printf '%s\n%s\n' "${REQUIRED}" "${REQUIRED_THROWN}" | grep -v '^$' | sort -u)
 
 SUPPLIED=$(echo "${TD_JSON}" | python3 -c "
 import json,sys
