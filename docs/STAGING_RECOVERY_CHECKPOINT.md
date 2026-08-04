@@ -221,6 +221,52 @@ keyset is not a failure, and `aws logs filter-log-events` auto-paginates while
 applying `--query` per page, so an empty result prints `None\nNone` rather than
 `None` and slips past a naive equality guard.
 
+## ECR scanning — correcting an earlier wrong claim (2026-08-04)
+
+`398c90f` asserted that image scanning "has never scanned anything" because the
+registry configuration held `{"scanType":"BASIC","rules":[]}` and
+`DescribeImageScanFindings` returned `ScanNotFoundException`. **That conclusion
+was wrong.**
+
+Scanning was working the whole time. The `ScanNotFoundException` came from
+querying **by tag**. buildx attaches provenance/SBOM attestations, so each pushed
+tag resolves to an **OCI image index**
+(`application/vnd.oci.image.index.v1+json`), which ECR BASIC scanning cannot scan
+— `StartImageScan` on it returns `UnsupportedImageTypeException`. The real
+`linux/amd64` child manifest inside the index *is* scanned, on push.
+
+Verified after the apply, with scan timestamps that all predate it:
+
+| repository | child manifest | scan | completed |
+|---|---|---|---|
+| auth-service | `cc4a8ac0f8b1` | COMPLETE | 2026-08-03T22:25Z |
+| trust-service | `cb854ebc304a` | COMPLETE | 2026-08-03T19:08Z |
+| admin-service | `208dfae75c66` | COMPLETE | 2026-08-03T20:25Z |
+| payment-service | `adf70bec0620` | COMPLETE | 2026-08-03T22:28Z |
+
+`findingSeverityCounts` is empty on all of them — **zero vulnerabilities found**.
+
+**Operational trap:** to read scan results you must resolve the tag to its
+`linux/amd64` child manifest digest and query *that*. Querying by tag will always
+report `ScanNotFoundException` and look like scanning is broken.
+
+```bash
+IDX=$(aws ecr describe-images --repository-name bidride/<svc> \
+  --image-ids imageTag=<tag> --query 'imageDetails[0].imageDigest' --output text)
+CHILD=$(aws ecr batch-get-image --repository-name bidride/<svc> \
+  --image-ids imageDigest=$IDX \
+  --accepted-media-types application/vnd.oci.image.index.v1+json \
+  --query 'images[0].imageManifest' --output text \
+  | python3 -c "import json,sys;print([m['digest'] for m in json.load(sys.stdin)['manifests'] if m['platform']['architecture']=='amd64'][0])")
+aws ecr describe-image-scan-findings --repository-name bidride/<svc> \
+  --image-id imageDigest=$CHILD --query 'imageScanStatus'
+```
+
+The `account/` registry configuration is still correct and worth having — it makes
+the intent explicit and its wildcard covers repositories created later, which a
+per-repository flag can be missed on. But it repaired nothing; the control was
+already functioning.
+
 ## Findings that would otherwise be re-derived
 
 Recorded because each cost real investigation and each would otherwise be
