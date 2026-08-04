@@ -321,6 +321,46 @@ A non-zero exit, a different account, or a different region explains it
 immediately. If the command reports exit 0 and `LastChangedDate` still does not
 advance, that would be genuinely anomalous and worth escalating.
 
+## INCIDENT 2026-08-04 — rider-service deploy failed, rolled back, resolved
+
+**Trigger:** `google-maps-api-key` was populated (secrets 9→10/22), unblocking
+rider-service. Preflight passed. Deploy to desired-count 1 failed.
+
+**What ECS showed (misleading):** `CannotPullContainerError: …rider-service:bootstrap:
+not found`, repeatedly. That is the *rollback* target — revision 1 — not the cause.
+
+**Actual cause, from the task logs of revision 3:**
+```
+ERROR [ExceptionHandler] STRIPE_SECRET_KEY environment variable is required
+  at new PaymentMethodsService (…/payment-methods.service.js:21:19)
+```
+rider's task definition supplied only DATABASE_URL, REDIS_URL, JWT_SECRET,
+JWT_PUBLIC_KEYS, GOOGLE_MAPS_API_KEY. `stripe-secret-key` was already populated
+in Secrets Manager and used by payment-service — it was never wired to rider.
+
+**Sequence:** task starts → dies in DI → circuit breaker → rollback to rev 1 →
+`:bootstrap` unpullable → churn. **The real cause is two failures deep.** When a
+deploy shows `CannotPullContainerError: :bootstrap`, read the *task logs of the
+revision you deployed*, not the service events.
+
+**Contained:** rider scaled to 0 (0/0/0, 3 stopped tasks retained as evidence).
+The other five services were never touched and stayed 1/1/0 throughout.
+
+**Two fixes committed, one gated:**
+- `07ee075` preflight now catches refuse-to-start vars that are NOT
+  `getOrThrow()` — it extracts any ALL_CAPS name in an "is required" throw. This
+  exact gap let the bad deploy through. First attempt regressed by matching
+  `FATAL` in `FATAL: INTERNAL_SERVICE_KEY is required`; the variable must sit
+  immediately before the phrase. Verified: 5 live services pass, rider flags
+  STRIPE_SECRET_KEY, auth/safety flag Twilio.
+- `d818652` adds `stripe-secret-key` to rider in `ecs-services.tf`.
+  **Plan verified: 1 add / 1 destroy, sole address
+  `aws_ecs_task_definition.services["rider-service"]` — NOT APPLIED, Founder gate.**
+
+**To finish rider:** apply that Terraform (registers the new task-def shape;
+`ignore_changes = [task_definition, desired_count]` means nothing moves), then
+re-run preflight and deploy normally.
+
 ## Findings that would otherwise be re-derived
 
 Recorded because each cost real investigation and each would otherwise be
