@@ -408,7 +408,17 @@ locals {
       # google-maps-api-key is REQUIRED here: GeocodingService reads it with
       # config.getOrThrow in its constructor, so a missing value is a boot
       # failure rather than a degraded feature.
-      secrets = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "google-maps-api-key"]
+      #
+      # stripe-secret-key is REQUIRED for the same reason and was missing, which
+      # broke the first rider deployment. PaymentMethodsService's constructor does
+      #   const key = process.env.STRIPE_SECRET_KEY;
+      #   if (!key) throw new Error('STRIPE_SECRET_KEY environment variable is required');
+      # so the task started, died in the DI container, and the ECS circuit breaker
+      # rolled back to revision 1 — whose :bootstrap tag does not exist in ECR —
+      # leaving the service churning on CannotPullContainerError with the real
+      # cause two failures deep. The secret itself was already populated; it was
+      # simply never wired to this service.
+      secrets = ["database-url", "redis-url", "jwt-secret", "jwt-public-keys", "google-maps-api-key", "stripe-secret-key"]
     }
     pricing-service = {
       port          = 3005
