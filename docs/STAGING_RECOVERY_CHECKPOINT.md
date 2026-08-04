@@ -111,6 +111,15 @@ fails. Both CI deploy jobs call it, so they inherit that gate.
    (`account/terraform.tfstate`) that makes ECR image scanning actually run.
    Never initialised.
 
+> **CI deploys are blocked until the SNS subscription is confirmed.** The
+> workflow runs `verify-deployment.sh <env> all` and `smoke-test.sh` as unguarded
+> steps, so a non-zero exit fails the deploy job — and the alerting check fails
+> while the topic has no confirmed subscriber. That is correct behaviour (alerting
+> really is broken), but it means a CI deploy will go red *after* deploying
+> successfully. Manual `deploy-service.sh` / `deploy-fleet.sh` runs are unaffected:
+> the fleet gate calls `verify-deployment.sh <service>`, which does not run the
+> alerting section.
+
 > **Staging alerting is currently dead.** `aws_sns_topic_subscription.alerts_email`
 > is in state but absent from AWS — the confirmation email was never clicked and
 > AWS deletes pending email subscriptions after ~3 days. All 29 alarms are `OK`,
