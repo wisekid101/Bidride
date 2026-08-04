@@ -130,6 +130,42 @@ fails. Both CI deploy jobs call it, so they inherit that gate.
   `@SkipThrottle()`, so probes cannot be rate-limited into a task kill.
 - ECR lifecycle retains 60 tagged builds as the rollback horizon.
 
+## Deployment-readiness verification — 2026-08-03, all CLEAN
+
+Checked explicitly for hidden boot blockers in the seven undeployed services.
+None found. Do not repeat without new evidence.
+
+- **IAM execution role** — one shared role, `bidride-ecs-execution-staging`, whose
+  inline policy allows `secretsmanager:GetSecretValue` on
+  `arn:aws:secretsmanager:us-east-1:*:secret:bidride/staging/*`. A **wildcard**, so
+  secrets added later (as `google-maps-api-key` was) are covered automatically —
+  there is no per-ARN list to fall out of date. Plus the managed
+  `AmazonECSTaskExecutionRolePolicy` for ECR pulls and log writes.
+- **KMS** — staging secrets have `KmsKeyId: None`, i.e. the AWS-managed key, so no
+  explicit `kms:Decrypt` grant is required. Not a blocker.
+- **Task roles** — `bidride-ecs-task-staging` grants S3 on all five buckets
+  (object *and* bucket level), SQS on all eight queues, and one KMS key.
+  `auth` and `admin` have **dedicated** roles each scoped to their own KMS key, so
+  neither JWT signer can reach the other's — the RS256 domain isolation the
+  runbook describes is real, not aspirational.
+- **Health-check alignment** — for all seven, container `PORT`, the port mapping
+  and the port in the health-check command agree (3001/3003/3004/3006/3007/3008/
+  3010). No repeat of the ai-service mismatch.
+- **CloudWatch alarms — 29, complete coverage.** 12 × `ecs-tasks-below-desired`
+  (one per service), 8 × `jwt-401-ratio`, 4 × deployment (RS256 boot + KMS signing
+  for auth/admin), 2 × ALB 4XX/5XX, 3 × RDS/ElastiCache. Container Insights is
+  **enabled** and all 12 task-count alarms are in `OK` — they are receiving data,
+  not silently starved.
+
+> **Trap, recorded so it is not repeated:** the 12 task-count alarms are
+> metric-math alarms, so their `MetricName` field is **null**. Filtering alarms by
+> `MetricName` makes them invisible and produces the false conclusion that no
+> service has a task-count alarm. Query `Metrics[]`, not `MetricName`.
+
+The whole alarm stack publishes to `bidride-alerts-staging`. It is correctly
+built and correctly wired — the *only* break is that the topic has no subscriber
+(see above), which is a one-line fix gated behind the Terraform apply.
+
 ## Findings that would otherwise be re-derived
 
 Recorded because each cost real investigation and each would otherwise be
