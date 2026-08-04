@@ -102,20 +102,30 @@ declare -a SERVICES=(
   "ai-service:3012:/ai/health"            # local: /ai/health;   prod: SKIPPED (VPC-internal)
 )
 
-# Production-mode paths (ALB-routable, returns 401 = service is alive)
-declare -A PROD_PATHS=(
-  ["auth-service"]="/auth/session"
-  ["trip-service"]="/trips"
-  ["driver-service"]="/drivers"
-  ["rider-service"]="/riders/me"
-  ["pricing-service"]="/pricing/surge/default"
-  ["safety-service"]="/safety/sos"
-  ["payment-service"]="/payments"
-  ["notification-service"]="/internal/notifications/push"
-  ["trust-service"]="/internal/trust/recalculate"
-  ["airport-service"]="/airport/queue"
-  ["admin-service"]="/admin/analytics"
-)
+# Production-mode paths (ALB-routable, returns 401 = service is alive).
+#
+# A `case` rather than `declare -A`: associative arrays require bash 4, and macOS
+# still ships bash 3.2, where `["auth-service"]=...` parses as a subscript and
+# `set -u` aborts the script with the baffling "auth: unbound variable" before a
+# single check runs. CI is fine (ubuntu ships bash 5) so this failed only on the
+# machines the runbooks — including the Founder checklist — tell people to run it
+# from. This construct works on both.
+prod_path() {
+  case "$1" in
+    auth-service)         echo "/auth/session" ;;
+    trip-service)         echo "/trips" ;;
+    driver-service)       echo "/drivers" ;;
+    rider-service)        echo "/riders/me" ;;
+    pricing-service)      echo "/pricing/surge/default" ;;
+    safety-service)       echo "/safety/sos" ;;
+    payment-service)      echo "/payments" ;;
+    notification-service) echo "/internal/notifications/push" ;;
+    trust-service)        echo "/internal/trust/recalculate" ;;
+    airport-service)      echo "/airport/queue" ;;
+    admin-service)        echo "/admin/analytics" ;;
+    *)                    echo "" ;;
+  esac
+}
 
 for entry in "${SERVICES[@]}"; do
   name="${entry%%:*}"
@@ -130,8 +140,9 @@ for entry in "${SERVICES[@]}"; do
   fi
 
   # In production mode, use ALB-routable paths (health endpoints are not ALB-routed).
-  if [[ "${LOCAL_MODE}" == "false" && -n "${PROD_PATHS[$name]:-}" ]]; then
-    path="${PROD_PATHS[$name]}"
+  if [[ "${LOCAL_MODE}" == "false" ]]; then
+    prod=$(prod_path "${name}")
+    [[ -n "${prod}" ]] && path="${prod}"
   fi
 
   check_service "${name}" "${port}" "${path}" || FAILURES=$((FAILURES + 1))
