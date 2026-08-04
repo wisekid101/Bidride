@@ -7,7 +7,7 @@ a newer commit rather than editing history into it.
 **Blocked on:** 13 third-party credentials only the Founder can obtain, plus two
 gated Terraform applies. Nothing else.
 
-## Live services — 5 of 12
+## Live services — 6 of 12
 
 Each 1/1/0, rollout COMPLETED, container HEALTHY, 0 stopped tasks, one Cloud Map
 instance. Do not rebuild or redeploy these without evidence they changed.
@@ -19,6 +19,7 @@ instance. Do not rebuild or redeploy these without evidence they changed.
 | trip | 3 | `sha256:c32c7dcac592c6598744fd539a84b04b3d78a478099a37a6fea1294d45e0cf4f` |
 | ai | 6 | `sha256:3596d43139851b1e556e8e5c505cabfd81f5528d0280c0133c5fae558db8acbb` |
 | admin | 3 | `sha256:e1e5d984272eea5069fb1e1b6c7e4466798087657713f8115d41c972b50ed9c4` |
+| **rider** | **7** | `sha256:e74278c5f998b5711400ab2066fb8f12fc16e4877e2d1420f31ae78a60a6c52a` |
 
 `ai-service` has no ALB target group by design — it is reachable only through
 Cloud Map.
@@ -322,6 +323,25 @@ immediately. If the command reports exit 0 and `LastChangedDate` still does not
 advance, that would be genuinely anomalous and worth escalating.
 
 ## INCIDENT 2026-08-04 — rider-service deploy failed, rolled back, resolved
+
+**RESOLVED 2026-08-04T17:42Z — rider-service is LIVE at 1/1/0 HEALTHY, task-def
+revision 7.** Terraform applied (1 add / 1 destroy, task definition only, drift 0
+after), preflight passed, baseline rev 6, deployed rev 7. Startup clean across 91
+events: `PaymentMethodsModule dependencies initialized` (proves STRIPE_SECRET_KEY
+resolved), `GeocodingModule dependencies initialized` (proves GOOGLE_MAPS_API_KEY),
+`Nest application successfully started`, `Rider service listening on port 3004`.
+Zero MODULE_NOT_FOUND / prisma:warn / libssl / ECONNREFUSED / FATAL. ALB target
+`10.0.10.134` healthy, 0 stopped tasks. Probes: `/riders/me` → 401,
+`/riders/__probe` → NestJS 404 — full internet → ALB → TLS → target → task path.
+
+⚠️ **A transient Terraform refresh failure nearly caused collateral damage.** The
+first plan after the fix showed **4 add / 1 change / 3 destroy**, including
+`aws_s3_bucket.buckets["photos"]` being CREATED and the ECS task S3 IAM policy
+rewritten — because refresh reported `aws_s3_bucket.buckets["photos"] has been
+deleted` while the bucket demonstrably existed (head-bucket OK, in state, all 7
+property reads OK). **Re-running plan produced the correct 1 add / 1 destroy.**
+If a plan ever shows unexpected S3/IAM churn, re-plan before applying — do not
+apply it.
 
 **Trigger:** `google-maps-api-key` was populated (secrets 9→10/22), unblocking
 rider-service. Preflight passed. Deploy to desired-count 1 failed.
