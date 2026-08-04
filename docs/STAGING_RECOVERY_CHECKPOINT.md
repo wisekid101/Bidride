@@ -190,6 +190,28 @@ The whole alarm stack publishes to `bidride-alerts-staging`. It is correctly
 built and correctly wired — the *only* break is that the topic has no subscriber
 (see above), which is a one-line fix gated behind the Terraform apply.
 
+## Expected `verify-deployment.sh` output at this stage
+
+Run `bash infrastructure/scripts/verify-deployment.sh staging all`. It currently
+exits 1 with **8 failures and 4 skips — every one expected**. Triage before
+investigating anything:
+
+| Result | Meaning |
+|---|---|
+| 7 × `<svc> — no RUNNING tasks` | the credential gate; not defects |
+| 1 × `no CONFIRMED subscriptions` | the SNS gap; fixed by the gated apply + clicking the link |
+| 2 × `empty placeholder` keyset skips | correct pre-RS256 state, `JWT_SIGNING_ALG=HS256` |
+| 2 × `no 'JWT issuance algorithm' log line` skips | task started outside the 2h log window |
+
+**A healthy service must return exit 0 per-service** — that is the gate
+`deploy-fleet.sh` applies after each deploy. All five live services do. If one
+starts failing, that is real.
+
+Two false failures were fixed in `075742b`; do not reintroduce them. An empty
+keyset is not a failure, and `aws logs filter-log-events` auto-paginates while
+applying `--query` per page, so an empty result prints `None\nNone` rather than
+`None` and slips past a naive equality guard.
+
 ## Findings that would otherwise be re-derived
 
 Recorded because each cost real investigation and each would otherwise be
