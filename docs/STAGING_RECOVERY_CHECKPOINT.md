@@ -111,6 +111,23 @@ fails. Both CI deploy jobs call it, so they inherit that gate.
    (`account/terraform.tfstate`) that makes ECR image scanning actually run.
    Never initialised.
 
+> **The SNS subscription is STILL PENDING as of 2026-08-04T01:5xZ**, verified
+> three ways: `list-subscriptions-by-topic`, account-wide `list-subscriptions`,
+> and Terraform state (`pending_confirmation = true`,
+> `confirmation_was_authenticated = false`). Topic attributes read
+> `SubscriptionsPending=1, SubscriptionsConfirmed=0, SubscriptionsDeleted=1`.
+>
+> **The most likely cause: there are TWO confirmation emails and the older one is
+> dead.** A first subscription was created 2026-08-01 and expired unconfirmed —
+> that is the `Deleted=1` — and its link no longer does anything. The live
+> subscription was created **2026-08-04T01:40:50Z** by the staging apply, and only
+> *that* email's link will confirm it. Sort by newest and click the one timestamped
+> 2026-08-03 ~9:40 PM EDT. Check spam. Deadline ≈ **2026-08-07** before it expires
+> the same way.
+>
+> Do NOT recreate the subscription to "retry" — that invalidates the live email
+> and starts the 3-day clock again.
+
 > **CI deploys are blocked until the SNS subscription is confirmed.** The
 > workflow runs `verify-deployment.sh <env> all` and `smoke-test.sh` as unguarded
 > steps, so a non-zero exit fails the deploy job — and the alerting check fails
