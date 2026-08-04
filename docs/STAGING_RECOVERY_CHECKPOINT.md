@@ -254,6 +254,36 @@ repeated — or, worse, re-decided the wrong way.
   everyone's rate-limit bucket. Every `/health` route carries `@SkipThrottle()`,
   so probes cannot be throttled into a task kill.
 
+## One defect left UNFIXED — it lives in a file you are editing
+
+`docs/FOUNDER_DEPLOYMENT_CHECKLIST.md` line ~418 carries the broken production
+migration command that was corrected in `DEPLOYMENT_RUNBOOK.md` and
+`DEPLOY_CHECKLIST.md` (commit `d0e277c`):
+
+```
+["node","node_modules/.bin/prisma","migrate","deploy",
+ "--schema","packages/database/prisma/schema.prisma"]
+```
+
+Both paths are wrong for the current image. pnpm never populates
+`/app/node_modules/.bin`, and WORKDIR is `/app/services/<service>`, so every
+relative path breaks. Replace with:
+
+```
+["node","/app/node_modules/.pnpm/node_modules/.bin/prisma","migrate","deploy",
+ "--schema","/app/packages/database/prisma/schema.prisma"]
+```
+
+**Deliberately not fixed by the assistant.** That file is modified in the working
+tree (Founder's Identity Platform edits, 49 insertions / 28 deletions), and the
+defect is present in the committed version too. Editing the working copy would
+sweep those unrelated changes into an infrastructure commit; patching only the
+committed version would be silently reverted the moment the Founder commits their
+copy. It is a one-line change for whoever owns that file.
+
+It is the FOUNDER-facing checklist, so this is the copy most likely to be used
+during a real production migration.
+
 ## Uncommitted work outside this milestone
 
 Roughly 8,000 lines of in-progress Identity Platform and branding work sit
