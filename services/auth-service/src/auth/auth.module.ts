@@ -7,6 +7,7 @@ import { MfaService } from './mfa.service';
 import { JwtStrategy } from './jwt.strategy';
 import { JwtRefreshStrategy } from './jwt-refresh.strategy';
 import { PrismaService } from '../prisma/prisma.service';
+import { jwtRsaSignerProvider } from './jwt-signer.provider';
 
 @Module({
   controllers: [AuthController],
@@ -18,6 +19,9 @@ import { PrismaService } from '../prisma/prisma.service';
     JwtStrategy,
     JwtRefreshStrategy,
     PrismaService,
+    // SEC-RS256-B2: resolves to null unless JWT_SIGNING_ALG=RS256, in which case
+    // it validates the KMS key against the keyset before the app finishes booting.
+    jwtRsaSignerProvider,
   ],
   exports: [TokenService, JwtStrategy, JwtRefreshStrategy],
 })

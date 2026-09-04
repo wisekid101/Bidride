@@ -3,21 +3,21 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Colors, Typography, Spacing, Radius } from '../constants/theme';
+import { Colors, Fonts, Typography, Spacing } from '../constants/theme';
 import { api } from '../api/client';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 
 function initialsOf(first: string, last: string): string {
   return ((first.trim()[0] ?? '') + (last.trim()[0] ?? '')).toUpperCase() || '?';
 }
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function ProfileSetupScreen() {
   // flow=signup: brand-new rider — continue into the signup steps.
@@ -29,10 +29,19 @@ export function ProfileSetupScreen() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
+  const [touched, setTouched] = useState(false);
 
-  const canSave = firstName.trim().length > 0;
+  const firstNameError = touched && firstName.trim().length === 0 ? 'Please enter your first name.' : null;
+  const emailError = touched && email.trim().length > 0 && !EMAIL_RE.test(email.trim())
+    ? 'Please enter a valid email address.'
+    : null;
+  const canSave = firstName.trim().length > 0 && !emailError;
 
   const save = async () => {
+    setTouched(true);
+    if (firstName.trim().length === 0 || (email.trim().length > 0 && !EMAIL_RE.test(email.trim()))) {
+      return;
+    }
     setSaving(true);
     try {
       await api.patch('/riders/me', {
@@ -41,16 +50,14 @@ export function ProfileSetupScreen() {
         email: email.trim() || undefined,
       });
     } catch {
-      // Profile save is best-effort — still proceed
+      // Profile save is best-effort — still proceed so a new rider is never blocked
     } finally {
       setSaving(false);
       router.replace(nextRoute as never);
     }
   };
 
-  const skip = () => {
-    router.replace(nextRoute as never);
-  };
+  const skip = () => router.replace(nextRoute as never);
 
   return (
     <KeyboardAvoidingView
@@ -58,11 +65,11 @@ export function ProfileSetupScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Welcome to BidiRide</Text>
-        <Text style={styles.subtitle}>Tell us your name so drivers can greet you.</Text>
+        <Text style={styles.title}>Complete your profile</Text>
+        <Text style={styles.subtitle}>Tell us your name so drivers can greet you by name.</Text>
 
-        {/* Profile photo placeholder — real upload ships with Phase B (S3
-            credentials). No picker is offered until it can actually work. */}
+        {/* Profile photo placeholder — real upload ships later. No picker is
+            offered until it can actually work (honest state, not a fake button). */}
         <View style={styles.avatarSection}>
           <View style={styles.avatarPlaceholder}>
             <Text style={styles.avatarInitials}>{initialsOf(firstName, lastName)}</Text>
@@ -72,53 +79,53 @@ export function ProfileSetupScreen() {
           </Text>
         </View>
 
-        <Text style={styles.label}>First name</Text>
-        <TextInput
-          style={styles.input}
+        <Input
+          label="First name"
+          icon="person-outline"
           value={firstName}
           onChangeText={setFirstName}
+          error={firstNameError}
           placeholder="Marcus"
-          placeholderTextColor={Colors.textDisabled}
           autoFocus
           autoCapitalize="words"
+          returnKeyType="next"
         />
 
-        <Text style={styles.label}>Last name <Text style={styles.optional}>(optional)</Text></Text>
-        <TextInput
-          style={styles.input}
+        <Input
+          label="Last name"
+          optional
+          icon="person-outline"
           value={lastName}
           onChangeText={setLastName}
           placeholder="Brown"
-          placeholderTextColor={Colors.textDisabled}
           autoCapitalize="words"
+          returnKeyType="next"
         />
 
-        <Text style={styles.label}>Email <Text style={styles.optional}>(optional)</Text></Text>
-        <TextInput
-          style={styles.input}
+        <Input
+          label="Email"
+          optional
+          icon="mail-outline"
           value={email}
           onChangeText={setEmail}
+          error={emailError}
+          helper="For receipts and trip history. We never share it."
           placeholder="you@example.com"
-          placeholderTextColor={Colors.textDisabled}
           keyboardType="email-address"
           autoCapitalize="none"
+          autoComplete="email"
         />
 
-        <TouchableOpacity
-          style={[styles.button, (!canSave || saving) && styles.buttonDisabled]}
+        <Button
+          title="Save & continue"
           onPress={save}
-          disabled={!canSave || saving}
-        >
-          {saving ? (
-            <ActivityIndicator color={Colors.primaryText} />
-          ) : (
-            <Text style={styles.buttonText}>Save & Continue</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.skipBtn} onPress={skip}>
-          <Text style={styles.skipText}>Skip for now</Text>
-        </TouchableOpacity>
+          loading={saving}
+          disabled={!canSave}
+          icon="arrow-forward"
+          iconPosition="right"
+          style={styles.cta}
+        />
+        <Button title="Skip for now" variant="ghost" onPress={skip} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -126,74 +133,43 @@ export function ProfileSetupScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { padding: Spacing['2xl'], paddingTop: 80 },
+  scroll: { padding: Spacing['2xl'], paddingTop: 72, paddingBottom: Spacing['2xl'] },
   title: {
     color: Colors.text,
     fontSize: Typography.size['2xl'],
-    fontWeight: Typography.weight.extrabold,
+    fontFamily: Fonts.sansExtraBold,
+    letterSpacing: -0.5,
     marginBottom: Spacing.sm,
   },
   subtitle: {
     color: Colors.textSecondary,
     fontSize: Typography.size.base,
+    fontFamily: Fonts.sans,
     marginBottom: Spacing.xl,
     lineHeight: 22,
   },
   avatarSection: { alignItems: 'center', marginBottom: Spacing.xl },
   avatarPlaceholder: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.md,
   },
   avatarInitials: {
     color: Colors.primaryText,
     fontSize: Typography.size['2xl'],
-    fontWeight: Typography.weight.bold,
+    fontFamily: Fonts.sansBold,
   },
   avatarHint: {
-    color: Colors.textDisabled,
+    color: Colors.textTertiary,
     fontSize: Typography.size.xs,
+    fontFamily: Fonts.sans,
     textAlign: 'center',
     paddingHorizontal: Spacing.xl,
+    lineHeight: 16,
   },
-  label: {
-    color: Colors.textSecondary,
-    fontSize: Typography.size.sm,
-    fontWeight: Typography.weight.medium,
-    marginBottom: Spacing.xs,
-    marginTop: Spacing.md,
-  },
-  optional: {
-    color: Colors.textDisabled,
-    fontWeight: Typography.weight.regular,
-  },
-  input: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    color: Colors.text,
-    fontSize: Typography.size.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 14,
-  },
-  button: {
-    backgroundColor: Colors.primary,
-    borderRadius: Radius.lg,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: Spacing['2xl'],
-  },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: {
-    color: Colors.primaryText,
-    fontSize: Typography.size.md,
-    fontWeight: Typography.weight.bold,
-  },
-  skipBtn: { alignItems: 'center', marginTop: Spacing.lg, padding: Spacing.sm },
-  skipText: { color: Colors.textSecondary, fontSize: Typography.size.sm },
+  cta: { marginTop: Spacing.lg },
 });

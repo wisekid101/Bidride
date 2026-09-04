@@ -69,7 +69,7 @@ export default function BackgroundCheckScreen() {
           <Text style={styles.step}>Step 3 of 6</Text>
           <Text style={styles.title}>Background Check</Text>
           <Text style={styles.subtitle}>
-            BidiRide is required by law to disclose the following before running a background check.
+            Bidiride is required by law to disclose the following before running a background check.
           </Text>
         </View>
 
@@ -85,7 +85,7 @@ export default function BackgroundCheckScreen() {
             {consent && <Text style={styles.checkmark}>✓</Text>}
           </View>
           <Text style={styles.consentText}>
-            I have read the above disclosure and authorize BidiRide to obtain a consumer report for
+            I have read the above disclosure and authorize Bidiride to obtain a consumer report for
             employment purposes.
           </Text>
         </TouchableOpacity>

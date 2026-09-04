@@ -1,0 +1,6 @@
+appId: host.exp.Exponent
+---
+- tapOn:
+    point: "10%,9%"
+    repeat: 4
+    delay: 90

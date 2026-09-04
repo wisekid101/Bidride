@@ -1,143 +1,106 @@
-import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  SafeAreaView,
-  Image,
-} from 'react-native';
-import { Colors, Typography } from '../../constants/theme';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, Animated, Easing } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { Colors, Fonts, Spacing, Typography } from '../../constants/theme';
+import { Button } from '../../components/ui/Button';
+import { BrandMark } from '../../components/ui/BrandMark';
+
+const FEATURES: { icon: keyof typeof Ionicons.glyphMap; title: string; body: string }[] = [
+  { icon: 'trending-up', title: 'Guaranteed Floor', body: "Your earnings are protected. We cover the difference if a fare doesn't meet our minimum." },
+  { icon: 'flash', title: 'Instant Payouts', body: 'Get your money when you need it. Instant transfers available 24/7.' },
+  { icon: 'shield-checkmark', title: 'Safety First', body: 'In-app SOS, panic mode, and 24/7 safety monitoring keep you protected.' },
+];
 
 export default function WelcomeScreen() {
+  const heroFade = useRef(new Animated.Value(0)).current;
+  const fade = useRef(FEATURES.map(() => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    Animated.timing(heroFade, { toValue: 1, duration: 420, easing: Easing.out(Easing.ease), useNativeDriver: true }).start();
+    Animated.stagger(
+      90,
+      fade.map((v) => Animated.timing(v, { toValue: 1, duration: 360, easing: Easing.out(Easing.ease), useNativeDriver: true })),
+    ).start();
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <View style={styles.logoSection}>
-          <Text style={styles.logoText}>BidiRide</Text>
+        <Animated.View
+          style={[
+            styles.logoSection,
+            { opacity: heroFade, transform: [{ translateY: heroFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] },
+          ]}
+        >
+          <BrandMark layout="stacked" size="lg" />
           <Text style={styles.tagline}>Drive. Earn. Thrive.</Text>
-        </View>
+        </Animated.View>
 
         <View style={styles.infoCards}>
-          <View style={styles.card}>
-            <Text style={styles.cardEmoji}>💰</Text>
-            <Text style={styles.cardTitle}>Guaranteed Floor</Text>
-            <Text style={styles.cardBody}>
-              Your earnings are protected. We cover the difference if a fare doesn't meet our minimum.
-            </Text>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardEmoji}>⚡</Text>
-            <Text style={styles.cardTitle}>Instant Payouts</Text>
-            <Text style={styles.cardBody}>
-              Get your money when you need it. Instant transfers available 24/7.
-            </Text>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardEmoji}>🛡️</Text>
-            <Text style={styles.cardTitle}>Safety First</Text>
-            <Text style={styles.cardBody}>
-              In-app SOS, panic mode, and 24/7 safety monitoring keep you protected.
-            </Text>
-          </View>
+          {FEATURES.map((f, i) => (
+            <Animated.View
+              key={f.title}
+              style={[
+                styles.card,
+                { opacity: fade[i], transform: [{ translateY: fade[i].interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] },
+              ]}
+            >
+              <View style={styles.iconBadge}>
+                <Ionicons name={f.icon} size={22} color={Colors.primary} />
+              </View>
+              <View style={styles.cardText}>
+                <Text style={styles.cardTitle}>{f.title}</Text>
+                <Text style={styles.cardBody}>{f.body}</Text>
+              </View>
+            </Animated.View>
+          ))}
         </View>
       </View>
 
       <View style={styles.actions}>
-        <TouchableOpacity
-          style={styles.primaryBtn}
+        <Button
+          title="Get started"
+          icon="arrow-forward"
+          iconPosition="right"
           onPress={() => router.push('/onboarding/personal-info')}
-        >
-          <Text style={styles.primaryBtnText}>Get Started</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.secondaryBtn}
+        />
+        <Button
+          title="I already have an account"
+          variant="ghost"
           onPress={() => router.replace('/(auth)')}
-        >
-          <Text style={styles.secondaryBtnText}>I Already Have an Account</Text>
-        </TouchableOpacity>
+        />
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
-    justifyContent: 'center',
-  },
-  logoSection: {
-    alignItems: 'center',
-    marginBottom: 48,
-  },
-  logoText: {
-    fontSize: 40,
-    fontWeight: '800',
-    color: Colors.teal,
-    letterSpacing: -1,
-  },
-  tagline: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    marginTop: 4,
-  },
-  infoCards: {
-    gap: 12,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+  content: { flex: 1, paddingHorizontal: Spacing.xl, justifyContent: 'center' },
+  logoSection: { alignItems: 'center', marginBottom: Spacing['3xl'] },
+  tagline: { fontSize: Typography.size.base, fontFamily: Fonts.sansMedium, color: Colors.textSecondary, marginTop: Spacing.base },
+  infoCards: { gap: Spacing.md },
   card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.base,
     backgroundColor: Colors.surface,
     borderRadius: 16,
-    padding: 20,
+    padding: Spacing.lg,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  cardEmoji: {
-    fontSize: 28,
-    marginBottom: 8,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  cardBody: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  actions: {
-    paddingHorizontal: 24,
-    paddingBottom: 32,
-    gap: 12,
-  },
-  primaryBtn: {
-    backgroundColor: Colors.teal,
-    borderRadius: 14,
-    paddingVertical: 16,
+  iconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Colors.primarySoft,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  primaryBtnText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.background,
-  },
-  secondaryBtn: {
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  secondaryBtnText: {
-    fontSize: 15,
-    color: Colors.teal,
-    fontWeight: '600',
-  },
+  cardText: { flex: 1 },
+  cardTitle: { fontSize: Typography.size.md, fontFamily: Fonts.sansBold, color: Colors.text, marginBottom: 2 },
+  cardBody: { fontSize: Typography.size.sm, fontFamily: Fonts.sans, color: Colors.textSecondary, lineHeight: 19 },
+  actions: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl, gap: Spacing.sm },
 });

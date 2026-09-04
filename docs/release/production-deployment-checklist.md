@@ -67,10 +67,13 @@ and never both at once.
 
 ### Step 1 — trip-service
 
-- [ ] `aws ecs update-service --service bidride-trip-service-production --force-new-deployment`
-- [ ] `aws ecs wait services-stable` returns
-- [ ] **Exactly one task definition revision is running** (the revision check in
-      the verification checklist). `services-stable` alone does not prove this.
+- [ ] `infrastructure/scripts/deploy-service.sh production trip-service <sha>`
+      (deploys by explicit ARN, digest-pinned. **Never** `--force-new-deployment`
+      — it restarts on the revision already pinned and ships nothing.)
+- [ ] The script reports `stable`
+- [ ] **Exactly one task definition revision is running, and it is the one just
+      deployed.** The script asserts this; `services-stable` alone does not prove it.
+- [ ] `bash infrastructure/scripts/verify-deployment.sh production trip-service` passes
 - [ ] **Decision point:** if old instances will not drain, or more than one
       revision persists → **stop. Do not deploy payment-service.** Roll back
       trip-service if needed; payment-service is untouched, so the fleet is
@@ -86,9 +89,10 @@ and never both at once.
 
 ### Step 3 — payment-service
 
-- [ ] `aws ecs update-service --service bidride-payment-service-production --force-new-deployment`
-- [ ] `aws ecs wait services-stable` returns
-- [ ] Exactly one task definition revision is running
+- [ ] `infrastructure/scripts/deploy-service.sh production payment-service <sha>`
+- [ ] The script reports `stable`
+- [ ] Exactly one task definition revision is running, and it is the one just deployed
+- [ ] `bash infrastructure/scripts/verify-deployment.sh production payment-service` passes
 - [ ] **Decision point:** failure here → begin the rollback sequence,
       payment-service first.
 

@@ -127,7 +127,7 @@ export function EarningsDashboardScreen() {
                 <Text style={styles.floorAmount}>+${validSummary.floorSupplements.toFixed(2)}</Text>
                 <Text style={styles.floorDetail}>
                   Added to {validSummary.floorTriggeredCount} of {validSummary.trips} trips ({floorRate}% of trips).
-                  BidiRide guarantees your minimum earnings.
+                  Bidiride guarantees your minimum earnings.
                 </Text>
                 <Text style={styles.floorLearnMore}>How the floor works →</Text>
               </View>

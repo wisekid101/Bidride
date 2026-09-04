@@ -1,4 +1,4 @@
-import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Inject, Optional, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
@@ -6,8 +6,17 @@ import { v4 as uuidv4 } from 'uuid';
 import { UserRole } from '@bidride/database/generated/client';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { authMetrics } from '../observability/auth-metrics';
+import { KmsJwtSigner } from './kms-jwt-signer';
+import { JWT_RSA_SIGNER } from './jwt-signer.provider';
 
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+/**
+ * SEC-RS256-B2: the RS256 path assembles claims itself, so the access-token TTL
+ * has to be stated explicitly here. It MUST stay equal to the JwtModule's
+ * signOptions.expiresIn ('15m') so switching algorithm never changes lifetime.
+ */
+const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 
 export interface JwtPayload {
   sub: string;
@@ -28,6 +37,10 @@ export class TokenService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    // SEC-RS256-B2: present ONLY when JWT_SIGNING_ALG=RS256. Optional so the
+    // default deployment (and every existing test/module wiring) resolves without
+    // it and keeps signing HS256 exactly as before.
+    @Optional() @Inject(JWT_RSA_SIGNER) private readonly rsaSigner?: KmsJwtSigner,
   ) {}
 
   async issueTokenPair(userId: string, role: UserRole): Promise<TokenPair> {
@@ -36,10 +49,18 @@ export class TokenService {
     // B8A: stamp standard claims. iss/aud let every verifier reject foreign or
     // mis-targeted tokens; iat/exp are added by JwtService (exp via module's
     // expiresIn). Refresh tokens (opaque UUID in Redis) are unchanged.
-    const accessToken = this.jwt.sign(
-      { sub: userId, role, jti },
-      { issuer: 'bidride-auth', audience: 'bidride-user' },
-    );
+    // SEC-RS256-B2: when an RS256 signer is configured the same claims are signed
+    // in KMS instead — identical payload, identical iss/aud/exp, plus a header kid.
+    // Any KMS failure propagates; there is deliberately no HS256 fallback, since a
+    // failure-triggered algorithm downgrade would be an attack primitive.
+    const claims = { sub: userId, role, jti };
+    const accessToken = this.rsaSigner
+      ? await this.rsaSigner.sign(claims, {
+          issuer: 'bidride-auth',
+          audience: 'bidride-user',
+          expiresInSeconds: ACCESS_TOKEN_TTL_SECONDS,
+        })
+      : this.jwt.sign(claims, { issuer: 'bidride-auth', audience: 'bidride-user' });
 
     const refreshToken = uuidv4();
     const refreshKey = `refresh:${userId}:${refreshToken}`;

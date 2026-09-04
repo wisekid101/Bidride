@@ -1,15 +1,16 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
-import { AppState, Platform } from 'react-native';
+import { AppState, Platform, View } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrandSplash } from '../src/components/ui/BrandSplash';
 import { useDriverStore } from '../src/store/driver.store';
 import { useDriverSocketStore } from '../src/store/socket.store';
 import { api } from '../src/api/client';
-import { resolveDriverRoute } from '../src/utils/onboardingRoute';
+import { resolveResumeRoute } from '../src/utils/onboardingPlan';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -21,17 +22,15 @@ const PLATFORM_FEE_RATE = 0.20;
 
 // Cold-start onboarding resume: a driver who isn't approved must never land
 // on Home — route them to their current onboarding step instead.
-// Returns true when it navigated (caller then skips trip restore).
+// Returns true when it navigated (caller then skips trip restore). Retries
+// /drivers/me internally so a transient failure never drops an onboarding
+// driver onto the Dashboard; approved/unreachable/expired are left to the
+// default route + the centralised auth redirect.
 async function resumeOnboardingIfNeeded(): Promise<boolean> {
-  try {
-    const me = await api.get<{ status: string; onboardingStep: string }>('/drivers/me');
-    if (me.status === 'approved') return false;
-    router.replace(resolveDriverRoute(me) as never);
-    return true;
-  } catch {
-    // Profile fetch failed — don't block startup; auth/token flows handle it
-    return false;
-  }
+  const route = await resolveResumeRoute(api.get);
+  if (!route || route === '/(tabs)') return false;
+  router.replace(route as never);
+  return true;
 }
 
 // Cold-start rehydration: if the server has an in-flight trip this driver
@@ -120,6 +119,10 @@ Notifications.setNotificationHandler({
 
 export default function RootLayout() {
   const { loadTokens, isAuthenticated } = useDriverStore();
+  // Branded animated splash: covers the app until session hydration + onboarding
+  // resume settle, then fades — so a returning driver never flashes the wrong screen.
+  const [hydrated, setHydrated] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   const [fontsLoaded] = useFonts({
     'Inter-Regular': require('../assets/fonts/Inter-Regular.ttf'),
@@ -145,13 +148,31 @@ export default function RootLayout() {
         if (!resumed) await restoreActiveTrip();
       }
       if (fontsLoaded) SplashScreen.hideAsync();
-    });
+    }).catch(() => {
+      // Cold-start restore is best-effort — never let a rejection go unhandled
+      // or block the UI; hide the native splash so the app is reachable.
+      SplashScreen.hideAsync();
+    }).finally(() => setHydrated(true));
   }, [fontsLoaded]);
 
   useEffect(() => {
     if (isAuthenticated) {
       void registerPushToken();
     }
+  }, [isAuthenticated]);
+
+  // Centralised session-expiry redirect: when a token refresh fails the api
+  // client clears tokens (isAuthenticated → false). Redirect to auth exactly
+  // once on that transition — never on the initial unauthenticated render — so
+  // concurrent 401s can't produce a redirect storm. The auth screen shows the
+  // friendly message; onboarding progress is preserved server-side and resumes
+  // after signing in again.
+  const wasAuthenticated = useRef(false);
+  useEffect(() => {
+    if (wasAuthenticated.current && !isAuthenticated) {
+      router.replace('/(auth)');
+    }
+    wasAuthenticated.current = isAuthenticated;
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -203,6 +224,7 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
+    <View style={{ flex: 1 }}>
     <QueryClientProvider client={queryClient}>
       <StatusBar style="light" backgroundColor="#0A2342" />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
@@ -229,5 +251,9 @@ export default function RootLayout() {
         />
       </Stack>
     </QueryClientProvider>
+      {showSplash && (
+        <BrandSplash ready={hydrated} onFinish={() => setShowSplash(false)} />
+      )}
+    </View>
   );
 }

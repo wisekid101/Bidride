@@ -79,18 +79,24 @@ export function HomeScreen() {
 
   useEffect(() => {
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-
-      const location = await Location.getCurrentPositionAsync({});
-      const coords = { lat: location.coords.latitude, lng: location.coords.longitude };
-      setCurrentLocation(coords);
-
       try {
-        const { formattedAddress } = await geocodingApi.reverseGeocode(coords.lat, coords.lng);
-        setPickupResolved({ placeId: '', formattedAddress, lat: coords.lat, lng: coords.lng });
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const location = await Location.getCurrentPositionAsync({});
+        const coords = { lat: location.coords.latitude, lng: location.coords.longitude };
+        setCurrentLocation(coords);
+
+        try {
+          const { formattedAddress } = await geocodingApi.reverseGeocode(coords.lat, coords.lng);
+          setPickupResolved({ placeId: '', formattedAddress, lat: coords.lat, lng: coords.lng });
+        } catch {
+          setPickupResolved({ placeId: '', formattedAddress: 'Current Location', ...coords });
+        }
       } catch {
-        setPickupResolved({ placeId: '', formattedAddress: 'Current Location', ...coords });
+        // Location unavailable (permission denied, sim without a location fix,
+        // or a timeout). Never allow an unhandled rejection: Home stays in its
+        // controlled state and the rider sets pickup manually via the field.
       }
     })();
   }, []);

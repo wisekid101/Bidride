@@ -3,19 +3,21 @@ import {
   View,
   Text,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   SafeAreaView,
-  Alert,
-  ActivityIndicator,
+  Pressable,
 } from 'react-native';
-import { Colors } from '../../constants/theme';
-import { useDriverStore } from '../../store/driver.store';
+import { Colors, Fonts, Radius, Spacing, Typography } from '../../constants/theme';
 import { router } from 'expo-router';
 import { OnboardingHeader } from './OnboardingHeader';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
+import { InlineBanner } from '../../components/ui/Feedback';
+import { api } from '../../api/client';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.bidride.com';
+const MIN_YEAR = new Date().getFullYear() - 10; // backend rejects older than this
 
 const VEHICLE_CLASSES = [
   { key: 'standard', label: 'Standard', desc: 'Sedan, SUV, or compact' },
@@ -24,64 +26,71 @@ const VEHICLE_CLASSES = [
   { key: 'black', label: 'Black Car', desc: 'Premium black car service' },
 ];
 
+type Field = 'make' | 'model' | 'year' | 'color' | 'licensePlate' | 'licensePlateState' | 'vin';
+const EMPTY: Record<Field, string> = {
+  make: '', model: '', year: '', color: '', licensePlate: '', licensePlateState: '', vin: '',
+};
+
+function validate(form: Record<Field, string>): Partial<Record<Field, string>> {
+  const e: Partial<Record<Field, string>> = {};
+  if (!form.make.trim()) e.make = 'Enter the make';
+  if (!form.model.trim()) e.model = 'Enter the model';
+  if (!/^\d{4}$/.test(form.year)) e.year = 'Enter a 4-digit year';
+  else if (Number(form.year) < MIN_YEAR) e.year = `Must be ${MIN_YEAR} or newer`;
+  else if (Number(form.year) > new Date().getFullYear() + 1) e.year = 'Enter a valid year';
+  if (!form.color.trim()) e.color = 'Enter the color';
+  if (!form.licensePlate.trim()) e.licensePlate = 'Enter the plate';
+  if (!/^[A-Za-z]{2}$/.test(form.licensePlateState)) e.licensePlateState = '2-letter state';
+  if (form.vin.length !== 17) e.vin = 'VIN must be 17 characters';
+  return e;
+}
+
 export default function VehicleInfoScreen() {
-  const { accessToken } = useDriverStore();
-  const [loading, setLoading] = useState(false);
   const [vehicleClass, setVehicleClass] = useState('standard');
+  const [form, setForm] = useState<Record<Field, string>>(EMPTY);
+  const [touched, setTouched] = useState<Partial<Record<Field, boolean>>>({});
+  const [serverFieldError, setServerFieldError] = useState<Partial<Record<Field, string>>>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const [form, setForm] = useState({
-    make: '',
-    model: '',
-    year: '',
-    color: '',
-    licensePlate: '',
-    licensePlateState: '',
-    vin: '',
-  });
+  const errors = validate(form);
+  const errorFor = (f: Field) => (touched[f] ? errors[f] : undefined) ?? serverFieldError[f];
 
-  const update = (key: keyof typeof form) => (val: string) =>
-    setForm((prev) => ({ ...prev, [key]: val }));
-
-  const isValid = () =>
-    form.make &&
-    form.model &&
-    form.year.match(/^\d{4}$/) &&
-    form.color &&
-    form.licensePlate &&
-    form.licensePlateState.length === 2 &&
-    form.vin.length === 17;
+  const set = (f: Field, sanitize?: (v: string) => string) => (v: string) => {
+    setForm((prev) => ({ ...prev, [f]: sanitize ? sanitize(v) : v }));
+    if (serverFieldError[f]) setServerFieldError((p) => ({ ...p, [f]: undefined }));
+    if (submitError) setSubmitError(null);
+  };
+  const blur = (f: Field) => () => setTouched((p) => ({ ...p, [f]: true }));
 
   const submit = async () => {
-    if (!isValid()) {
-      Alert.alert('Incomplete', 'Please fill in all fields correctly. VIN must be 17 characters.');
-      return;
-    }
+    setTouched(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, true])) as Record<Field, boolean>);
+    setServerFieldError({});
+    setSubmitError(null);
+    if (Object.keys(errors).length > 0) return;
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/vehicles`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          ...form,
-          year: parseInt(form.year),
-          licensePlateState: form.licensePlateState.toUpperCase(),
-          vin: form.vin.toUpperCase(),
-          vehicleClass,
-        }),
+      // api client attaches the bearer token and auto-refreshes on 401.
+      await api.post('/vehicles', {
+        make: form.make.trim(),
+        model: form.model.trim(),
+        year: parseInt(form.year, 10),
+        color: form.color.trim(),
+        licensePlate: form.licensePlate.trim().toUpperCase(),
+        licensePlateState: form.licensePlateState.toUpperCase(),
+        vin: form.vin.toUpperCase(),
+        vehicleClass,
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message ?? 'Failed to add vehicle');
-      }
-
-      router.push('/onboarding/bank-account');
+      // Founder-approved visible order: Vehicle → Documents (next honest boundary).
+      router.push('/onboarding/document-upload');
     } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Please try again.');
+      const msg = err?.message ?? 'Could not add your vehicle. Please try again.';
+      // Duplicate VIN is the most common controlled failure — target the field.
+      if (String(msg).toLowerCase().includes('already registered')) {
+        setServerFieldError({ vin: 'This VIN is already registered' });
+      }
+      setSubmitError(msg);
     } finally {
       setLoading(false);
     }
@@ -90,183 +99,83 @@ export default function VehicleInfoScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <OnboardingHeader route="/onboarding/vehicle-info" />
-      <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <Text style={styles.step}>Step 4 of 6</Text>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>Your Vehicle</Text>
-          <Text style={styles.subtitle}>
-            You can add additional vehicles later. Your vehicle must be a 2015 or newer model.
-          </Text>
-        </View>
+          <Text style={styles.subtitle}>You can add more vehicles later. Your vehicle must be a {MIN_YEAR} or newer model.</Text>
 
-        <View style={styles.form}>
-          <Text style={styles.sectionLabel}>Vehicle Class</Text>
+          {submitError && <InlineBanner variant="error" message={submitError} style={styles.banner} />}
+
+          <Text style={styles.section}>Vehicle class</Text>
           <View style={styles.classGrid}>
-            {VEHICLE_CLASSES.map((vc) => (
-              <TouchableOpacity
-                key={vc.key}
-                style={[styles.classCard, vehicleClass === vc.key && styles.classCardSelected]}
-                onPress={() => setVehicleClass(vc.key)}
-              >
-                <Text style={[styles.classLabel, vehicleClass === vc.key && styles.classLabelSelected]}>
-                  {vc.label}
-                </Text>
-                <Text style={styles.classDesc}>{vc.desc}</Text>
-              </TouchableOpacity>
-            ))}
+            {VEHICLE_CLASSES.map((vc) => {
+              const selected = vehicleClass === vc.key;
+              return (
+                <Pressable
+                  key={vc.key}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  style={[styles.classCard, selected && styles.classCardSelected]}
+                  onPress={() => setVehicleClass(vc.key)}
+                >
+                  <Text style={[styles.classLabel, selected && styles.classLabelSelected]}>{vc.label}</Text>
+                  <Text style={styles.classDesc}>{vc.desc}</Text>
+                </Pressable>
+              );
+            })}
           </View>
 
           <View style={styles.row}>
-            <View style={[styles.field, { flex: 1 }]}>
-              <Text style={styles.label}>Make</Text>
-              <TextInput
-                style={styles.input}
-                value={form.make}
-                onChangeText={update('make')}
-                placeholder="Toyota"
-                placeholderTextColor={Colors.textTertiary}
-              />
-            </View>
-            <View style={[styles.field, { flex: 1 }]}>
-              <Text style={styles.label}>Model</Text>
-              <TextInput
-                style={styles.input}
-                value={form.model}
-                onChangeText={update('model')}
-                placeholder="Camry"
-                placeholderTextColor={Colors.textTertiary}
-              />
-            </View>
+            <Input containerStyle={styles.half} label="Make" value={form.make} onChangeText={set('make')}
+              onBlur={blur('make')} error={errorFor('make')} placeholder="Toyota" autoCapitalize="words" />
+            <Input containerStyle={styles.half} label="Model" value={form.model} onChangeText={set('model')}
+              onBlur={blur('model')} error={errorFor('model')} placeholder="Camry" autoCapitalize="words" />
           </View>
-
           <View style={styles.row}>
-            <View style={[styles.field, { flex: 1 }]}>
-              <Text style={styles.label}>Year</Text>
-              <TextInput
-                style={styles.input}
-                value={form.year}
-                onChangeText={update('year')}
-                placeholder="2020"
-                placeholderTextColor={Colors.textTertiary}
-                keyboardType="numeric"
-                maxLength={4}
-              />
-            </View>
-            <View style={[styles.field, { flex: 1 }]}>
-              <Text style={styles.label}>Color</Text>
-              <TextInput
-                style={styles.input}
-                value={form.color}
-                onChangeText={update('color')}
-                placeholder="Black"
-                placeholderTextColor={Colors.textTertiary}
-              />
-            </View>
+            <Input containerStyle={styles.half} label="Year" value={form.year}
+              onChangeText={set('year', (v) => v.replace(/\D/g, '').slice(0, 4))} onBlur={blur('year')}
+              error={errorFor('year')} placeholder="2020" keyboardType="number-pad" />
+            <Input containerStyle={styles.half} label="Color" value={form.color} onChangeText={set('color')}
+              onBlur={blur('color')} error={errorFor('color')} placeholder="Black" autoCapitalize="words" />
           </View>
-
           <View style={styles.row}>
-            <View style={[styles.field, { flex: 2 }]}>
-              <Text style={styles.label}>License Plate</Text>
-              <TextInput
-                style={styles.input}
-                value={form.licensePlate}
-                onChangeText={update('licensePlate')}
-                placeholder="ABC1234"
-                placeholderTextColor={Colors.textTertiary}
-                autoCapitalize="characters"
-              />
-            </View>
-            <View style={[styles.field, { flex: 1 }]}>
-              <Text style={styles.label}>State</Text>
-              <TextInput
-                style={styles.input}
-                value={form.licensePlateState}
-                onChangeText={update('licensePlateState')}
-                placeholder="NJ"
-                placeholderTextColor={Colors.textTertiary}
-                maxLength={2}
-                autoCapitalize="characters"
-              />
-            </View>
+            <Input containerStyle={styles.flex2} label="License plate" value={form.licensePlate}
+              onChangeText={set('licensePlate', (v) => v.toUpperCase().slice(0, 10))} onBlur={blur('licensePlate')}
+              error={errorFor('licensePlate')} placeholder="ABC1234" autoCapitalize="characters" />
+            <Input containerStyle={styles.stateBox} label="State" value={form.licensePlateState}
+              onChangeText={set('licensePlateState', (v) => v.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 2))}
+              onBlur={blur('licensePlateState')} error={errorFor('licensePlateState')} placeholder="NJ" autoCapitalize="characters" />
           </View>
+          <Input label="VIN" value={form.vin}
+            onChangeText={set('vin', (v) => v.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 17))}
+            onBlur={blur('vin')} error={errorFor('vin')} placeholder="1HGCM82633A123456" autoCapitalize="characters"
+            helper="17 characters — found on your dashboard, door jamb, or registration." />
 
-          <View style={styles.field}>
-            <Text style={styles.label}>VIN (17 characters)</Text>
-            <TextInput
-              style={styles.input}
-              value={form.vin}
-              onChangeText={update('vin')}
-              placeholder="1HGCM82633A123456"
-              placeholderTextColor={Colors.textTertiary}
-              maxLength={17}
-              autoCapitalize="characters"
-            />
-            <Text style={styles.hint}>Found on your dashboard, door jamb, or registration.</Text>
-          </View>
-        </View>
-      </ScrollView>
-
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.continueBtn, !isValid() && styles.continueBtnDisabled]}
-          onPress={submit}
-          disabled={!isValid() || loading}
-        >
-          {loading ? (
-            <ActivityIndicator color={Colors.background} />
-          ) : (
-            <Text style={styles.continueBtnText}>Continue</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+          <Button title="Continue" onPress={submit} loading={loading} icon="arrow-forward" iconPosition="right" style={styles.cta} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flex: 1, paddingHorizontal: 24 },
-  header: { paddingTop: 24, marginBottom: 24 },
-  step: { fontSize: 12, color: Colors.teal, fontWeight: '600', marginBottom: 8 },
-  title: { fontSize: 26, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8 },
-  subtitle: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22 },
-  form: { gap: 16, paddingBottom: 24 },
-  sectionLabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginBottom: 4 },
-  classGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  classCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  classCardSelected: { borderColor: Colors.teal, backgroundColor: Colors.teal + '15' },
-  classLabel: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 },
-  classLabelSelected: { color: Colors.teal },
-  classDesc: { fontSize: 11, color: Colors.textTertiary },
-  row: { flexDirection: 'row', gap: 12 },
-  field: { gap: 6 },
-  label: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
-  input: {
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  hint: { fontSize: 11, color: Colors.textTertiary },
-  footer: { padding: 24, paddingBottom: 32 },
-  continueBtn: {
-    backgroundColor: Colors.teal,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  continueBtnDisabled: { opacity: 0.5 },
-  continueBtnText: { fontSize: 17, fontWeight: '700', color: Colors.background },
+  flex: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing['3xl'] },
+  title: { color: Colors.text, fontSize: Typography.size['2xl'], fontFamily: Fonts.sansExtraBold, letterSpacing: -0.5, marginTop: Spacing.sm },
+  subtitle: { color: Colors.textSecondary, fontSize: Typography.size.sm, fontFamily: Fonts.sans, lineHeight: 20, marginTop: Spacing.xs, marginBottom: Spacing.lg },
+  banner: { marginBottom: Spacing.base },
+  section: { color: Colors.text, fontSize: Typography.size.md, fontFamily: Fonts.sansBold, marginBottom: Spacing.md },
+  classGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.base },
+  classCard: { flexGrow: 1, minWidth: '45%', backgroundColor: Colors.surface, borderRadius: Radius.md, padding: Spacing.md, borderWidth: 1, borderColor: Colors.border },
+  classCardSelected: { borderColor: Colors.primary, backgroundColor: Colors.primarySoft },
+  classLabel: { fontSize: Typography.size.base, fontFamily: Fonts.sansBold, color: Colors.text, marginBottom: 2 },
+  classLabelSelected: { color: Colors.primary },
+  classDesc: { fontSize: Typography.size.xs, fontFamily: Fonts.sans, color: Colors.textTertiary },
+  row: { flexDirection: 'row', gap: Spacing.md },
+  half: { flex: 1 },
+  flex2: { flex: 2 },
+  stateBox: { width: 74 },
+  cta: { marginTop: Spacing.lg },
 });

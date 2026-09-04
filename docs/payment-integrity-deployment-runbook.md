@@ -121,23 +121,34 @@ be `0`, and `prisma migrate status` must then report the schema up to date.
 ### 2. Deploy trip-service — alone
 
 ```bash
-CLUSTER="bidride-production"
-aws ecs update-service --cluster "${CLUSTER}" \
-  --service bidride-trip-service-production --force-new-deployment
+infrastructure/scripts/deploy-service.sh production trip-service <sha>
 ```
+
+`deploy-service.sh` deploys by explicit task-definition ARN (pinned to an image
+digest), waits for the rollout to complete, and **then proves every running task
+is on that exact ARN** — steps 3 and 4 below are built in and are not optional.
+
+> The previous version of this step used `aws ecs update-service
+> --force-new-deployment`. Because every ECS service carries
+> `ignore_changes = [task_definition]`, that restarted tasks on the revision the
+> service was *already* pinned to — so a task-definition change never actually
+> shipped, while the drain and revision checks below all passed. Never deploy
+> with `--force-new-deployment`.
 
 ### 3. Drain all old trip-service instances completely
 
-```bash
-aws ecs wait services-stable --cluster "${CLUSTER}" \
-  --services bidride-trip-service-production
-```
+Performed by the script: it polls `rolloutState` until `COMPLETED` with
+`running == desired`, and aborts on `FAILED` (the ECS deployment circuit
+breaker, which also reverts the service automatically).
 
 ### 4. Verify only the new version serves traffic
 
-`services-stable` is necessary but not sufficient — confirm there is exactly one
-task definition revision running:
+Also performed by the script — it enumerates every running task and asserts a
+single distinct revision equal to the ARN just deployed. To re-check by hand at
+any later point:
+
 ```bash
+CLUSTER="bidride-production"
 aws ecs list-tasks --cluster "${CLUSTER}" \
   --service-name bidride-trip-service-production --query 'taskArns' --output text |
 xargs -n1 -I{} aws ecs describe-tasks --cluster "${CLUSTER}" --tasks {} \
@@ -146,20 +157,23 @@ xargs -n1 -I{} aws ecs describe-tasks --cluster "${CLUSTER}" --tasks {} \
 **One line of output. If more than one revision appears, stop — payment-service
 must not roll while a mixed fleet is serving.**
 
+Then confirm configuration, not just liveness:
+```bash
+bash infrastructure/scripts/verify-deployment.sh production trip-service
+```
+
 ### 5. Deploy payment-service
 
 ```bash
-aws ecs update-service --cluster "${CLUSTER}" \
-  --service bidride-payment-service-production --force-new-deployment
+infrastructure/scripts/deploy-service.sh production payment-service <sha>
 ```
 
 ### 6. Drain all old payment-service instances
 
+Built into the script, as in step 3. Then:
 ```bash
-aws ecs wait services-stable --cluster "${CLUSTER}" \
-  --services bidride-payment-service-production
+bash infrastructure/scripts/verify-deployment.sh production payment-service
 ```
-Then repeat the revision check from step 4 against payment-service.
 
 ### 7. Verify health and payment-integrity metrics
 
@@ -239,22 +253,36 @@ Exactly the deployment run backwards.
 
 ### 1. Roll back payment-service first
 
-`infrastructure/DEPLOYMENT_RUNBOOK.md → Rollback Procedure` (revert the ECS task
-definition to the previous revision).
+```bash
+bash infrastructure/scripts/rollback-service.sh production payment-service
+```
+
+This rolls back to the **exact** task-definition ARN recorded before the deploy
+(`infrastructure/deploy-records/production/payment-service.json`, or the CI run's
+`deploy-records-production-<sha>` artifact). Never compute the target as
+"current revision minus one" — see `infrastructure/DEPLOYMENT_RUNBOOK.md →
+Rollback Procedure` for why that was wrong.
 
 ### 2. Drain the newer payment-service instances fully
 
-```bash
-aws ecs wait services-stable --cluster "${CLUSTER}" \
-  --services bidride-payment-service-production
-```
-Confirm one task definition revision running.
+Built into the script: it waits for the rollout to complete and then asserts a
+single distinct revision equal to the target ARN. Do not proceed to step 3 until
+it reports `verified`.
 
 ### 3. Roll back trip-service second
 
+```bash
+bash infrastructure/scripts/rollback-service.sh production trip-service
+```
+
 ### 4. Drain the newer trip-service instances fully
 
-Confirm one revision running, then verify bid submission and acceptance.
+Built into the script. Then verify bid submission and acceptance:
+
+```bash
+bash infrastructure/scripts/verify-deployment.sh production trip-service
+bash infrastructure/scripts/verify-deployment.sh production payment-service
+```
 
 ---
 

@@ -118,7 +118,7 @@ export function PaymentMethodsScreen() {
       const { error: initError } = await initPaymentSheet({
         customerId,
         setupIntentClientSecret: clientSecret,
-        merchantDisplayName: 'BidiRide',
+        merchantDisplayName: 'Bidiride',
         allowsDelayedPaymentMethods: false,
         returnURL: 'bidride-rider://stripe-redirect',
       });

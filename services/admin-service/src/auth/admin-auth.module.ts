@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminSessionGuard } from './admin-session.guard';
+import { adminJwtRsaSignerProvider } from './jwt-signer.provider';
 import { AuditModule } from '../audit/audit.module';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -23,7 +24,14 @@ import { PrismaService } from '../prisma/prisma.service';
     }),
   ],
   controllers: [AdminAuthController],
-  providers: [AdminAuthService, AdminSessionGuard, PrismaService],
+  providers: [
+    AdminAuthService,
+    AdminSessionGuard,
+    PrismaService,
+    // SEC-RS256-B2: null unless JWT_SIGNING_ALG=RS256, in which case it validates
+    // the KMS admin key against JWT_ADMIN_PUBLIC_KEYS before the app finishes boot.
+    adminJwtRsaSignerProvider,
+  ],
   exports: [AdminAuthService, AdminSessionGuard],
 })
 export class AdminAuthModule {}

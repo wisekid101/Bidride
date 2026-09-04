@@ -38,6 +38,16 @@ done
 ```
 **Record both ARNs.** These are the rollback targets.
 
+`deploy-service.sh` now captures the same ARNs automatically, before it changes
+anything, into `infrastructure/deploy-records/production/<service>.json` — and CI
+uploads them as the `deploy-records-production-<sha>` artifact on every run,
+including failed ones. Recording them by hand here is belt-and-braces, not the
+only copy. Roll back with:
+
+```bash
+bash infrastructure/scripts/rollback-service.sh production <service>
+```
+
 ### Stripe verification
 
 - Live secret key present in Secrets Manager, and it is the **live** key, not a
